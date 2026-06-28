@@ -17,6 +17,9 @@ dependencies:
 dependencies@jvmAndAndroid:
   - computer.iroh:iroh:1.0.0
 
+dependencies@android:
+  - androidx.activity:activity-compose:1.7.2  # for the system BackHandler
+
 settings:
   compose:
     enabled: true

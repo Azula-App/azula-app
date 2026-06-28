@@ -33,6 +33,9 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun MobileApp(state: AzulaState) {
+    // System back (e.g. Android's back button / gesture) navigates within the
+    // app's mobile nav instead of exiting it.
+    PlatformBackHandler(enabled = state.mScreen != MScreen.HOME) { state.mobileBack() }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
         when (state.mScreen) {
             MScreen.HOME -> MobileHome(state)

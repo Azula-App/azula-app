@@ -1,0 +1,12 @@
+appId: dev.azula
+---
+# System back should navigate within the app (chat → home), not exit it.
+- launchApp
+- assertVisible: "CONVERSATIONS"
+- tapOn:
+    text: "tap to ask or play"
+- assertVisible: "your llm · always on"
+- pressKey: Back
+# Still inside azula, back on the home list — not dropped to the launcher.
+- assertVisible: "CONVERSATIONS"
+- assertVisible: "tap to ask or play"

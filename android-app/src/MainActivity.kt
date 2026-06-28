@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.core.view.WindowCompat
 import dev.azula.AzulaApp
 import dev.azula.link.handleDeepLink
 import dev.azula.net.IrohConfig
@@ -14,6 +15,12 @@ import dev.azula.net.IrohConfig
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Draw edge-to-edge (under the status/navigation bars and any camera
+        // cutout); the Compose layer applies the safe-area insets to content so
+        // the full-bleed gradient shows through. Light bar icons suit the dark bg.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
 
         // Persist the iroh secret key so this device keeps a stable node id (and
         // therefore a stable "your code") across restarts — important because

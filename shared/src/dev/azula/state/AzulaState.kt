@@ -26,6 +26,7 @@ import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
 import dev.azula.net.OutgoingFile
 import dev.azula.net.P2pStream
+import dev.azula.net.pairedPeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
@@ -33,6 +34,7 @@ import dev.azula.terminal.TermScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -111,6 +113,8 @@ class AzulaState(
 
     private var azIdx = 0
     private var idCounter = 0
+    /** True when the real transport failed to bind and we fell back to demo mode. */
+    private var demoMode = false
     private fun nextId(p: String): String = "$p${idCounter++}"
 
     fun conv(id: String): ConversationState = convState.getValue(id)
@@ -136,6 +140,7 @@ class AzulaState(
             transport.bind(Alpns.ALL)
         } catch (e: Throwable) {
             // Real binding unavailable (e.g. missing native lib) — degrade to demo.
+            demoMode = true
             transport = FakeTransport().also { it.bind(Alpns.ALL) }
         }
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
@@ -144,6 +149,9 @@ class AzulaState(
                 transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream) }
             }
         }
+        // Re-dial peers we've paired with before so a bridge can immediately
+        // flush any messages it queued while we were backgrounded or closed.
+        reconnectSaved()
     }
 
     // ---- navigation ----
@@ -359,6 +367,7 @@ class AzulaState(
             }
             connectStep = 3
             results.forEach { (alpn, stream) -> wireStream(alpn, stream) }
+            persistPeer(ticket)
             rttMs = 12
             connectStage = ConnectStage.CONNECTED
             delay(1200)
@@ -380,9 +389,48 @@ class AzulaState(
         mScreen = MScreen.CHAT
     }
 
+    /** Remember a peer ticket (most-recent 10) so we can auto-reconnect later. */
+    private fun persistPeer(ticket: String) {
+        pairedPeerStore()?.let { store ->
+            store.save((store.load() + ticket).distinct().takeLast(10))
+        }
+    }
+
+    /**
+     * Re-dial every saved peer silently (no connect UI), filling in any
+     * conversation that isn't already live. Retries a few times to ride out the
+     * endpoint still coming up (e.g. just after a foreground rebind). No-op in
+     * demo mode.
+     */
+    fun reconnectSaved() {
+        if (demoMode) return
+        val saved = pairedPeerStore()?.load().orEmpty()
+        if (saved.isEmpty()) return
+        saved.forEach { ticket ->
+            scope.launch {
+                repeat(3) {
+                    val results = runCatching {
+                        coroutineScope {
+                            Alpns.ALL.map { alpn ->
+                                async {
+                                    runCatching { transport.connect(ticket, alpn) }.getOrNull()?.let { alpn to it }
+                                }
+                            }.awaitAll().filterNotNull()
+                        }
+                    }.getOrDefault(emptyList())
+                    if (results.isNotEmpty()) {
+                        results.forEach { (alpn, stream) -> wireStream(alpn, stream, replace = false) }
+                        return@launch
+                    }
+                    delay(700)
+                }
+            }
+        }
+    }
+
     // ---- stream wiring + incoming frames ----
 
-    private fun wireStream(alpn: String, stream: P2pStream) {
+    private fun wireStream(alpn: String, stream: P2pStream, replace: Boolean = true) {
         val convId = when (alpn) {
             Alpns.CHAT -> "zuko"
             Alpns.LLM -> "azula"
@@ -390,6 +438,11 @@ class AzulaState(
             else -> return
         }
         val cs = conv(convId)
+        // A silent reconnect must never disrupt an already-live conversation.
+        if (!replace && cs.online && cs.stream != null) {
+            scope.launch { runCatching { stream.close() } }
+            return
+        }
         cs.stream = stream
         if (alpn == Alpns.TERM) termScreen.clear()
         cs.online = true

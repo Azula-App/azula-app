@@ -10,7 +10,9 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.core.view.WindowCompat
 import dev.azula.AzulaApp
 import dev.azula.link.handleDeepLink
+import dev.azula.net.AndroidPeerStore
 import dev.azula.net.IrohConfig
+import dev.azula.net.PeerStoreConfig
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,6 +28,9 @@ class MainActivity : ComponentActivity() {
         // therefore a stable "your code") across restarts — important because
         // Android aggressively kills backgrounded apps.
         IrohConfig.keyStore = AndroidSecretKeyStore(applicationContext)
+
+        // Persist paired peer tickets so we auto-reconnect on launch.
+        PeerStoreConfig.store = AndroidPeerStore(applicationContext)
 
         // Treat app foreground/background as iroh lifecycle events: shut the
         // endpoint down cleanly when backgrounded, re-bind when we return.

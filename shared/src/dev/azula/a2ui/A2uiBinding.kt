@@ -73,3 +73,14 @@ fun resolveStringList(value: JsonElement?, dataModel: JsonElement): List<String>
 
 /** Convenience accessor: returns `component[key]` or null. */
 fun prop(component: JsonObject, key: String): JsonElement? = component[key]
+
+/**
+ * If [value] is a binding object (`{"path":"…"}`), returns the path string;
+ * otherwise returns null. Used by two-way inputs to know which data-model path
+ * to write back to.
+ */
+fun bindingPath(value: JsonElement?): String? {
+    if (value == null) return null
+    if (!isBinding(value)) return null
+    return (value as JsonObject)["path"]?.jsonPrimitive?.content
+}

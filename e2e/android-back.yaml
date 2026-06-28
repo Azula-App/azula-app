@@ -1,4 +1,4 @@
-appId: dev.azula
+appId: app.azula
 ---
 # System back should navigate within the app (chat → home), not exit it.
 - launchApp

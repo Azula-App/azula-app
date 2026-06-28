@@ -1,4 +1,4 @@
-package dev.azula
+package app.azula
 
 import android.content.Intent
 import android.os.Bundle
@@ -7,8 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import dev.azula.AzulaApp
 import dev.azula.link.handleDeepLink
-import dev.azula.net.AndroidSecretKeyStore
 import dev.azula.net.IrohConfig
 
 class MainActivity : ComponentActivity() {

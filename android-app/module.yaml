@@ -11,5 +11,5 @@ settings:
   junit: junit-4
   android:
     minSdk: 26
-    applicationId: dev.azula
-    namespace: dev.azula
+    applicationId: app.azula
+    namespace: app.azula

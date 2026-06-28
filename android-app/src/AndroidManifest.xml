@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application android:label="azula">
-        <activity android:name="dev.azula.MainActivity"
+        <activity android:name="app.azula.MainActivity"
                   android:exported="true"
                   android:launchMode="singleTask">
             <intent-filter>

@@ -1,14 +1,15 @@
-package dev.azula.net
+package app.azula
 
 import android.content.Context
 import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import dev.azula.net.SecretKeyStore
 
 /**
  * Stores the iroh secret key in EncryptedSharedPreferences so the device keeps a
- * stable node id across launches. Injected into [IrohConfig] from MainActivity.
- * Uses the security-crypto 1.0.0 API (MasterKeys + 5-arg create).
+ * stable node id across launches. Injected into [dev.azula.net.IrohConfig] from
+ * MainActivity. Uses the security-crypto 1.0.0 API (MasterKeys + 5-arg create).
  */
 class AndroidSecretKeyStore(context: Context) : SecretKeyStore {
     private val prefs by lazy {

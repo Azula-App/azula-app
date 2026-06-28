@@ -20,7 +20,9 @@ appId: dev.azula
 - inputText: "play a game"
 - tapOn:
     text: "↑"
-- hideKeyboard
+# NB: no `hideKeyboard` — on Android it issues a system back press, which (absent
+# a BackHandler on the chat screen) backgrounds the app. Maestro asserts against
+# the accessibility tree, so the widget is found without dismissing the keyboard.
 - extendedWaitUntil:
     visible:
       text: "ROLL"
@@ -47,7 +49,6 @@ appId: dev.azula
 - inputText: "help"
 - tapOn:
     text: "↑"
-- hideKeyboard
 - extendedWaitUntil:
     visible:
       text: ".*commands.*whoami.*"

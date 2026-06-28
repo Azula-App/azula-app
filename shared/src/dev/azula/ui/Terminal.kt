@@ -25,9 +25,9 @@ import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
 
 @Composable
-fun TerminalView(state: AzulaState) {
-    if (state.conv("term").online) {
-        LiveTerminalView(state)
+fun TerminalView(state: AzulaState, convId: String) {
+    if (state.conv(convId).online) {
+        LiveTerminalView(state, convId)
     } else {
         DemoTerminalView(state)
     }
@@ -44,8 +44,8 @@ private fun DemoTerminalView(state: AzulaState) {
 }
 
 @Composable
-private fun LiveTerminalView(state: AzulaState) {
-    val termScreen = state.termScreen
+private fun LiveTerminalView(state: AzulaState, convId: String) {
+    val termScreen = state.conv(convId).termScreen
     val scroll = rememberScrollState()
     // Auto-scroll to bottom whenever rows or current line change.
     LaunchedEffect(termScreen.rows.size, termScreen.current) {

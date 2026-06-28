@@ -48,6 +48,10 @@ class ConversationState(seed: List<Message>) {
     var online by mutableStateOf(false)
     var stream: P2pStream? = null
     var streamingMsgId: String? = null
+    /** Each terminal session gets its own screen buffer. */
+    val termScreen = TermScreen()
+    /** The peer ticket this conversation was dialed from — used to spawn siblings. */
+    var sourceTicket: String? = null
 }
 
 /**
@@ -60,13 +64,13 @@ class AzulaState(
     private var transport: IrohTransport,
     private val scope: CoroutineScope,
 ) {
-    val conversations: List<Conversation> = listOf(
+    val conversations = mutableStateListOf(
         Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
         Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
         Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
     )
 
-    private val convState: Map<String, ConversationState> = mapOf(
+    private val convState = mutableStateMapOf(
         "azula" to ConversationState(seedAzula()),
         "zuko" to ConversationState(seedZuko()),
         "term" to ConversationState(emptyList()),
@@ -100,7 +104,6 @@ class AzulaState(
     val surfaces = mutableStateMapOf<String, A2uiSurface>()
 
     val termLines = mutableStateListOf<TerminalLine>().also { it.addAll(seedTerm()) }
-    val termScreen = TermScreen()
 
     init {
         // Register any surfaces embedded in the seed messages so actions work immediately.
@@ -177,7 +180,7 @@ class AzulaState(
         val cs = conv(convId)
         val txt = cs.draft.trim()
         if (txt.isEmpty()) return
-        if (convId == "term") { cs.draft = ""; runCommand(txt); return }
+        if (conversation(convId).kind == ConversationKind.TERMINAL) { cs.draft = ""; terminalInput(convId, txt); return }
         cs.draft = ""
         cs.messages.add(Message(nextId("u"), Role.ME, text = txt))
         val stream = cs.stream
@@ -228,22 +231,22 @@ class AzulaState(
 
     // ---- terminal ----
 
-    fun runCommand(cmdRaw: String) {
+    fun terminalInput(convId: String, cmdRaw: String) {
         val cmd = cmdRaw.trim()
-        val stream = conv("term").stream
+        val stream = conv(convId).stream
         if (stream != null) {
-            // Live mode: send the line raw; the shell will echo it back via termScreen.
+            // Live mode: send the line raw; the shell echoes it back via termScreen.
             scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(cmd + "\n"))) } }
             return
         }
-        // Demo mode: show the prompt line locally and produce canned output.
+        // Demo mode (the seeded offline terminal): canned output.
         termLines.add(TerminalLine(TerminalLine.Kind.CMD, cmd))
         termOut(cmd).forEach { termLines.add(it) }
     }
 
     /** Send Ctrl-C to the remote shell when a live term stream is open. */
-    fun terminalInterrupt() {
-        val stream = conv("term").stream ?: return
+    fun terminalInterrupt(convId: String) {
+        val stream = conv(convId).stream ?: return
         scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(""))) } }
     }
 
@@ -368,6 +371,9 @@ class AzulaState(
             connectStep = 3
             results.forEach { (alpn, stream) -> wireStream(alpn, stream) }
             persistPeer(ticket)
+            // Remember which connection each conversation came from so we can
+            // spawn sibling sessions over it without re-pairing.
+            results.forEach { (alpn, _) -> convIdForAlpn(alpn)?.let { conv(it).sourceTicket = ticket } }
             rttMs = 12
             connectStage = ConnectStage.CONNECTED
             delay(1200)
@@ -387,6 +393,37 @@ class AzulaState(
         desktopActive = target
         mActive = target
         mScreen = MScreen.CHAT
+    }
+
+    /**
+     * Open a NEW session over the same peer connection as [convId] — a fresh
+     * terminal or LLM conversation that reuses the known ticket (no re-pairing).
+     * The server multiplexes it onto the existing connection as a new stream.
+     */
+    fun newSessionFrom(convId: String) {
+        val ticket = conv(convId).sourceTicket ?: return
+        val kind = conversation(convId).kind
+        val alpn = when (kind) {
+            ConversationKind.TERMINAL -> Alpns.TERM
+            ConversationKind.LLM -> Alpns.LLM
+            ConversationKind.PEER -> Alpns.CHAT
+        }
+        scope.launch {
+            val stream = runCatching { transport.connect(ticket, alpn) }.getOrNull() ?: return@launch
+            val n = conversations.count { it.kind == kind } + 1
+            val id = nextId("sess")
+            val (name, glyph, sub) = when (kind) {
+                ConversationKind.TERMINAL -> Triple("terminal $n", "›_", "live session")
+                ConversationKind.LLM -> Triple("session $n", "✦", "llm · live")
+                ConversationKind.PEER -> Triple("peer $n", "z", "direct p2p")
+            }
+            convState[id] = ConversationState(emptyList()).also { it.sourceTicket = ticket }
+            conversations.add(Conversation(id, name, kind, glyph, sub, "new session"))
+            wireConv(id, stream, isTerminal = kind == ConversationKind.TERMINAL)
+            mActive = id
+            desktopActive = id
+            mScreen = MScreen.CHAT
+        }
     }
 
     /** Remember a peer ticket (most-recent 10) so we can auto-reconnect later. */
@@ -430,13 +467,20 @@ class AzulaState(
 
     // ---- stream wiring + incoming frames ----
 
+    private fun convIdForAlpn(alpn: String): String? = when (alpn) {
+        Alpns.CHAT -> "zuko"
+        Alpns.LLM -> "azula"
+        Alpns.TERM -> "term"
+        else -> null
+    }
+
     private fun wireStream(alpn: String, stream: P2pStream, replace: Boolean = true) {
-        val convId = when (alpn) {
-            Alpns.CHAT -> "zuko"
-            Alpns.LLM -> "azula"
-            Alpns.TERM -> "term"
-            else -> return
-        }
+        val convId = convIdForAlpn(alpn) ?: return
+        wireConv(convId, stream, isTerminal = alpn == Alpns.TERM, replace = replace)
+    }
+
+    /** Attach a live [stream] to [convId], replacing any current one unless [replace] is false. */
+    private fun wireConv(convId: String, stream: P2pStream, isTerminal: Boolean, replace: Boolean = true) {
         val cs = conv(convId)
         // A silent reconnect must never disrupt an already-live conversation.
         if (!replace && cs.online && cs.stream != null) {
@@ -444,7 +488,7 @@ class AzulaState(
             return
         }
         cs.stream = stream
-        if (alpn == Alpns.TERM) termScreen.clear()
+        if (isTerminal) cs.termScreen.clear()
         cs.online = true
         receiveLoop(convId, stream)
     }
@@ -494,7 +538,7 @@ class AzulaState(
         val cs = conv(convId)
         when (frame) {
             is Frame.Chat -> cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
-            is Frame.Term -> if (convId == "term") termScreen.feed(frame.line) else termLines.add(TerminalLine(TerminalLine.Kind.OUT, frame.line.trimEnd('\n')))
+            is Frame.Term -> cs.termScreen.feed(frame.line)
             is Frame.Thinking -> if (convId == "azula") thinking = frame.on
             is Frame.A2ui -> {
                 val msg = A2uiCodec.parse(frame.message.toString()) ?: return

@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import dev.azula.a2ui.A2uiSurfaceView
 import dev.azula.markdown.MarkdownText
 import dev.azula.model.Conversation
+import dev.azula.model.ConversationKind
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.state.AzulaState
@@ -71,10 +72,10 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
     Column(modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
         ChatHeader(state, conv, onBack)
         Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }) {
-            if (convId == "term") TerminalView(state) else MessageThread(state, convId)
+            if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId) else MessageThread(state, convId)
         }
         val cs = state.conv(convId)
-        val termLive = convId == "term" && cs.online
+        val termLive = conv.kind == ConversationKind.TERMINAL && cs.online
         val launchPicker = rememberFilePicker { picked ->
             state.sendFile(convId, picked.bytes, picked.name, picked.mime)
         }
@@ -84,12 +85,12 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             onSend = { state.send(convId) },
             placeholder = when {
                 termLive -> "type a command…"
-                convId == "term" -> "zuko@remote ~/azula $"
+                conv.kind == ConversationKind.TERMINAL -> "zuko@remote ~/azula $"
                 else -> "message ${conv.name}"
             },
-            terminal = convId == "term",
-            onInterrupt = if (termLive) { { state.terminalInterrupt() } } else null,
-            onAttach = if (convId == "term") null else launchPicker,
+            terminal = conv.kind == ConversationKind.TERMINAL,
+            onInterrupt = if (termLive) { { state.terminalInterrupt(convId) } } else null,
+            onAttach = if (conv.kind == ConversationKind.TERMINAL) null else launchPicker,
         )
     }
 }
@@ -118,6 +119,12 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 val rtt = state.rttMs
                 val sub = if (online && rtt != null) "direct · ${rtt}ms · e2e" else conv.sub
                 Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+            }
+        }
+        // Spawn a sibling session (new terminal / LLM) over the same connection.
+        if (cs.sourceTicket != null) {
+            IconButton(onClick = { state.newSessionFrom(conv.id) }) {
+                Text("+", color = AzulaColors.pinkLight, fontSize = 22.sp)
             }
         }
     }

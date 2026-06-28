@@ -1,0 +1,57 @@
+appId: dev.azula
+---
+# Home screen
+- launchApp
+- takeScreenshot: e2e/screenshots/android-home
+- assertVisible: "azula"
+- assertVisible: "CONVERSATIONS"
+- assertVisible: "tap to ask or play"
+
+# Open azula conversation
+- tapOn:
+    text: "tap to ask or play"
+- takeScreenshot: e2e/screenshots/android-azula-chat
+- assertVisible: "azula"
+- assertVisible: "your llm · always on"
+
+# Type and send "play a game"
+- tapOn:
+    text: "message azula"
+- inputText: "play a game"
+- tapOn:
+    text: "↑"
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      text: "ROLL"
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/android-dice-widget
+- assertVisible: "AZULA · DICE"
+- assertVisible: "ROLL"
+
+# Go back to home
+- tapOn:
+    text: "‹"
+- takeScreenshot: e2e/screenshots/android-home-2
+- assertVisible: "CONVERSATIONS"
+
+# Open terminal conversation
+- tapOn:
+    text: "▸ ready on :5173"
+- takeScreenshot: e2e/screenshots/android-terminal
+- assertVisible: "terminal"
+
+# Type and send "help" command
+- tapOn:
+    text: "zuko@remote ~/azula $"
+- inputText: "help"
+- tapOn:
+    text: "↑"
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      text: ".*commands.*whoami.*"
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/android-terminal-help
+- assertVisible:
+    text: ".*commands.*whoami.*"

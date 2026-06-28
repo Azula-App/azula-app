@@ -1,0 +1,55 @@
+appId: ios-app
+---
+# ── Home screen ─────────────────────────────────────────────────────────────
+- launchApp
+- takeScreenshot: e2e/screenshots/ios-home
+- assertVisible:
+    text: "azula"
+- assertVisible:
+    text: "CONVERSATIONS"
+
+# ── azula chat: send "play a game", verify DICE widget ──────────────────────
+- tapOn:
+    text: "tap to ask or play"
+- takeScreenshot: e2e/screenshots/ios-azula-chat
+- tapOn:
+    text: "message azula"
+- inputText: "play a game"
+- tapOn:
+    text: "↑"
+- extendedWaitUntil:
+    visible:
+      text: "ROLL"
+    timeout: 5000
+- tapOn:
+    text: "AZULA · DICE"
+- extendedWaitUntil:
+    visible:
+      text: "‹"
+    timeout: 3000
+- takeScreenshot: e2e/screenshots/ios-dice-widget
+- assertVisible:
+    text: "ROLL"
+
+# ── Return to home via launchApp (keeps app alive, restores home state) ─────
+- launchApp:
+    clearState: false
+
+# ── terminal chat: send "help", verify response ─────────────────────────────
+- assertVisible:
+    text: "CONVERSATIONS"
+- tapOn:
+    text: "▸ ready on :5173"
+- takeScreenshot: e2e/screenshots/ios-terminal
+- tapOn:
+    text: "zuko@remote ~/azula $"
+- inputText: "help"
+- tapOn:
+    text: "↑"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: e2e/screenshots/ios-terminal-help
+- assertVisible:
+    text: "terminal"
+- assertVisible:
+    text: "zuko@remote · live"

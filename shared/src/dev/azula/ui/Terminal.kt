@@ -26,11 +26,72 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun TerminalView(state: AzulaState) {
+    if (state.conv("term").online) {
+        LiveTerminalView(state)
+    } else {
+        DemoTerminalView(state)
+    }
+}
+
+@Composable
+private fun DemoTerminalView(state: AzulaState) {
     val scroll = rememberScrollState()
     LaunchedEffect(state.termLines.size) { scroll.animateScrollTo(scroll.maxValue) }
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
         state.termLines.forEach { line -> TermLineRow(line) }
         PromptRow(cursor = true)
+    }
+}
+
+@Composable
+private fun LiveTerminalView(state: AzulaState) {
+    val termScreen = state.termScreen
+    val scroll = rememberScrollState()
+    // Auto-scroll to bottom whenever rows or current line change.
+    LaunchedEffect(termScreen.rows.size, termScreen.current) {
+        scroll.animateScrollTo(scroll.maxValue)
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
+        termScreen.rows.forEach { line ->
+            // Render empty lines as a space so they retain their line height.
+            Text(
+                text = if (line.isEmpty()) " " else line,
+                color = AzulaColors.textDim2,
+                fontFamily = Fonts.mono,
+                fontSize = 12.5.sp,
+                lineHeight = 21.sp,
+            )
+        }
+        // Current in-progress line with a blinking cursor block.
+        Row {
+            val current = termScreen.current
+            Text(
+                text = if (current.isEmpty()) " " else current,
+                color = AzulaColors.textDim2,
+                fontFamily = Fonts.mono,
+                fontSize = 12.5.sp,
+                lineHeight = 21.sp,
+            )
+            val t = rememberInfiniteTransition(label = "liveCursor")
+            val a by t.animateFloat(
+                initialValue = 1f, targetValue = 0f,
+                animationSpec = infiniteRepeatable(keyframes {
+                    durationMillis = 1050
+                    1f at 0
+                    1f at 520
+                    0f at 525
+                    0f at 1050
+                }, RepeatMode.Restart),
+                label = "liveBlink",
+            )
+            Text(
+                "█",
+                color = AzulaColors.pink.copy(alpha = a),
+                fontFamily = Fonts.mono,
+                fontSize = 12.5.sp,
+                lineHeight = 21.sp,
+            )
+        }
     }
 }
 

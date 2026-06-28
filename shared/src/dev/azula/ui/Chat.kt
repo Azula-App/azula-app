@@ -67,12 +67,18 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             if (convId == "term") TerminalView(state) else MessageThread(state, convId)
         }
         val cs = state.conv(convId)
+        val termLive = convId == "term" && cs.online
         ChatInput(
             value = cs.draft,
             onValueChange = { state.updateDraft(convId, it) },
             onSend = { state.send(convId) },
-            placeholder = if (convId == "term") "zuko@remote ~/azula $" else "message ${conv.name}",
+            placeholder = when {
+                termLive -> "type a command…"
+                convId == "term" -> "zuko@remote ~/azula $"
+                else -> "message ${conv.name}"
+            },
             terminal = convId == "term",
+            onInterrupt = if (termLive) { { state.terminalInterrupt() } } else null,
         )
     }
 }
@@ -175,7 +181,14 @@ fun ThinkingIndicator() {
 }
 
 @Composable
-fun ChatInput(value: String, onValueChange: (String) -> Unit, onSend: () -> Unit, placeholder: String, terminal: Boolean) {
+fun ChatInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    placeholder: String,
+    terminal: Boolean,
+    onInterrupt: (() -> Unit)? = null,
+) {
     val focusManager = LocalFocusManager.current
     fun sendAndDismiss() { onSend(); focusManager.clearFocus() }
     Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
@@ -184,6 +197,19 @@ fun ChatInput(value: String, onValueChange: (String) -> Unit, onSend: () -> Unit
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
+        // ^C interrupt button — shown only when a live term stream is active.
+        if (onInterrupt != null) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(7.dp))
+                    .border(1.dp, AzulaColors.border5, RoundedCornerShape(7.dp))
+                    .clickable { onInterrupt() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("^C", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            }
+        }
         Box(
             Modifier.weight(1f).clip(RoundedCornerShape(11.dp))
                 .background(if (terminal) AzulaColors.codeBlock else AzulaColors.inputBg)

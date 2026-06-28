@@ -22,6 +22,7 @@ import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
 import dev.azula.net.P2pStream
 import dev.azula.link.DeepLinkBus
+import dev.azula.terminal.TermScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -88,6 +89,7 @@ class AzulaState(
 
     val widgets = mutableStateMapOf<String, WidgetState>()
     val termLines = mutableStateListOf<TerminalLine>().also { it.addAll(seedTerm()) }
+    val termScreen = TermScreen()
 
     private var azIdx = 0
     private var idCounter = 0
@@ -170,13 +172,21 @@ class AzulaState(
 
     fun runCommand(cmdRaw: String) {
         val cmd = cmdRaw.trim()
-        termLines.add(TerminalLine(TerminalLine.Kind.CMD, cmd))
         val stream = conv("term").stream
         if (stream != null) {
+            // Live mode: send the line raw; the shell will echo it back via termScreen.
             scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(cmd + "\n"))) } }
             return
         }
+        // Demo mode: show the prompt line locally and produce canned output.
+        termLines.add(TerminalLine(TerminalLine.Kind.CMD, cmd))
         termOut(cmd).forEach { termLines.add(it) }
+    }
+
+    /** Send Ctrl-C to the remote shell when a live term stream is open. */
+    fun terminalInterrupt() {
+        val stream = conv("term").stream ?: return
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(""))) } }
     }
 
     private fun termOut(cmdRaw: String): List<TerminalLine> {
@@ -317,6 +327,7 @@ class AzulaState(
         }
         val cs = conv(convId)
         cs.stream = stream
+        if (alpn == Alpns.TERM) termScreen.clear()
         cs.online = true
         receiveLoop(convId, stream)
     }
@@ -341,7 +352,7 @@ class AzulaState(
         val cs = conv(convId)
         when (frame) {
             is Frame.Chat -> cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
-            is Frame.Term -> termLines.add(TerminalLine(TerminalLine.Kind.OUT, frame.line.trimEnd('\n')))
+            is Frame.Term -> if (convId == "term") termScreen.feed(frame.line) else termLines.add(TerminalLine(TerminalLine.Kind.OUT, frame.line.trimEnd('\n')))
             is Frame.Thinking -> if (convId == "azula") thinking = frame.on
             is Frame.WidgetFrame -> cs.messages.add(Message(nextId("p"), Role.AZULA, widget = frame.widget))
             is Frame.Token -> {

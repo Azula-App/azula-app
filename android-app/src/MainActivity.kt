@@ -1,15 +1,42 @@
-package hello.world
+package dev.azula
 
-import Screen
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import dev.azula.link.handleDeepLink
+import dev.azula.net.AndroidSecretKeyStore
+import dev.azula.net.IrohConfig
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            Screen()
-        }
+
+        // Persist the iroh secret key so this device keeps a stable node id (and
+        // therefore a stable "your code") across restarts — important because
+        // Android aggressively kills backgrounded apps.
+        IrohConfig.keyStore = AndroidSecretKeyStore(applicationContext)
+
+        // Treat app foreground/background as iroh lifecycle events: shut the
+        // endpoint down cleanly when backgrounded, re-bind when we return.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) { IrohConfig.activeTransport?.pause() }
+            override fun onStart(owner: LifecycleOwner) { IrohConfig.activeTransport?.resume() }
+        })
+
+        setContent { AzulaApp() }
+
+        // A deeplink that launched us (cold start).
+        intent?.dataString?.let { handleDeepLink(it) }
+    }
+
+    // A deeplink that arrived while we were already running (singleTask).
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.dataString?.let { handleDeepLink(it) }
     }
 }

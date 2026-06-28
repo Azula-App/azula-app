@@ -1,3 +1,4 @@
 import androidx.compose.ui.window.ComposeUIViewController
+import dev.azula.AzulaApp
 
-fun ViewController() = ComposeUIViewController { Screen() }
+fun ViewController() = ComposeUIViewController { AzulaApp() }

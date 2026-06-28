@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Universal Links for azula.app. Enable the "Associated Domains" capability on
+	  the app target in Xcode and set this file as CODE_SIGN_ENTITLEMENTS. Requires
+	  the AASA file at https://azula.app/.well-known/apple-app-site-association
+	  to list "<TeamID>.<bundleId>" (served by site/, fill the TeamID). Use
+	  "applinks:azula.app?mode=developer" while testing on a device.
+	  See docs/deeplinks.md.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:azula.app</string>
+		<string>webcredentials:azula.app</string>
+	</array>
+</dict>
+</plist>

@@ -1,10 +1,32 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
-        <activity android:name="hello.world.MainActivity"
-                  android:exported="true">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application android:label="azula">
+        <activity android:name="dev.azula.MainActivity"
+                  android:exported="true"
+                  android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- App Links: https://azula.app/s/<token> and /connect/<token>.
+                 autoVerify requires assetlinks.json at azula.app with the RELEASE
+                 signing SHA-256 — fill it once the app is signed (docs/deeplinks.md). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="azula.app" android:pathPrefix="/s/" />
+                <data android:scheme="https" android:host="azula.app" android:pathPrefix="/connect/" />
+            </intent-filter>
+
+            <!-- Custom scheme fallback: azula://connect?code=<token> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="azula" />
             </intent-filter>
         </activity>
     </application>

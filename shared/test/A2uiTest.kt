@@ -1,8 +1,10 @@
 import dev.azula.a2ui.A2UI_VERSION
 import dev.azula.a2ui.A2uiAction
 import dev.azula.a2ui.A2uiCodec
+import dev.azula.a2ui.A2uiExamples
 import dev.azula.a2ui.A2uiSurface
 import dev.azula.a2ui.CreateSurface
+import dev.azula.a2ui.DICE
 import dev.azula.a2ui.DeleteSurface
 import dev.azula.a2ui.JsonPointer
 import dev.azula.a2ui.UpdateComponents
@@ -339,6 +341,41 @@ class A2uiTest {
         val json = A2uiCodec.encodeAction(action)
         val inner = json["action"] as JsonObject
         assertEquals(JsonObject(emptyMap()), inner["context"])
+    }
+
+    // ---- A2uiExamples ----
+
+    @Test
+    fun diceSurfaceHasRootAndTitle() {
+        val surface = A2uiExamples.diceSurface("test1")
+        assertNotNull(surface.root(), "root component should be present")
+        val title = surface.component("title")
+        assertNotNull(title, "title component should be present")
+        assertEquals("AZULA · DICE", title!!["text"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun diceSurfaceInitialDataModel() {
+        val surface = A2uiExamples.diceSurface("test2")
+        val you = JsonPointer.get(surface.dataModel, "/dice/you")
+        assertEquals(JsonPrimitive("?"), you, "initial /dice/you should be '?'")
+        val them = JsonPointer.get(surface.dataModel, "/dice/them")
+        assertEquals(JsonPrimitive("?"), them, "initial /dice/them should be '?'")
+    }
+
+    @Test
+    fun diceSurfaceHandleRollUpdatesGlyphAndResult() {
+        val surface = A2uiExamples.diceSurface("test3")
+        val action = A2uiAction("roll", surface.surfaceId, "rollBtn")
+        A2uiExamples.handleEvent(surface, action)
+
+        val youVal = (JsonPointer.get(surface.dataModel, "/dice/you") as? JsonPrimitive)?.content
+        assertNotNull(youVal, "/dice/you should be set after roll")
+        assertTrue(youVal in DICE, "/dice/you '$youVal' should be a die glyph from DICE list")
+
+        val result = (JsonPointer.get(surface.dataModel, "/dice/result") as? JsonPrimitive)?.content
+        assertNotNull(result, "/dice/result should be set after roll")
+        assertTrue(result!!.isNotEmpty(), "/dice/result should be non-empty")
     }
 }
 

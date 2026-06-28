@@ -460,7 +460,47 @@ class AzulaState(
             Message("z3", Role.THEM, text = "ping?"),
             Message("z4", Role.ME, text = "`12ms`. direct."),
             Message("z5", Role.THEM, text = "**12ms?!** that's nuts 🔥"),
+            demoImageMessage(),
         )
+
+        // A small checkerboard BMP, embedded so the inline-image rendering path
+        // is visible offline (no live transfer needed). BMP decodes on skiko
+        // (JVM/iOS) and Android's BitmapFactory.
+        private fun demoImageMessage(): Message {
+            val bmp = demoImageBmp()
+            return Message(
+                "z6", Role.THEM, text = "sent you a pic 📷",
+                attachments = listOf(Attachment("z6-img", "azula.bmp", "image/bmp", bmp.size.toLong(), bmp, null)),
+            )
+        }
+
+        private fun demoImageBmp(): ByteArray {
+            val w = 160
+            val h = 100
+            val rowSize = ((w * 3 + 3) / 4) * 4
+            val out = ByteArray(54 + rowSize * h)
+            fun le32(off: Int, v: Int) {
+                out[off] = (v and 0xFF).toByte(); out[off + 1] = ((v shr 8) and 0xFF).toByte()
+                out[off + 2] = ((v shr 16) and 0xFF).toByte(); out[off + 3] = ((v shr 24) and 0xFF).toByte()
+            }
+            fun le16(off: Int, v: Int) { out[off] = (v and 0xFF).toByte(); out[off + 1] = ((v shr 8) and 0xFF).toByte() }
+            out[0] = 'B'.code.toByte(); out[1] = 'M'.code.toByte()
+            le32(2, out.size); le32(10, 54)
+            le32(14, 40); le32(18, w); le32(22, h); le16(26, 1); le16(28, 24)
+            le32(34, rowSize * h); le32(38, 2835); le32(42, 2835)
+            var off = 54
+            for (row in 0 until h) {
+                for (x in 0 until w) {
+                    val pink = ((x / 20) + (row / 20)) % 2 == 0
+                    out[off] = (if (pink) 0x9B else 0x1A).toByte()
+                    out[off + 1] = (if (pink) 0x2D else 0x10).toByte()
+                    out[off + 2] = (if (pink) 0xFF else 0x16).toByte()
+                    off += 3
+                }
+                off += rowSize - w * 3
+            }
+            return out
+        }
 
         private fun seedTerm(): List<TerminalLine> = listOf(
             TerminalLine(TerminalLine.Kind.OUT, "azula terminal · sharing zuko@remote — 2 cursors live", TerminalLine.Tint.GREEN),

@@ -1,5 +1,10 @@
 package dev.azula.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import dev.azula.model.Attachment
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -34,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +74,9 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         }
         val cs = state.conv(convId)
         val termLive = convId == "term" && cs.online
+        val launchPicker = rememberFilePicker { picked ->
+            state.sendFile(convId, picked.bytes, picked.name, picked.mime)
+        }
         ChatInput(
             value = cs.draft,
             onValueChange = { state.updateDraft(convId, it) },
@@ -79,6 +88,7 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             },
             terminal = convId == "term",
             onInterrupt = if (termLive) { { state.terminalInterrupt() } } else null,
+            onAttach = if (convId == "term") null else launchPicker,
         )
     }
 }
@@ -154,9 +164,54 @@ fun MessageBubble(m: Message) {
             if (m.role == Role.AZULA) {
                 Text("✦ azula", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
             }
-            MarkdownText(m.text ?: "", color = if (me) Color(0xFFFBE6F1) else AzulaColors.text2, mine = me)
+            if (!m.text.isNullOrEmpty()) {
+                MarkdownText(m.text, color = if (me) Color(0xFFFBE6F1) else AzulaColors.text2, mine = me)
+            }
+            m.attachments.forEach { att -> AttachmentView(att) }
         }
     }
+}
+
+@Composable
+private fun AttachmentView(att: Attachment) {
+    val bitmap = remember(att.id) {
+        att.bytes?.takeIf { att.mime.startsWith("image/") }?.let { decodeImageBitmap(it) }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = att.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .heightIn(max = 220.dp)
+                .widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(10.dp)),
+        )
+    } else {
+        Row(
+            Modifier.padding(top = 6.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AzulaColors.inputBg)
+                .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("📎", fontSize = 14.sp)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
+            )
+            Text(" · ${humanSize(att.size)}", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        }
+    }
+}
+
+private fun humanSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${kotlin.math.round(bytes / 1024.0 * 10) / 10} KB"
+    else -> "${kotlin.math.round(bytes / (1024.0 * 1024) * 10) / 10} MB"
 }
 
 @Composable
@@ -188,6 +243,7 @@ fun ChatInput(
     placeholder: String,
     terminal: Boolean,
     onInterrupt: (() -> Unit)? = null,
+    onAttach: (() -> Unit)? = null,
 ) {
     val focusManager = LocalFocusManager.current
     fun sendAndDismiss() { onSend(); focusManager.clearFocus() }
@@ -197,6 +253,19 @@ fun ChatInput(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
+        // Attach a file (image, etc.) — shown for non-terminal conversations.
+        if (onAttach != null) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(11.dp))
+                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(11.dp))
+                    .clickable { onAttach() }
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("📎", fontSize = 16.sp)
+            }
+        }
         // ^C interrupt button — shown only when a live term stream is active.
         if (onInterrupt != null) {
             Box(

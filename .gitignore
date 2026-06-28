@@ -1,0 +1,17 @@
+# Kotlin Compiler
+.kotlin/
+
+# Gradle
+.gradle/
+build/
+gradle.properties
+
+# Local configuration
+local.properties
+
+# IntelliJ/Android Studio
+.idea/
+*.iml
+
+# OS specific
+.DS_Store

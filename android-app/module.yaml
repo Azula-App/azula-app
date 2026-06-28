@@ -3,7 +3,13 @@ product: android/app
 dependencies:
   - ../shared
   - androidx.activity:activity-compose:1.7.2
+  - androidx.lifecycle:lifecycle-process:2.8.0
+  - androidx.security:security-crypto:1.0.0
 
 settings:
   compose: enabled
   junit: junit-4
+  android:
+    minSdk: 26
+    applicationId: dev.azula
+    namespace: dev.azula

@@ -2,10 +2,23 @@ product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
+# A shared source set + dependency scope for the two JVM-flavoured targets.
+# The iroh Kotlin binding (computer.iroh:iroh) is a JVM/JNA artifact, usable on
+# jvm and android but NOT on Kotlin/Native (iOS). Grouping them lets the real
+# transport live in src@jvmAndAndroid/ without duplication.
+aliases:
+  - jvmAndAndroid: [jvm, android]
+
 dependencies:
   - $compose.foundation: exported
   - $compose.material3: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+
+dependencies@jvmAndAndroid:
+  - computer.iroh:iroh:1.0.0
 
 settings:
   compose:
     enabled: true
+  kotlin:
+    serialization: json

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.azula.model.Attachment
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
 import dev.azula.model.ConnectStage
@@ -17,10 +18,14 @@ import dev.azula.model.TerminalLine
 import dev.azula.model.WidgetState
 import dev.azula.net.Alpns
 import dev.azula.net.FakeTransport
+import dev.azula.net.FileEncoding
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
+import dev.azula.net.OutgoingFile
 import dev.azula.net.P2pStream
+import dev.azula.net.receiveFile
+import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
 import dev.azula.terminal.TermScreen
 import kotlinx.coroutines.CoroutineScope
@@ -160,6 +165,38 @@ class AzulaState(
                 runCatching { stream.sendLine(FrameCodec.encode(Frame.Chat(txt))) }
             }
             convId == "azula" -> azulaReply(txt)
+        }
+    }
+
+    /**
+     * Send a file attachment to the conversation identified by [convId].
+     * Appends a local [Message] immediately (so the UI reacts), then launches the
+     * transfer on the live stream if one is open.
+     */
+    fun sendFile(
+        convId: String,
+        bytes: ByteArray,
+        name: String,
+        mime: String,
+        encoding: FileEncoding = FileEncoding.BASE64,
+        caption: String? = null,
+    ) {
+        val cs = conv(convId)
+        val msgId = nextId("f")
+        val attachment = Attachment(
+            id = msgId,
+            name = name,
+            mime = mime,
+            size = bytes.size.toLong(),
+            bytes = bytes,
+            caption = caption,
+        )
+        cs.messages.add(Message(msgId, Role.ME, text = caption, attachments = listOf(attachment)))
+        val stream = cs.stream ?: return
+        scope.launch {
+            runCatching {
+                sendFile(stream, OutgoingFile(name = name, mime = mime, bytes = bytes, caption = caption), encoding)
+            }
         }
     }
 
@@ -339,6 +376,31 @@ class AzulaState(
                     val line = stream.receiveLine() ?: break
                     if (line.isBlank()) continue
                     val frame = runCatching { FrameCodec.decode(line) }.getOrNull() ?: continue
+                    // FileBegin must be handled here (suspend context, access to stream).
+                    if (frame is Frame.FileBegin) {
+                        runCatching {
+                            val received = receiveFile(stream, frame) { stream.receiveLine() }
+                            val attachment = Attachment(
+                                id = received.id,
+                                name = received.name,
+                                mime = received.mime,
+                                size = received.bytes.size.toLong(),
+                                bytes = received.bytes,
+                                caption = received.caption,
+                            )
+                            conv(convId).messages.add(
+                                Message(
+                                    nextId("r"),
+                                    Role.THEM,
+                                    text = received.caption,
+                                    attachments = listOf(attachment),
+                                )
+                            )
+                        }
+                        continue
+                    }
+                    // Stray file_chunk / file_end outside a transfer are ignored.
+                    if (frame is Frame.FileChunk || frame is Frame.FileEnd) continue
                     applyFrame(convId, frame)
                 }
             } finally {
@@ -374,6 +436,8 @@ class AzulaState(
                 if (frame.done) cs.streamingMsgId = null
             }
             is Frame.Input -> Unit // server-side only
+            // File frames are handled in receiveLoop directly; these are unreachable here.
+            is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd -> Unit
         }
     }
 

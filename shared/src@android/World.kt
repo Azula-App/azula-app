@@ -1,1 +1,3 @@
-actual fun getWorld() = "Android World"
+package dev.azula
+
+actual fun getWorld() = "android"

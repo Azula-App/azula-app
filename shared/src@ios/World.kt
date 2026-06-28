@@ -1,1 +1,3 @@
-actual fun getWorld() = "iOS World"
+package dev.azula
+
+actual fun getWorld() = "ios"

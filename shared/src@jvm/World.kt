@@ -1,1 +1,3 @@
-actual fun getWorld() = "JVM World"
+package dev.azula
+
+actual fun getWorld() = "desktop"

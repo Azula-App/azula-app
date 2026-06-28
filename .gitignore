@@ -13,5 +13,9 @@ local.properties
 .idea/
 *.iml
 
+# azula device registry — holds iroh tickets (bearer credentials). Force-add
+# only if you intentionally want to share devices with your team.
+.azula/
+
 # OS specific
 .DS_Store

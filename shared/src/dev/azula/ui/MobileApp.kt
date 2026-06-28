@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,10 +40,14 @@ fun MobileApp(state: AzulaState) {
     // app's mobile nav instead of exiting it.
     PlatformBackHandler(enabled = state.mScreen != MScreen.HOME) { state.mobileBack() }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
-        when (state.mScreen) {
-            MScreen.HOME -> MobileHome(state)
-            MScreen.CONNECT -> MobileConnect(state)
-            MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
+        // Keep the gradient full-bleed (edge to edge) but inset the content so it
+        // clears the status bar / camera cutout / home indicator and the keyboard.
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            when (state.mScreen) {
+                MScreen.HOME -> MobileHome(state)
+                MScreen.CONNECT -> MobileConnect(state)
+                MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
+            }
         }
     }
 }
@@ -48,7 +55,7 @@ fun MobileApp(state: AzulaState) {
 @Composable
 private fun MobileHome(state: AzulaState) {
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 30.dp, bottom = 14.dp)) {
+        Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Brand()
                 Text("◉ online", color = AzulaColors.online, fontFamily = Fonts.mono, fontSize = 11.sp)
@@ -80,7 +87,7 @@ private fun MobileHome(state: AzulaState) {
 private fun MobileConnect(state: AzulaState) {
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 30.dp, bottom = 14.dp),
+            Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {

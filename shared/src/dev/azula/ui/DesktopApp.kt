@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,13 +28,17 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun DesktopApp(state: AzulaState) {
-    Row(Modifier.fillMaxSize().background(AzulaColors.bg1)) {
-        Sidebar(state, Modifier.width(248.dp).fillMaxHeight())
-        Box(Modifier.width(1.dp).fillMaxHeight().background(AzulaColors.border))
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            when (val active = state.desktopActive) {
-                "connect" -> ConnectPane(state)
-                else -> ChatPane(state, active)
+    // bg1 stays full-bleed; the content row is inset for safe areas (iPad notch /
+    // home indicator). On JVM/desktop these insets are empty, so it's a no-op.
+    Box(Modifier.fillMaxSize().background(AzulaColors.bg1)) {
+        Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Sidebar(state, Modifier.width(248.dp).fillMaxHeight())
+            Box(Modifier.width(1.dp).fillMaxHeight().background(AzulaColors.border))
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                when (val active = state.desktopActive) {
+                    "connect" -> ConnectPane(state)
+                    else -> ChatPane(state, active)
+                }
             }
         }
     }

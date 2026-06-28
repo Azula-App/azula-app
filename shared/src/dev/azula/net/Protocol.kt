@@ -1,9 +1,9 @@
 package dev.azula.net
 
-import dev.azula.model.InlineWidget
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * The wire protocol shared with the Rust `azula-cli` server. Messages are
@@ -38,10 +38,15 @@ sealed class Frame {
     @SerialName("term")
     data class Term(val line: String) : Frame()
 
-    /** Either direction: an inline widget to render. */
+    /** Server → client: an A2UI message (create/update/delete surface). */
     @Serializable
-    @SerialName("widget")
-    data class WidgetFrame(val widget: InlineWidget) : Frame()
+    @SerialName("a2ui")
+    data class A2ui(val message: JsonObject) : Frame()
+
+    /** Client → server: a user action on an A2UI surface. */
+    @Serializable
+    @SerialName("a2ui_action")
+    data class A2uiAction(val action: JsonObject) : Frame()
 
     /** File transfer: begins a multipart transfer. encoding is "base64" or "binary". */
     @Serializable

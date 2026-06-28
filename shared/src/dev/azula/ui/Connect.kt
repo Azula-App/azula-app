@@ -1,0 +1,192 @@
+package dev.azula.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.azula.model.ConnectStage
+import dev.azula.state.AzulaState
+import dev.azula.theme.AzulaColors
+import dev.azula.theme.Fonts
+
+@Composable
+fun ConnectScreen(state: AzulaState, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 20.dp)) {
+        when (state.connectStage) {
+            ConnectStage.DIALING, ConnectStage.CONNECTED -> HolepunchProgress(state)
+            else -> ConnectIdle(state)
+        }
+    }
+}
+
+@Composable
+private fun ConnectIdle(state: AzulaState) {
+    val clipboard = LocalClipboardManager.current
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("YOUR CODE", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(state.shortCode, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
+                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                    .clickable { clipboard.setText(AnnotatedString(state.myCode)); state.markCopied() }
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+            ) {
+                Text(
+                    if (state.copied) "✓ copied" else "copy",
+                    color = if (state.copied) AzulaColors.onlineBright else AzulaColors.textDim,
+                    fontFamily = Fonts.mono, fontSize = 11.sp,
+                )
+            }
+        }
+        Text(
+            "anyone with this code can open a direct, end-to-end-encrypted chat with you. no account, no server.",
+            color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
+        )
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode() }
+        if (state.connectStage == ConnectStage.FAILED) {
+            Text("couldn't reach that peer — check the code and try again.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.5.sp)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f).height(1.dp).background(AzulaColors.border3))
+            Text("or join a peer", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Box(Modifier.weight(1f).height(1.dp).background(AzulaColors.border3))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
+                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 13.dp, vertical = 11.dp),
+            ) {
+                BasicTextField(
+                    value = state.connectInput,
+                    onValueChange = { state.connectInput = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 13.sp),
+                    cursorBrush = SolidColor(AzulaColors.pink),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = { state.connectPeer(state.connectInput) }),
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { inner ->
+                        if (state.connectInput.isEmpty()) Text("paste a code…", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
+                        inner()
+                    },
+                )
+            }
+            Box(
+                Modifier.clip(RoundedCornerShape(10.dp)).background(PinkButtonBrush)
+                    .clickable { state.connectPeer(state.connectInput) }
+                    .padding(horizontal = 16.dp, vertical = 11.dp),
+            ) {
+                Text("connect", color = Color.White, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HolepunchProgress(state: AzulaState) {
+    val connected = state.connectStage == ConnectStage.CONNECTED
+    val step = state.connectStep
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            if (connected) "CONNECTED" else "HOLEPUNCHING",
+            color = if (connected) AzulaColors.onlineBright else AzulaColors.pink,
+            fontFamily = Fonts.pixel, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        )
+        Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
+            if (connected) {
+                Box(Modifier.size(62.dp).clip(CircleShape).border(3.dp, AzulaColors.onlineBright, CircleShape), contentAlignment = Alignment.Center) {
+                    Text("✓", color = AzulaColors.onlineBright, fontSize = 26.sp)
+                }
+            } else {
+                CircularProgressIndicator(color = AzulaColors.pink, strokeWidth = 3.dp, modifier = Modifier.size(62.dp))
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ProgressStep("found peer · ${state.shortCode}", step >= 1 || connected)
+            ProgressStep("punching NAT", step >= 2 || connected)
+            ProgressStep(if (connected) "direct path established" else "opening direct path…", connected)
+        }
+        if (connected) {
+            Text("opening chat…", color = AzulaColors.textDim, fontFamily = Fonts.ui, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun ProgressStep(label: String, done: Boolean) {
+    Text(
+        (if (done) "✓ " else "› ") + label,
+        color = if (done) AzulaColors.online else AzulaColors.warn,
+        fontFamily = Fonts.mono, fontSize = 12.sp,
+    )
+}
+
+/** A decorative QR-style matrix (the shareable value is the copyable code text). */
+@Composable
+private fun QrCode() {
+    val n = 13
+    var seed = 99173
+    fun rnd(): Double { seed = (seed * 1103515245 + 12345) and 0x7fffffff; return seed / 0x7fffffff.toDouble() }
+    val cells = ArrayList<Boolean>(n * n)
+    for (y in 0 until n) for (x in 0 until n) {
+        val corner = (x < 3 && y < 3) || (x > n - 4 && y < 3) || (x < 3 && y > n - 4)
+        val on = if (corner) {
+            x == 0 || x == 2 || y == 0 || y == 2 || x == n - 1 || x == n - 3 || y == n - 1 || y == n - 3 ||
+                (x == 1 && y == 1) || (x == n - 2 && y == 1) || (x == 1 && y == n - 2)
+        } else rnd() > 0.52
+        cells += on
+    }
+    Box(
+        Modifier.size(150.dp).clip(RoundedCornerShape(12.dp)).background(AzulaColors.codeBlock)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(12.dp)).padding(11.dp),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            for (y in 0 until n) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    for (x in 0 until n) {
+                        Box(
+                            Modifier.weight(1f).aspectRatio(1f).padding(1.dp)
+                                .background(if (cells[y * n + x]) AzulaColors.pink else Color.Transparent),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

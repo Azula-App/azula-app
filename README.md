@@ -45,9 +45,11 @@ across web, apps, and LLMs (full design in `site/URLS.md`):
 
 - `https://azula.app/s/<token>` — session invite; opens the app (universal/app
   link) or a web fallback. `<token>` is the session's iroh ticket.
-- `https://azula.app/mcp/<token>` — MCP endpoint URL to add to an LLM client; the
-  token says which Azula session to bridge to. (The MCP↔iroh bridge is a separate
-  server component — Workers can't speak iroh.)
+- `https://azula.app/mcp` — *static* MCP endpoint to add to an LLM client once
+  (no token in the URL). Pair devices by giving azula a session link — the
+  `connect` tool or `azula pair <url>`. The bridge (`azula serve-mcp`) holds
+  multiple devices and persists them in `.azula/` + `~/.azula` (Workers can't
+  speak iroh, so the bridge runs on a host).
 - `/.well-known/apple-app-site-association` + `/.well-known/assetlinks.json` for
   iOS/Android deeplinks (placeholders until the apps are signed — see
   `docs/deeplinks.md`).

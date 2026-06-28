@@ -83,11 +83,17 @@ Uses the Amper toolchain wrapper (`./kotlin`). JDK 21+.
 The Rust server:
 
 ```bash
-cd azula-cli && cargo run -- serve   # prints a ticket; paste it into the app
+cd azula-cli && cargo run -- serve   # prints a pairing URL + QR; scan it with the app
 # point the LLM channel at an MCP server (stdio child process or remote URL):
 cargo run -- serve --mcp-stdio "npx -y @modelcontextprotocol/server-everything"
 cargo run -- serve --mcp-url https://example.com/mcp
+cargo run -- serve-mcp              # multi-device MCP↔iroh bridge; shows a pairing QR
+cargo run -- qr "<code-or-url>"     # render a pairing URL + QR for any code
 ```
+
+Pairing works both ways: the app shows its code (`azula pair <url>` / the `connect`
+tool), **or** the CLI/bridge shows a URL + QR (and the `start_pairing` MCP tool)
+that you scan with your phone to pair.
 
 ## Status
 

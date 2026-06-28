@@ -5,17 +5,19 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.azula.a2ui.A2uiAction
+import dev.azula.a2ui.A2uiCodec
+import dev.azula.a2ui.A2uiExamples
+import dev.azula.a2ui.A2uiSurface
+import dev.azula.a2ui.CreateSurface
+import dev.azula.a2ui.DeleteSurface
 import dev.azula.model.Attachment
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
 import dev.azula.model.ConnectStage
-import dev.azula.model.DicePhase
-import dev.azula.model.InlineWidget
 import dev.azula.model.Message
-import dev.azula.model.PollOption
 import dev.azula.model.Role
 import dev.azula.model.TerminalLine
-import dev.azula.model.WidgetState
 import dev.azula.net.Alpns
 import dev.azula.net.FakeTransport
 import dev.azula.net.FileEncoding
@@ -33,7 +35,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.random.Random
+import kotlinx.serialization.json.JsonElement
 
 enum class MScreen { HOME, CONNECT, CHAT }
 
@@ -92,9 +94,20 @@ class AzulaState(
     var rttMs by mutableStateOf<Int?>(null)
         private set
 
-    val widgets = mutableStateMapOf<String, WidgetState>()
+    /** All live A2UI surfaces, keyed by surfaceId. */
+    val surfaces = mutableStateMapOf<String, A2uiSurface>()
+
     val termLines = mutableStateListOf<TerminalLine>().also { it.addAll(seedTerm()) }
     val termScreen = TermScreen()
+
+    init {
+        // Register any surfaces embedded in the seed messages so actions work immediately.
+        convState.values.forEach { cs ->
+            cs.messages.forEach { m ->
+                m.a2ui?.let { surfaces[it.surfaceId] = it }
+            }
+        }
+    }
 
     private var azIdx = 0
     private var idCounter = 0
@@ -223,7 +236,7 @@ class AzulaState(
     /** Send Ctrl-C to the remote shell when a live term stream is open. */
     fun terminalInterrupt() {
         val stream = conv("term").stream ?: return
-        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(""))) } }
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(""))) } }
     }
 
     private fun termOut(cmdRaw: String): List<TerminalLine> {
@@ -248,20 +261,26 @@ class AzulaState(
         thinking = true
         val low = userTxt.lowercase()
         val reply: List<Message> = when {
-            Regex("game|dice|play|roll").containsMatchIn(low) -> listOf(
-                Message(nextId("r"), Role.AZULA, text = "you're on. **first to roll higher wins.** 🎲"),
-                Message(nextId("r"), Role.AZULA, widget = InlineWidget.Dice()),
-            )
-            Regex("poll|vote").containsMatchIn(low) -> listOf(
-                Message(nextId("r"), Role.AZULA, text = "spinning one up — tap to vote:"),
-                Message(
-                    nextId("r"), Role.AZULA,
-                    widget = InlineWidget.Poll(
-                        "ship the build tonight?",
-                        listOf(PollOption("ship it", 9), PollOption("sleep on it", 4)),
-                    ),
-                ),
-            )
+            Regex("game|dice|play|roll").containsMatchIn(low) -> {
+                val surface = A2uiExamples.diceSurface(nextId("ds"))
+                surfaces[surface.surfaceId] = surface
+                listOf(
+                    Message(nextId("r"), Role.AZULA, text = "you're on. **first to roll higher wins.** 🎲"),
+                    Message(nextId("r"), Role.AZULA, a2ui = surface),
+                )
+            }
+            Regex("poll|vote").containsMatchIn(low) -> {
+                val surface = A2uiExamples.pollSurface(
+                    nextId("ps"),
+                    "ship the build tonight?",
+                    listOf("ship it" to 9, "sleep on it" to 4),
+                )
+                surfaces[surface.surfaceId] = surface
+                listOf(
+                    Message(nextId("r"), Role.AZULA, text = "spinning one up — tap to vote:"),
+                    Message(nextId("r"), Role.AZULA, a2ui = surface),
+                )
+            }
             Regex("terminal|shell|ssh").containsMatchIn(low) -> listOf(
                 Message(
                     nextId("r"), Role.AZULA,
@@ -271,10 +290,18 @@ class AzulaState(
             else -> {
                 val cycle = listOf(
                     listOf(Message(nextId("r"), Role.AZULA, text = "current round-trips:\n\n| relay | rtt | load |\n|---|---|---|\n| **sfo** | 12ms | low |\n| ams | 88ms | low |\n| tok | 140ms | med |\n\nwe're direct anyway — this is just insurance.")),
-                    listOf(
-                        Message(nextId("r"), Role.AZULA, text = "sure — pick how we settle it:"),
-                        Message(nextId("r"), Role.AZULA, widget = InlineWidget.Decide("what next?", listOf("play dice", "run a poll", "open terminal"))),
-                    ),
+                    run {
+                        val surface = A2uiExamples.decideSurface(
+                            nextId("dc"),
+                            "what next?",
+                            listOf("play dice", "run a poll", "open terminal"),
+                        )
+                        surfaces[surface.surfaceId] = surface
+                        listOf(
+                            Message(nextId("r"), Role.AZULA, text = "sure — pick how we settle it:"),
+                            Message(nextId("r"), Role.AZULA, a2ui = surface),
+                        )
+                    },
                     listOf(Message(nextId("r"), Role.AZULA, text = "> **tip:** type `/terminal` to drive a shell, `/poll`, or `play a game`.\n\nI render **markdown**, tables, code, and spin up little UIs inline. what do you need?")),
                 )
                 cycle[azIdx % cycle.size].also { azIdx++ }
@@ -287,30 +314,30 @@ class AzulaState(
         }
     }
 
-    // ---- widget interactions ----
+    // ---- A2UI actions ----
 
-    fun pickDecide(msgId: String, opt: String) {
-        widgets[msgId] = (widgets[msgId] ?: WidgetState()).copy(chosen = opt)
-    }
-
-    fun vote(msgId: String, index: Int) {
-        val w = widgets[msgId] ?: WidgetState()
-        if (w.voted != null) return
-        widgets[msgId] = w.copy(voted = index)
-    }
-
-    fun rollDice(msgId: String) {
-        val w = widgets[msgId] ?: WidgetState()
-        if (w.dicePhase == DicePhase.ROLLING) return
-        widgets[msgId] = w.copy(dicePhase = DicePhase.ROLLING)
-        scope.launch {
-            delay(700)
-            widgets[msgId] = (widgets[msgId] ?: WidgetState()).copy(
-                dicePhase = DicePhase.DONE,
-                you = Random.nextInt(1, 7),
-                them = Random.nextInt(1, 7),
-            )
+    /**
+     * Called when the user triggers an action on an A2UI surface.
+     * If a live stream is open, encodes and sends it; otherwise interprets locally.
+     */
+    fun onA2uiAction(convId: String, action: A2uiAction) {
+        val stream = conv(convId).stream
+        if (stream != null) {
+            scope.launch {
+                runCatching {
+                    stream.sendLine(FrameCodec.encode(Frame.A2uiAction(A2uiCodec.encodeAction(action))))
+                }
+            }
+        } else {
+            surfaces[action.surfaceId]?.let { A2uiExamples.handleEvent(it, action) }
         }
+    }
+
+    /**
+     * Called when a two-way input (TextField, CheckBox, etc.) changes its value.
+     */
+    fun onA2uiDataChange(surface: A2uiSurface, path: String, value: JsonElement) {
+        surface.setData(path, value)
     }
 
     // ---- connecting ----
@@ -416,7 +443,19 @@ class AzulaState(
             is Frame.Chat -> cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
             is Frame.Term -> if (convId == "term") termScreen.feed(frame.line) else termLines.add(TerminalLine(TerminalLine.Kind.OUT, frame.line.trimEnd('\n')))
             is Frame.Thinking -> if (convId == "azula") thinking = frame.on
-            is Frame.WidgetFrame -> cs.messages.add(Message(nextId("p"), Role.AZULA, widget = frame.widget))
+            is Frame.A2ui -> {
+                val msg = A2uiCodec.parse(frame.message.toString()) ?: return
+                when (msg) {
+                    is CreateSurface -> {
+                        val surface = A2uiSurface(msg.surfaceId, msg.catalogId)
+                        surfaces[msg.surfaceId] = surface
+                        cs.messages.add(Message(nextId("p"), Role.AZULA, a2ui = surface))
+                    }
+                    is DeleteSurface -> surfaces.remove(msg.surfaceId)
+                    else -> surfaces[msg.surfaceId]?.apply(msg)
+                }
+            }
+            is Frame.A2uiAction -> Unit // client→server only; ignored on receive
             is Frame.Token -> {
                 val role = if (convId == "azula") Role.AZULA else Role.THEM
                 if (cs.streamingMsgId == null && !frame.done) {
@@ -447,12 +486,15 @@ class AzulaState(
             "wren", "kite", "sol", "vex", "nyx", "zephyr", "cobalt", "flint",
         )
 
-        private fun seedAzula(): List<Message> = listOf(
-            Message("a1", Role.AZULA, text = "**hey — I'm azula.** your peer that thinks.\n\nask me anything, drive a terminal, or say *play a game* and I'll build one right here in the chat."),
-            Message("a2", Role.ME, text = "explain how iroh connects us, briefly"),
-            Message("a3", Role.AZULA, text = "**the gist:**\n\n- iroh dials a **direct path** between us via UDP holepunching\n- no path? it falls back to a relay, then *upgrades* to direct\n- all traffic is **end-to-end encrypted** over QUIC\n\n```bash\niroh doctor connect <ticket>\n# ✓ direct · 12ms · e2e — no server in the middle\n```\n\nwant me to lock a backup relay, just in case?"),
-            Message("a4", Role.AZULA, widget = InlineWidget.Decide("pick a backup relay", listOf("sfo", "ams", "tok"))),
-        )
+        private fun seedAzula(): List<Message> {
+            val decideSurface = A2uiExamples.decideSurface("a4", "pick a backup relay", listOf("sfo", "ams", "tok"))
+            return listOf(
+                Message("a1", Role.AZULA, text = "**hey — I'm azula.** your peer that thinks.\n\nask me anything, drive a terminal, or say *play a game* and I'll build one right here in the chat."),
+                Message("a2", Role.ME, text = "explain how iroh connects us, briefly"),
+                Message("a3", Role.AZULA, text = "**the gist:**\n\n- iroh dials a **direct path** between us via UDP holepunching\n- no path? it falls back to a relay, then *upgrades* to direct\n- all traffic is **end-to-end encrypted** over QUIC\n\n```bash\niroh doctor connect <ticket>\n# ✓ direct · 12ms · e2e — no server in the middle\n```\n\nwant me to lock a backup relay, just in case?"),
+                Message("a4", Role.AZULA, a2ui = decideSurface),
+            )
+        }
 
         private fun seedZuko(): List<Message> = listOf(
             Message("z1", Role.THEM, text = "did the tunnel come up?"),

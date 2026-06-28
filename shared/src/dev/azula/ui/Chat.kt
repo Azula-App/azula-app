@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.a2ui.A2uiSurfaceView
 import dev.azula.markdown.MarkdownText
 import dev.azula.model.Conversation
 import dev.azula.model.Message
@@ -137,7 +138,15 @@ fun MessageThread(state: AzulaState, convId: String) {
     ) {
         item { Spacer(Modifier.height(18.dp)) }
         items(cs.messages, key = { it.id }) { m ->
-            if (m.widget != null) WidgetHost(state, m) else MessageBubble(m)
+            if (m.a2ui != null) {
+                A2uiSurfaceView(
+                    surface = m.a2ui,
+                    onAction = { state.onA2uiAction(convId, it) },
+                    onDataModelChange = { p, v -> state.onA2uiDataChange(m.a2ui, p, v) },
+                )
+            } else {
+                MessageBubble(m)
+            }
         }
         if (thinking) item { ThinkingIndicator() }
         item { Spacer(Modifier.height(8.dp)) }

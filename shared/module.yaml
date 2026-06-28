@@ -20,6 +20,9 @@ dependencies@jvmAndAndroid:
 dependencies@android:
   - androidx.activity:activity-compose:1.7.2  # for the system BackHandler
 
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
 settings:
   compose:
     enabled: true

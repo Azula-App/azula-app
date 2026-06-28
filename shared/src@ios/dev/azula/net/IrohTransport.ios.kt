@@ -57,6 +57,17 @@ private class IosP2pStream(private val swift: SwiftP2pStream) : P2pStream {
         swift.receiveLine { line -> cont.resumeWith(Result.success(line)) }
     }
 
+    override suspend fun sendBytes(bytes: ByteArray) = suspendCancellableCoroutine { cont ->
+        swift.sendBytes(bytes) { error ->
+            if (error != null) cont.resumeWith(Result.failure(RuntimeException(error)))
+            else cont.resumeWith(Result.success(Unit))
+        }
+    }
+
+    override suspend fun receiveBytes(n: Int): ByteArray? = suspendCancellableCoroutine { cont ->
+        swift.receiveBytes(n) { data -> cont.resumeWith(Result.success(data)) }
+    }
+
     override suspend fun close() = swift.close()
 }
 

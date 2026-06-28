@@ -63,8 +63,51 @@ final class IrohStreamBridge: SwiftP2pStream {
         }
     }
 
+    func sendBytes(bytes: KotlinByteArray, onDone: @escaping (String?) -> Void) {
+        Task {
+            do {
+                try await sender.writeAll(buf: kotlinByteArrayToData(bytes))
+                onDone(nil)
+            } catch { onDone("\(error)") }
+        }
+    }
+
+    // Read exactly `n` raw bytes, draining the shared line buffer first so a
+    // binary body partly buffered behind a `file_begin` line isn't lost.
+    func receiveBytes(n: Int32, onData: @escaping (KotlinByteArray?) -> Void) {
+        Task {
+            let need = Int(n)
+            while buffer.count < need {
+                if eof { onData(nil); return }
+                do {
+                    if let chunk = try await receiver.read(maxSize: 65536), !chunk.isEmpty {
+                        buffer.append(chunk)
+                    } else {
+                        eof = true
+                    }
+                } catch { onData(nil); return }
+            }
+            if buffer.count < need { onData(nil); return }
+            let out = Data(buffer.prefix(need))
+            buffer.removeFirst(need)
+            onData(dataToKotlinByteArray(out))
+        }
+    }
+
     func close() {
         Task { try? await sender.finish() }
+    }
+
+    private func kotlinByteArrayToData(_ bytes: KotlinByteArray) -> Data {
+        var d = Data(count: Int(bytes.size))
+        for i in 0..<Int(bytes.size) { d[i] = UInt8(bitPattern: bytes.get(index: Int32(i))) }
+        return d
+    }
+
+    private func dataToKotlinByteArray(_ data: Data) -> KotlinByteArray {
+        let out = KotlinByteArray(size: Int32(data.count))
+        for (i, b) in data.enumerated() { out.set(index: Int32(i), value: Int8(bitPattern: b)) }
+        return out
     }
 }
 

@@ -10,6 +10,10 @@ package dev.azula.net
 interface SwiftP2pStream {
     fun sendLine(line: String, onDone: (error: String?) -> Unit)
     fun receiveLine(onLine: (line: String?) -> Unit) // null line = stream closed
+    /** Write raw bytes (no framing) for binary file-transfer bodies. */
+    fun sendBytes(bytes: ByteArray, onDone: (error: String?) -> Unit)
+    /** Read exactly [n] raw bytes; delivers null ByteArray on EOF. */
+    fun receiveBytes(n: Int, onData: (bytes: ByteArray?) -> Unit)
     fun close()
 }
 

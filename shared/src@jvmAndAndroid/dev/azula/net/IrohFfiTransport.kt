@@ -126,6 +126,12 @@ private class IrohP2pStream(private val bi: BiStream) : P2pStream {
 
     override suspend fun receiveLine(): String? = lines.readLine()
 
+    override suspend fun sendBytes(bytes: ByteArray) {
+        send.writeAll(bytes)
+    }
+
+    override suspend fun receiveBytes(n: Int): ByteArray? = lines.readBytes(n)
+
     override suspend fun close() {
         runCatching { send.finish() }
     }

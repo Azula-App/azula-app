@@ -5,13 +5,26 @@ import kotlinx.coroutines.flow.Flow
 /**
  * A single bidirectional, end-to-end-encrypted stream to a peer. Carries
  * newline-delimited JSON [Frame]s at the line level; framing/JSON is applied by
- * callers via [FrameCodec].
+ * callers via [FrameCodec]. Also supports raw byte I/O for binary file transfers.
  */
 interface P2pStream {
     suspend fun sendLine(line: String)
 
     /** Next line from the peer, or null when the stream is closed. */
     suspend fun receiveLine(): String?
+
+    /**
+     * Write exactly [bytes].size raw bytes to the stream with no framing.
+     * Used for binary file-transfer bodies.
+     */
+    suspend fun sendBytes(bytes: ByteArray)
+
+    /**
+     * Read exactly [n] raw bytes from the stream, sharing the same internal
+     * buffer as [receiveLine] so no bytes buffered from a prior line read are
+     * lost. Returns null if EOF is reached before [n] bytes are available.
+     */
+    suspend fun receiveBytes(n: Int): ByteArray?
 
     suspend fun close()
 }

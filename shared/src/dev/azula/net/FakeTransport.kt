@@ -3,6 +3,8 @@ package dev.azula.net
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 
 /**
@@ -36,6 +38,12 @@ private class LoopbackStream : P2pStream {
     private val inbox = Channel<String>(Channel.UNLIMITED)
     private var greeted = false
 
+    // Raw byte buffer for binary loopback (not normally used in demo mode, but
+    // required so LoopbackStream satisfies the P2pStream contract in tests).
+    private val byteMutex = Mutex()
+    private var byteBuffer = ByteArray(0)
+    private val byteReady = Channel<Unit>(Channel.CONFLATED)
+
     override suspend fun sendLine(line: String) {
         if (!greeted) {
             greeted = true
@@ -48,6 +56,26 @@ private class LoopbackStream : P2pStream {
     }
 
     override suspend fun receiveLine(): String? = runCatching { inbox.receive() }.getOrNull()
+
+    override suspend fun sendBytes(bytes: ByteArray) {
+        byteMutex.withLock { byteBuffer += bytes }
+        byteReady.send(Unit)
+    }
+
+    override suspend fun receiveBytes(n: Int): ByteArray? {
+        while (true) {
+            val result = byteMutex.withLock {
+                if (byteBuffer.size >= n) {
+                    val slice = byteBuffer.copyOfRange(0, n)
+                    byteBuffer = byteBuffer.copyOfRange(n, byteBuffer.size)
+                    slice
+                } else null
+            }
+            if (result != null) return result
+            // Wait for more bytes to arrive.
+            byteReady.receive()
+        }
+    }
 
     override suspend fun close() {
         inbox.close()

@@ -42,6 +42,32 @@ sealed class Frame {
     @Serializable
     @SerialName("widget")
     data class WidgetFrame(val widget: InlineWidget) : Frame()
+
+    /** File transfer: begins a multipart transfer. encoding is "base64" or "binary". */
+    @Serializable
+    @SerialName("file_begin")
+    data class FileBegin(
+        val id: String,
+        val name: String,
+        val mime: String,
+        val size: Long,
+        val encoding: String,
+        val caption: String? = null,
+    ) : Frame()
+
+    /** File transfer: one base64-encoded chunk (used when encoding == "base64" only). */
+    @Serializable
+    @SerialName("file_chunk")
+    data class FileChunk(
+        val id: String,
+        val seq: Int,
+        val data: String,
+    ) : Frame()
+
+    /** File transfer: signals that all body bytes / chunks have been sent. */
+    @Serializable
+    @SerialName("file_end")
+    data class FileEnd(val id: String) : Frame()
 }
 
 object FrameCodec {

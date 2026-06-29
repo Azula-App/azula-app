@@ -13,6 +13,16 @@ import kotlinx.serialization.json.JsonObject
  */
 @Serializable
 sealed class Frame {
+    /**
+     * Client → peer/server: the first frame on a new outbound connection — a
+     * presence "ping" that announces this device and (importantly) unblocks the
+     * bridge's accept loop so it flushes any mail queued for us. [name] is a
+     * display fallback; a paired bridge identifies us by node id regardless.
+     */
+    @Serializable
+    @SerialName("hello")
+    data class Hello(val name: String) : Frame()
+
     /** Client → peer/server: a chat / LLM prompt. */
     @Serializable
     @SerialName("chat")

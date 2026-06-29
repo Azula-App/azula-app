@@ -146,10 +146,14 @@ fun MessageThread(state: AzulaState, convId: String) {
         item { Spacer(Modifier.height(18.dp)) }
         items(cs.messages, key = { it.id }) { m ->
             if (m.a2ui != null) {
+                // Frozen when restored from disk (not in the live `surfaces` registry)
+                // or the connection is inactive — but demo seeds stay interactive.
+                val frozen = !state.isDemo && (m.a2ui.surfaceId !in state.surfaces || !cs.online)
                 A2uiSurfaceView(
                     surface = m.a2ui,
                     onAction = { state.onA2uiAction(convId, it) },
-                    onDataModelChange = { p, v -> state.onA2uiDataChange(m.a2ui, p, v) },
+                    onDataModelChange = { p, v -> state.onA2uiDataChange(convId, m.a2ui, p, v) },
+                    frozen = frozen,
                 )
             } else {
                 MessageBubble(m)

@@ -30,8 +30,12 @@ import dev.azula.net.pairedPeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
+import dev.azula.persist.activeMessageStore
+import dev.azula.persist.toDto
+import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -63,16 +67,29 @@ class ConversationState(seed: List<Message>) {
 class AzulaState(
     private var transport: IrohTransport,
     private val scope: CoroutineScope,
+    /** True only in the demo / UI-test build: loads seeded demo content and
+     *  skips message persistence. The shipping build defaults this to false. */
+    val isDemo: Boolean = false,
 ) {
-    val conversations = mutableStateListOf(
-        Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
-        Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
-        Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
-    )
+    // Conversation shells always exist (needed for ALPN→conversation routing); only
+    // the seeded demo flavor text differs between the demo and shipping builds.
+    val conversations = mutableStateListOf<Conversation>().also {
+        it.addAll(
+            if (isDemo) listOf(
+                Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
+                Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
+                Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
+            ) else listOf(
+                Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm", ""),
+                Conversation("zuko", "zuko", ConversationKind.PEER, "z", "peer · p2p", ""),
+                Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "remote shell", ""),
+            )
+        )
+    }
 
     private val convState = mutableStateMapOf(
-        "azula" to ConversationState(seedAzula()),
-        "zuko" to ConversationState(seedZuko()),
+        "azula" to ConversationState(if (isDemo) seedAzula() else emptyList()),
+        "zuko" to ConversationState(if (isDemo) seedZuko() else emptyList()),
         "term" to ConversationState(emptyList()),
     )
 
@@ -92,6 +109,10 @@ class AzulaState(
         private set
     var myCode by mutableStateOf("")
         private set
+    /** Observable copy of the transport's node id, refreshed on every (re)bind.
+     *  Compose can't observe `transport.nodeId` directly, so the UI reads this. */
+    var nodeId by mutableStateOf<String?>(null)
+        private set
     var connectStage by mutableStateOf(ConnectStage.IDLE)
         private set
     var connectStep by mutableStateOf(0)
@@ -103,7 +124,7 @@ class AzulaState(
     /** All live A2UI surfaces, keyed by surfaceId. */
     val surfaces = mutableStateMapOf<String, A2uiSurface>()
 
-    val termLines = mutableStateListOf<TerminalLine>().also { it.addAll(seedTerm()) }
+    val termLines = mutableStateListOf<TerminalLine>().also { if (isDemo) it.addAll(seedTerm()) }
 
     init {
         // Register any surfaces embedded in the seed messages so actions work immediately.
@@ -120,13 +141,49 @@ class AzulaState(
     private var demoMode = false
     private fun nextId(p: String): String = "$p${idCounter++}"
 
+    /** Single-threaded dispatcher so conversation saves run in order (no clobbering races). */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val saveDispatcher = Dispatchers.Default.limitedParallelism(1)
+
     fun conv(id: String): ConversationState = convState.getValue(id)
     fun conversation(id: String): Conversation = conversations.first { it.id == id }
+
+    // ---- message persistence (shipping build only) ----
+
+    /** Restore every conversation's saved history from disk into [convState]. */
+    private fun loadPersisted() {
+        val store = activeMessageStore() ?: return
+        for (id in convState.keys.toList()) {
+            val dtos = runCatching { store.load(id) }.getOrDefault(emptyList())
+            if (dtos.isEmpty()) continue
+            val cs = convState[id] ?: continue
+            cs.messages.clear()
+            // Restored A2UI surfaces are intentionally NOT registered in [surfaces]
+            // so they render frozen (see Chat's `frozen` predicate).
+            cs.messages.addAll(dtos.map { it.toMessage() })
+        }
+    }
+
+    /**
+     * Serialize and save a conversation's full history off the main thread. The
+     * DTO snapshot is mapped synchronously (preserving call order), then written
+     * on a single-threaded dispatcher so rapid successive saves can't race and
+     * clobber each other with a stale snapshot.
+     */
+    private fun persist(convId: String) {
+        if (isDemo) return
+        val store = activeMessageStore() ?: return
+        val cs = convState[convId] ?: return
+        val dtos = cs.messages.map { it.toDto() }
+        scope.launch(saveDispatcher) {
+            runCatching { store.save(convId, dtos) }
+        }
+    }
 
     /** A cosmetic, human-friendly label derived from the node id. Copy uses [myCode]. */
     val shortCode: String
         get() {
-            val src = transport.nodeId ?: return "connecting…"
+            val src = nodeId ?: return "connecting…"
             val h = src.filter { it.isLetterOrDigit() }
             if (h.length < 4) return "··· offline"
             val words = MNEMONICS
@@ -137,8 +194,15 @@ class AzulaState(
     // ---- lifecycle ----
 
     suspend fun start() {
+        // Restore persisted conversation history (shipping build only; the demo
+        // build shows seeds instead). Restored A2UI surfaces render frozen.
+        if (!isDemo) loadPersisted()
         // An incoming deeplink (azula://connect?code= / azula.app/s/<token>) dials it.
         DeepLinkBus.setHandler { token -> connectPeer(token) }
+        // Whenever the transport (re)binds — cold start and Android foreground-
+        // resume — re-dial saved peers/bridges and ping them, so a bridge can
+        // immediately flush any messages it queued while we were offline.
+        transport.onCameOnline = { nodeId = transport.nodeId; scope.launch { reconnectSaved() } }
         try {
             transport.bind(Alpns.ALL)
         } catch (e: Throwable) {
@@ -146,15 +210,13 @@ class AzulaState(
             demoMode = true
             transport = FakeTransport().also { it.bind(Alpns.ALL) }
         }
+        nodeId = transport.nodeId
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
         scope.launch {
             runCatching {
                 transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream) }
             }
         }
-        // Re-dial peers we've paired with before so a bridge can immediately
-        // flush any messages it queued while we were backgrounded or closed.
-        reconnectSaved()
     }
 
     // ---- navigation ----
@@ -183,6 +245,7 @@ class AzulaState(
         if (conversation(convId).kind == ConversationKind.TERMINAL) { cs.draft = ""; terminalInput(convId, txt); return }
         cs.draft = ""
         cs.messages.add(Message(nextId("u"), Role.ME, text = txt))
+        persist(convId)
         val stream = cs.stream
         when {
             stream != null -> scope.launch {
@@ -216,6 +279,7 @@ class AzulaState(
             caption = caption,
         )
         cs.messages.add(Message(msgId, Role.ME, text = caption, attachments = listOf(attachment)))
+        persist(convId)
         val stream = cs.stream ?: return
         scope.launch {
             runCatching {
@@ -322,6 +386,7 @@ class AzulaState(
             delay(800)
             thinking = false
             reply.forEach { conv("azula").messages.add(it) }
+            persist("azula")
         }
     }
 
@@ -341,14 +406,16 @@ class AzulaState(
             }
         } else {
             surfaces[action.surfaceId]?.let { A2uiExamples.handleEvent(it, action) }
+            persist(convId)
         }
     }
 
     /**
      * Called when a two-way input (TextField, CheckBox, etc.) changes its value.
      */
-    fun onA2uiDataChange(surface: A2uiSurface, path: String, value: JsonElement) {
+    fun onA2uiDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) {
         surface.setData(path, value)
+        persist(convId)
     }
 
     // ---- connecting ----
@@ -361,7 +428,10 @@ class AzulaState(
         scope.launch {
             val anim = launch { while (connectStep < 2) { delay(650); connectStep++ } }
             val results = Alpns.ALL.map { alpn ->
-                async { runCatching { transport.connect(ticket, alpn) }.getOrNull()?.let { alpn to it } }
+                async {
+                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
+                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
+                }
             }.awaitAll().filterNotNull()
             anim.cancel()
             if (results.isEmpty()) {
@@ -426,6 +496,16 @@ class AzulaState(
         }
     }
 
+    /**
+     * Announce presence on a freshly-opened outbound stream by sending a [Frame.Hello]
+     * as its first frame. This is the "ping": it tells the remote we're online and,
+     * for a bridge, unblocks its accept loop so it flushes any mail queued for us.
+     * Best-effort — failures are swallowed by the caller.
+     */
+    private suspend fun ping(stream: P2pStream) {
+        stream.sendLine(FrameCodec.encode(Frame.Hello(transport.nodeId ?: "")))
+    }
+
     /** Remember a peer ticket (most-recent 10) so we can auto-reconnect later. */
     private fun persistPeer(ticket: String) {
         pairedPeerStore()?.let { store ->
@@ -450,7 +530,8 @@ class AzulaState(
                         coroutineScope {
                             Alpns.ALL.map { alpn ->
                                 async {
-                                    runCatching { transport.connect(ticket, alpn) }.getOrNull()?.let { alpn to it }
+                                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
+                                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
                                 }
                             }.awaitAll().filterNotNull()
                         }
@@ -520,6 +601,7 @@ class AzulaState(
                                     attachments = listOf(attachment),
                                 )
                             )
+                            persist(convId)
                         }
                         continue
                     }
@@ -537,6 +619,7 @@ class AzulaState(
     private fun applyFrame(convId: String, frame: Frame) {
         val cs = conv(convId)
         when (frame) {
+            is Frame.Hello -> Unit // presence ping from a peer/bridge; identity is handled at connect, nothing to render
             is Frame.Chat -> cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
             is Frame.Term -> cs.termScreen.feed(frame.line)
             is Frame.Thinking -> if (convId == "azula") thinking = frame.on
@@ -575,6 +658,8 @@ class AzulaState(
             // File frames are handled in receiveLoop directly; these are unreachable here.
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd -> Unit
         }
+        // Persist after applying — but not on every streamed token delta (only when done).
+        if (frame !is Frame.Token || frame.done) persist(convId)
     }
 
     companion object {

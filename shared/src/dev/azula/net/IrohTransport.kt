@@ -58,6 +58,14 @@ interface IrohTransport {
     fun incoming(): Flow<IncomingConnection>
 
     suspend fun shutdown()
+
+    /**
+     * Invoked at the end of every successful [bind] — the initial bind and any
+     * re-bind (e.g. Android foreground-resume). The app sets this to re-announce
+     * presence to saved peers/bridges so a bridge flushes any queued mail right
+     * away. Defaults to null.
+     */
+    var onCameOnline: (() -> Unit)?
 }
 
 /** Each platform supplies its concrete transport. */

@@ -22,6 +22,8 @@ class IosIrohTransport : IrohTransport {
     override var nodeId: String? = null
         private set
 
+    override var onCameOnline: (() -> Unit)? = null
+
     override suspend fun bind(alpns: List<String>) {
         // Reuse the persisted secret key so the node id (and "your code") stays
         // stable across launches, mirroring AndroidSecretKeyStore.
@@ -29,6 +31,7 @@ class IosIrohTransport : IrohTransport {
         endpoint = ep
         nodeId = ep.nodeId()
         runCatching { saveSecretKey(ep.secretKeyBytes()) }
+        onCameOnline?.invoke()
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""

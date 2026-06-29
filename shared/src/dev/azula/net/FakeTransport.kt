@@ -17,8 +17,11 @@ class FakeTransport : IrohTransport {
     override var nodeId: String? = null
         private set
 
+    override var onCameOnline: (() -> Unit)? = null
+
     override suspend fun bind(alpns: List<String>) {
         nodeId = "demo" + Random.nextInt(0x10000, 0xfffff).toString(16)
+        onCameOnline?.invoke()
     }
 
     override suspend fun myTicket(): String = "azula-demo-${nodeId ?: "offline"}"

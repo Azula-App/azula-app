@@ -11,9 +11,9 @@ import dev.azula.net.createTransport
  * tied to the root composition, i.e. the app's lifetime.
  */
 @Composable
-fun rememberAzulaState(): AzulaState {
+fun rememberAzulaState(isDemo: Boolean = false): AzulaState {
     val scope = rememberCoroutineScope()
-    val state = remember { AzulaState(createTransport(), scope) }
+    val state = remember { AzulaState(createTransport(), scope, isDemo) }
     LaunchedEffect(Unit) { state.start() }
     return state
 }

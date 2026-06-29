@@ -14,6 +14,8 @@ import dev.azula.link.handleDeepLink
 import dev.azula.net.AndroidPeerStore
 import dev.azula.net.IrohConfig
 import dev.azula.net.PeerStoreConfig
+import dev.azula.persist.AndroidMessageStore
+import dev.azula.persist.MessageStoreConfig
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +40,9 @@ class MainActivity : ComponentActivity() {
         // Persist paired peer tickets so we auto-reconnect on launch.
         PeerStoreConfig.store = AndroidPeerStore(applicationContext)
 
+        // Persist conversation history (text, attachments, A2UI surfaces).
+        MessageStoreConfig.store = AndroidMessageStore(applicationContext)
+
         // Treat app foreground/background as iroh lifecycle events: shut the
         // endpoint down cleanly when backgrounded, re-bind when we return.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -45,7 +50,9 @@ class MainActivity : ComponentActivity() {
             override fun onStart(owner: LifecycleOwner) { IrohConfig.activeTransport?.resume() }
         })
 
-        setContent { AzulaApp() }
+        // Demo/UI-test build: `adb shell am start --ez demo true …` enables seeds.
+        val isDemo = intent?.getBooleanExtra("demo", false) ?: false
+        setContent { AzulaApp(isDemo) }
 
         // A deeplink that launched us (cold start).
         intent?.dataString?.let { handleDeepLink(it) }

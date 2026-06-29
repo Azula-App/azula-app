@@ -48,15 +48,20 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     override var nodeId: String? = null
         private set
 
+    override var onCameOnline: (() -> Unit)? = null
+
     override suspend fun bind(alpns: List<String>) {
         this.alpns = alpns
         // bind reuses the persisted secret key (if any) and brings relays online
-        // in the background; see the Rust crate's `IrohEndpoint::bind`.
-        val ep = IrohEndpoint.bind(alpns, keyStore.load())
+        // in the background; see the Rust crate's `IrohEndpoint::bind`. A failing
+        // key store must not fail the bind — degrade to a fresh key, never to demo.
+        val stored = runCatching { keyStore.load() }.getOrNull()
+        val ep = IrohEndpoint.bind(alpns, stored)
         endpoint = ep
         nodeId = ep.nodeId()
         runCatching { keyStore.save(ep.secretKeyBytes()) }
         IrohConfig.activeTransport = this
+        onCameOnline?.invoke()
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""

@@ -29,6 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -74,11 +77,33 @@ fun A2uiSurfaceView(
     onAction: (A2uiAction) -> Unit,
     onDataModelChange: (path: String, value: JsonElement) -> Unit,
     modifier: Modifier = Modifier,
+    frozen: Boolean = false,
 ) {
     val root = surface.root() ?: return
     val rootId = root["id"]?.jsonPrimitive?.contentOrNull ?: "root"
     Box(modifier) {
-        RenderComponent(rootId, surface, onAction, onDataModelChange)
+        // When frozen (restored from disk / connection inactive / interaction over)
+        // render the final state grayed-out and inert: no callbacks wired, and an
+        // overlay swallows all pointer input so nothing below is interactive.
+        Box(if (frozen) Modifier.alpha(0.5f) else Modifier) {
+            RenderComponent(
+                rootId,
+                surface,
+                if (frozen) ({}) else onAction,
+                if (frozen) ({ _, _ -> }) else onDataModelChange,
+            )
+        }
+        if (frozen) {
+            Box(
+                Modifier.matchParentSize().pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 

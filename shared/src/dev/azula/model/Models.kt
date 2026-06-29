@@ -1,6 +1,9 @@
 package dev.azula.model
 
+import kotlinx.serialization.Serializable
+
 /** Who authored a message. */
+@Serializable
 enum class Role { ME, THEM, AZULA, SYSTEM }
 
 /** What kind of conversation a row in the sidebar represents. */

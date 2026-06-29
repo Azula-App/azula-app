@@ -3,11 +3,17 @@ product:
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
 # A shared source set + dependency scope for the two JVM-flavoured targets.
-# The iroh Kotlin binding (computer.iroh:iroh) is a JVM/JNA artifact, usable on
-# jvm and android but NOT on Kotlin/Native (iOS). Grouping them lets the real
-# transport live in src@jvmAndAndroid/ without duplication.
+# The iroh binding (app.azula.iroh:iroh-kmp, built from ../../iroh-kmp via Gobley)
+# provides JNI-backed UniFFI bindings whose async calls complete on Android. Its
+# jvm + android artifacts back the real transport in src@jvmAndAndroid/ without
+# duplication; iOS still uses the injected Swift bridge for now.
 aliases:
   - jvmAndAndroid: [jvm, android]
+
+# The iroh-kmp SDK is published to the local Maven repo (`./gradlew publishToMavenLocal`
+# in ../../iroh-kmp). Pull it from there.
+repositories:
+  - mavenLocal
 
 dependencies:
   - $compose.foundation: exported
@@ -15,7 +21,12 @@ dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
 
 dependencies@jvmAndAndroid:
-  - computer.iroh:iroh:1.0.0
+  - app.azula.iroh:iroh-kmp:0.1.0
+
+# iOS consumes the same SDK (Kotlin/Native klib + Rust staticlib), replacing the
+# injected Swift IrohLib bridge.
+dependencies@ios:
+  - app.azula.iroh:iroh-kmp:0.1.0
 
 dependencies@android:
   - androidx.activity:activity-compose:1.7.2  # for the system BackHandler

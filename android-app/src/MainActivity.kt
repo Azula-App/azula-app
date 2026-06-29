@@ -8,6 +8,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.core.view.WindowCompat
+import app.azula.iroh.IrohAndroid
 import dev.azula.AzulaApp
 import dev.azula.link.handleDeepLink
 import dev.azula.net.AndroidPeerStore
@@ -17,6 +18,11 @@ import dev.azula.net.PeerStoreConfig
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // iroh's DNS resolver reads the device's DNS servers through `ndk_context`,
+        // which must be initialized with the JavaVM + app context before any
+        // endpoint is bound. Do this first, once per process.
+        IrohAndroid.installAndroidContext(applicationContext)
 
         // Draw edge-to-edge (under the status/navigation bars and any camera
         // cutout); the Compose layer applies the safe-area insets to content so

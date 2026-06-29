@@ -1,10 +1,7 @@
 package dev.azula.net
 
-import computer.iroh.BiStream
-import computer.iroh.Endpoint
-import computer.iroh.EndpointOptions
-import computer.iroh.EndpointTicket
-import computer.iroh.presetN0
+import app.azula.iroh.IrohEndpoint
+import app.azula.iroh.IrohStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,13 +36,13 @@ object IrohConfig {
 }
 
 /**
- * Real iroh transport for JVM desktop and Android, over the `computer.iroh:iroh`
- * binding. The API mirrors iroh 1.0: bind an [Endpoint] with a preset + ALPNs,
- * connect by [EndpointTicket], and exchange bytes over a bidirectional [BiStream].
+ * Real iroh transport for JVM desktop and Android, over the `app.azula.iroh:iroh-kmp`
+ * binding. Unlike the published JNA artifact, this Gobley/JNI binding's async calls
+ * complete on Android, so [IrohEndpoint.bind] returns and the node comes online.
  */
 class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var endpoint: Endpoint? = null
+    private var endpoint: IrohEndpoint? = null
     private var alpns: List<String> = emptyList()
 
     override var nodeId: String? = null
@@ -53,47 +50,28 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
 
     override suspend fun bind(alpns: List<String>) {
         this.alpns = alpns
-        val alpnBytes = alpns.map { it.encodeToByteArray() }
-        val stored = keyStore.load()
-        val options = EndpointOptions().apply {
-            preset = presetN0()
-            this.alpns = alpnBytes
-            if (stored != null) secretKey = stored
-        }
-        val ep = Endpoint.bind(options)
+        // bind reuses the persisted secret key (if any) and brings relays online
+        // in the background; see the Rust crate's `IrohEndpoint::bind`.
+        val ep = IrohEndpoint.bind(alpns, keyStore.load())
         endpoint = ep
-        nodeId = ep.id().toString()
-        runCatching { keyStore.save(ep.secretKey().toBytes()) }
+        nodeId = ep.nodeId()
+        runCatching { keyStore.save(ep.secretKeyBytes()) }
         IrohConfig.activeTransport = this
-        // Bring discovery/relays online in the background; not required for addr().
-        scope.launch { runCatching { ep.online() } }
     }
 
-    override suspend fun myTicket(): String {
-        val ep = endpoint ?: return ""
-        return EndpointTicket.fromAddr(ep.addr()).toString()
-    }
+    override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
 
     override suspend fun connect(ticket: String, alpn: String): P2pStream {
         val ep = requireNotNull(endpoint) { "transport not bound" }
-        val addr = EndpointTicket.fromString(ticket).endpointAddr()
-        val conn = ep.connect(addr, alpn.encodeToByteArray())
-        return IrohP2pStream(conn.openBi())
+        return IrohP2pStream(ep.connect(ticket, alpn))
     }
 
     override fun incoming(): Flow<IncomingConnection> = channelFlow {
         val ep = endpoint ?: return@channelFlow
         while (isActive) {
-            val incoming = runCatching { ep.acceptNext() }.getOrNull() ?: break
-            launch {
-                runCatching {
-                    val accepting = incoming.accept()
-                    val conn = accepting.connect()
-                    val alpn = conn.alpn().decodeToString()
-                    val bi = conn.acceptBi()
-                    send(IncomingConnection(conn.remoteId().toString(), alpn, IrohP2pStream(bi)))
-                }
-            }
+            // acceptNext already completes the handshake and accepts a bi stream.
+            val conn = runCatching { ep.acceptNext() }.getOrNull() ?: break
+            send(IncomingConnection(conn.remoteId, conn.alpn, IrohP2pStream(conn.stream)))
         }
     }
 
@@ -115,25 +93,23 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
 }
 
 /** Wraps a bidirectional iroh stream as a newline-framed [P2pStream]. */
-private class IrohP2pStream(private val bi: BiStream) : P2pStream {
-    private val send = bi.send()
-    private val recv = bi.recv()
-    private val lines = LineBuffer { recv.read(65536u) }
+private class IrohP2pStream(private val stream: IrohStream) : P2pStream {
+    private val lines = LineBuffer { stream.recv(65536u) }
 
     override suspend fun sendLine(line: String) {
-        send.writeAll((line + "\n").encodeToByteArray())
+        stream.sendBytes((line + "\n").encodeToByteArray())
     }
 
     override suspend fun receiveLine(): String? = lines.readLine()
 
     override suspend fun sendBytes(bytes: ByteArray) {
-        send.writeAll(bytes)
+        stream.sendBytes(bytes)
     }
 
     override suspend fun receiveBytes(n: Int): ByteArray? = lines.readBytes(n)
 
     override suspend fun close() {
-        runCatching { send.finish() }
+        runCatching { stream.finish() }
     }
 }
 

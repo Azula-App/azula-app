@@ -197,8 +197,6 @@ class AzulaState(
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         if (!isDemo) loadPersisted()
-        // An incoming deeplink (azula://connect?code= / azula.app/s/<token>) dials it.
-        DeepLinkBus.setHandler { token -> connectPeer(token) }
         // Whenever the transport (re)binds — cold start and Android foreground-
         // resume — re-dial saved peers/bridges and ping them, so a bridge can
         // immediately flush any messages it queued while we were offline.
@@ -217,6 +215,10 @@ class AzulaState(
                 transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream) }
             }
         }
+        // Register the deeplink handler AFTER bind so a buffered or cold-start
+        // token (azula://connect?code= / azula.app/s/<token>, or AZULA_CONNECT)
+        // dials an already-bound transport rather than racing the bind.
+        DeepLinkBus.setHandler { token -> connectPeer(token) }
     }
 
     // ---- navigation ----

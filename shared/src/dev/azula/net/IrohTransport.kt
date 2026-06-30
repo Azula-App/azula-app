@@ -54,6 +54,13 @@ interface IrohTransport {
     /** Dial a peer by ticket on the given ALPN, opening a fresh stream. */
     suspend fun connect(ticket: String, alpn: String): P2pStream
 
+    /**
+     * The peer's hex node id decoded from a ticket, without dialing — so an
+     * outbound conversation can be keyed/named after the peer (inbound ones use
+     * [IncomingConnection.remoteId]). Returns null if the ticket can't be parsed.
+     */
+    fun peerIdForTicket(ticket: String): String?
+
     /** Connections peers dial to us. */
     fun incoming(): Flow<IncomingConnection>
 

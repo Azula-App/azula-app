@@ -1,7 +1,12 @@
 appId: app.azula
 ---
-# Home screen
-- launchApp
+# Home screen. The shipping build starts empty; the seeded demo personas this flow
+# asserts only exist in the demo build, enabled via the `demo` intent extra.
+# clearState ensures no saved peers add dynamically-named conversations.
+- launchApp:
+    clearState: true
+    arguments:
+      demo: true
 - takeScreenshot: e2e/screenshots/android-home
 - assertVisible: "azula"
 - assertVisible: "CONVERSATIONS"

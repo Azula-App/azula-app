@@ -3,6 +3,7 @@ package dev.azula.persist
 import dev.azula.a2ui.A2uiSurface
 import dev.azula.a2ui.UpdateComponents
 import dev.azula.model.Attachment
+import dev.azula.model.ConversationKind
 import dev.azula.model.Message
 import dev.azula.model.Role
 import kotlinx.serialization.Serializable
@@ -22,13 +23,13 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  * [dev.azula.net.PeerStore] expect/actual + injectable-config pattern.
  */
 interface MessageStore {
-    fun load(conversationId: String): List<MessageDto>
-    fun save(conversationId: String, messages: List<MessageDto>)
+    fun load(conversationId: String): ConversationDto?
+    fun save(conversationId: String, conversation: ConversationDto)
 
     /**
-     * Ids of every conversation with saved history. Used to restore dynamic
-     * conversations (named app/game servers like Blackjack) on launch, since
-     * those aren't in the fixed conversation set. Defaults to empty.
+     * Ids of every conversation with saved history. Used to restore the (now
+     * per-peer, dynamically-named) conversations on launch, since the shipping
+     * build has no fixed conversation set. Defaults to empty.
      */
     fun list(): List<String> = emptyList()
 }
@@ -77,19 +78,35 @@ data class MessageDto(
     val attachments: List<AttachmentDto> = emptyList(),
 )
 
+/**
+ * A persisted conversation: its identity (name/kind/glyph/sub/preview) plus its
+ * messages. The identity is stored because, in the per-peer model, a conversation
+ * is named after the peer (announced name or code) and must come back the same way
+ * on restart — it's not re-derivable from the id alone.
+ */
+@Serializable
+data class ConversationDto(
+    val name: String,
+    val kind: ConversationKind,
+    val glyph: String,
+    val sub: String = "",
+    val preview: String = "",
+    val messages: List<MessageDto> = emptyList(),
+)
+
 // ---------------------------------------------------------------------------
 // JSON + string codec (explicit serializers — no reified generics in actuals)
 // ---------------------------------------------------------------------------
 
 val MessageJson: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-private val listSerializer = ListSerializer(MessageDto.serializer())
+private val convSerializer = ConversationDto.serializer()
 
-fun encodeMessages(messages: List<MessageDto>): String =
-    MessageJson.encodeToString(listSerializer, messages)
+fun encodeConversation(conversation: ConversationDto): String =
+    MessageJson.encodeToString(convSerializer, conversation)
 
-fun decodeMessages(text: String): List<MessageDto> =
-    runCatching { MessageJson.decodeFromString(listSerializer, text) }.getOrDefault(emptyList())
+fun decodeConversation(text: String): ConversationDto? =
+    runCatching { MessageJson.decodeFromString(convSerializer, text) }.getOrNull()
 
 // ---------------------------------------------------------------------------
 // Mapping domain <-> DTO

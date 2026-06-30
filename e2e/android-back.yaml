@@ -1,7 +1,11 @@
 appId: app.azula
 ---
 # System back should navigate within the app (chat → home), not exit it.
-- launchApp
+# Demo build (seeded personas) via the `demo` intent extra; clean state.
+- launchApp:
+    clearState: true
+    arguments:
+      demo: true
 - assertVisible: "CONVERSATIONS"
 - tapOn:
     text: "tap to ask or play"

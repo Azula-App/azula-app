@@ -31,6 +31,7 @@ import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.NotifierConfig
+import dev.azula.persist.ConversationDto
 import dev.azula.persist.activeMessageStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
@@ -72,36 +73,36 @@ class AzulaState(
      *  skips message persistence. The shipping build defaults this to false. */
     val isDemo: Boolean = false,
 ) {
-    // Conversation shells always exist (needed for ALPN→conversation routing); only
-    // the seeded demo flavor text differs between the demo and shipping builds.
+    // The shipping build starts EMPTY: conversations are created per-peer when you
+    // actually connect to something, named after the other side (see ensureConv).
+    // The demo/UI-test build keeps the three seeded personas (Maestro depends on them).
     val conversations = mutableStateListOf<Conversation>().also {
-        it.addAll(
-            if (isDemo) listOf(
+        if (isDemo) it.addAll(
+            listOf(
                 Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
                 Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
                 Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
-            ) else listOf(
-                Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm", ""),
-                Conversation("zuko", "zuko", ConversationKind.PEER, "z", "peer · p2p", ""),
-                Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "remote shell", ""),
             )
         )
     }
 
-    private val convState = mutableStateMapOf(
-        "azula" to ConversationState(if (isDemo) seedAzula() else emptyList()),
-        "zuko" to ConversationState(if (isDemo) seedZuko() else emptyList()),
-        "term" to ConversationState(emptyList()),
-    )
+    private val convState = mutableStateMapOf<String, ConversationState>().also {
+        if (isDemo) {
+            it["azula"] = ConversationState(seedAzula())
+            it["zuko"] = ConversationState(seedZuko())
+            it["term"] = ConversationState(emptyList())
+        }
+    }
 
-    // Desktop: a conversation id, or "connect".
-    var desktopActive by mutableStateOf("azula")
+    // Desktop: a conversation id, or "connect" (the default landing — and the only
+    // valid view when the list is empty).
+    var desktopActive by mutableStateOf(if (isDemo) "azula" else "connect")
         private set
 
     // Mobile navigation.
     var mScreen by mutableStateOf(MScreen.HOME)
         private set
-    var mActive by mutableStateOf("azula")
+    var mActive by mutableStateOf(if (isDemo) "azula" else "")
         private set
 
     var thinking by mutableStateOf(false)
@@ -161,78 +162,117 @@ class AzulaState(
 
     fun conv(id: String): ConversationState = convState.getValue(id)
     fun conversation(id: String): Conversation = conversations.first { it.id == id }
+    fun convOrNull(id: String): ConversationState? = convState[id]
+    fun conversationOrNull(id: String): Conversation? = conversations.firstOrNull { it.id == id }
 
     /**
-     * Get — or lazily create — a conversation by display name. Used for named
-     * app/game servers (e.g. Blackjack) that announce themselves via a [Frame.Hello]
-     * so their A2UI surface gets its own thread instead of the shared "azula" one.
+     * Get — or create — the conversation for [peerId] (one conversation per peer).
+     * [kind] is derived from the ALPN; [announcedName] (a server's Hello, e.g.
+     * "Blackjack"/"azula") becomes the title, otherwise the peer's mnemonic code is.
+     * The code is always shown as the secondary line, so the row reads as the
+     * announced name + the peer code. A higher-priority service (CHAT > LLM > TERM)
+     * upgrades the kind of an existing conversation.
      */
-    private fun ensureConversation(name: String): String {
-        val id = name
-        if (convState.containsKey(id)) return id
+    private fun ensureConv(peerId: String, kind: ConversationKind, announcedName: String? = null): String {
+        val id = peerId
+        val code = mnemonicCode(peerId)
+        val existing = conversationOrNull(id)
+        if (existing != null) {
+            val newKind = if (kindPriority(kind) > kindPriority(existing.kind)) kind else existing.kind
+            val newName = announcedName ?: existing.name
+            if (newKind != existing.kind || newName != existing.name) {
+                val idx = conversations.indexOfFirst { it.id == id }
+                if (idx >= 0) conversations[idx] = existing.copy(
+                    name = newName,
+                    kind = newKind,
+                    glyph = glyphFor(newName, newKind),
+                    preview = if (newName != code) code else "",
+                )
+            }
+            return id
+        }
         convState[id] = ConversationState(emptyList())
-        val glyph = if (name.equals("blackjack", ignoreCase = true)) "♠" else name.take(1).uppercase()
-        conversations.add(Conversation(id, name, ConversationKind.LLM, glyph, "app · p2p over iroh", ""))
+        val name = announcedName ?: code
+        conversations.add(
+            Conversation(id, name, kind, glyphFor(name, kind), sub = code, preview = if (name != code) code else "")
+        )
         return id
+    }
+
+    private fun kindPriority(k: ConversationKind): Int = when (k) {
+        ConversationKind.PEER -> 3
+        ConversationKind.LLM -> 2
+        ConversationKind.TERMINAL -> 1
+    }
+
+    private fun glyphFor(name: String, kind: ConversationKind): String = when {
+        name.equals("blackjack", ignoreCase = true) -> "♠"
+        kind == ConversationKind.TERMINAL -> "›_"
+        kind == ConversationKind.LLM -> "✦"
+        else -> name.firstOrNull()?.uppercaseChar()?.toString() ?: "•"
     }
 
     // ---- message persistence (shipping build only) ----
 
-    /** Restore every conversation's saved history from disk into [convState]. */
+    /** Restore every saved conversation (identity + history) from disk. */
     private fun loadPersisted() {
         val store = activeMessageStore() ?: return
-        // Recreate dynamic (named app/game) conversations saved last session, so
-        // their restored surface is shown (frozen) like the fixed conversations.
-        for (id in runCatching { store.list() }.getOrDefault(emptyList())) {
-            if (!convState.containsKey(id)) ensureConversation(id)
-        }
         var maxSuffix = -1
-        for (id in convState.keys.toList()) {
-            val dtos = runCatching { store.load(id) }.getOrDefault(emptyList())
-            if (dtos.isEmpty()) continue
-            val cs = convState[id] ?: continue
+        for (id in runCatching { store.list() }.getOrDefault(emptyList())) {
+            val dto = runCatching { store.load(id) }.getOrNull() ?: continue
+            val cs = convState.getOrPut(id) { ConversationState(emptyList()) }
             cs.messages.clear()
             // Restored A2UI surfaces are intentionally NOT registered in [surfaces]
             // so they render frozen (see Chat's `frozen` predicate).
-            cs.messages.addAll(dtos.map { it.toMessage() })
-            // Track the highest numeric id suffix among restored messages.
-            for (dto in dtos) {
-                val n = dto.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
+            cs.messages.addAll(dto.messages.map { it.toMessage() })
+            if (conversationOrNull(id) == null) {
+                conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview))
+            }
+            for (m in dto.messages) {
+                val n = m.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
                 if (n > maxSuffix) maxSuffix = n
             }
         }
-        // idCounter resets to 0 each launch, but restored messages carry ids
-        // minted in a previous session; advance past them so newly-generated ids
-        // can't collide (a duplicate id crashes the message LazyColumn).
+        // idCounter resets to 0 each launch, but restored messages carry ids minted
+        // in a previous session; advance past them so newly-generated ids can't
+        // collide (a duplicate id crashes the message LazyColumn).
         if (maxSuffix >= 0) idCounter = maxSuffix + 1
     }
 
     /**
-     * Serialize and save a conversation's full history off the main thread. The
-     * DTO snapshot is mapped synchronously (preserving call order), then written
-     * on a single-threaded dispatcher so rapid successive saves can't race and
-     * clobber each other with a stale snapshot.
+     * Serialize and save a conversation's identity + full history off the main
+     * thread, on a single-threaded dispatcher so rapid successive saves can't race.
      */
     private fun persist(convId: String) {
         if (isDemo) return
         val store = activeMessageStore() ?: return
         val cs = convState[convId] ?: return
-        val dtos = cs.messages.map { it.toDto() }
+        val meta = conversationOrNull(convId)
+        val dto = ConversationDto(
+            name = meta?.name ?: convId,
+            kind = meta?.kind ?: ConversationKind.PEER,
+            glyph = meta?.glyph ?: "•",
+            sub = meta?.sub ?: "",
+            preview = meta?.preview ?: "",
+            messages = cs.messages.map { it.toDto() },
+        )
         scope.launch(saveDispatcher) {
-            runCatching { store.save(convId, dtos) }
+            runCatching { store.save(convId, dto) }
         }
     }
 
-    /** A cosmetic, human-friendly label derived from the node id. Copy uses [myCode]. */
+    /** A human-friendly label derived from any node id (our own or a peer's). */
+    fun mnemonicCode(id: String): String {
+        val h = id.filter { it.isLetterOrDigit() }
+        if (h.length < 4) return "··· offline"
+        val words = MNEMONICS
+        fun pick(i: Int) = words[(h[i % h.length].code) % words.size]
+        return "${h.take(2)} · ${pick(2)} · ${pick(5)}"
+    }
+
+    /** Our own code for display. Copy uses [myCode]. */
     val shortCode: String
-        get() {
-            val src = nodeId ?: return "connecting…"
-            val h = src.filter { it.isLetterOrDigit() }
-            if (h.length < 4) return "··· offline"
-            val words = MNEMONICS
-            fun pick(i: Int) = words[(h[i % h.length].code) % words.size]
-            return "${h.take(2)} · ${pick(2)} · ${pick(5)}"
-        }
+        get() = nodeId?.let { mnemonicCode(it) } ?: "connecting…"
 
     // ---- lifecycle ----
 
@@ -255,7 +295,7 @@ class AzulaState(
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
         scope.launch {
             runCatching {
-                transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream) }
+                transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream, inc.remoteId) }
             }
         }
         // Register the deeplink handler AFTER bind so a buffered or cold-start
@@ -296,7 +336,8 @@ class AzulaState(
             stream != null -> scope.launch {
                 runCatching { stream.sendLine(FrameCodec.encode(Frame.Chat(txt))) }
             }
-            convId == "azula" -> azulaReply(txt)
+            // Offline LLM conversation: fall back to the canned local assistant.
+            conversationOrNull(convId)?.kind == ConversationKind.LLM -> azulaReply(convId, txt)
         }
     }
 
@@ -377,7 +418,7 @@ class AzulaState(
 
     // ---- canned azula (used until a real LLM stream is wired) ----
 
-    private fun azulaReply(userTxt: String) {
+    private fun azulaReply(convId: String, userTxt: String) {
         thinking = true
         val low = userTxt.lowercase()
         val reply: List<Message> = when {
@@ -430,8 +471,8 @@ class AzulaState(
         scope.launch {
             delay(800)
             thinking = false
-            reply.forEach { conv("azula").messages.add(it) }
-            persist("azula")
+            reply.forEach { conv(convId).messages.add(it) }
+            persist(convId)
         }
     }
 
@@ -484,20 +525,20 @@ class AzulaState(
                 return@launch
             }
             connectStep = 3
-            results.forEach { (alpn, stream) -> wireStream(alpn, stream) }
+            // One conversation per peer: keep the highest-priority service the peer
+            // accepts (CHAT > LLM > TERM) and close the rest, so a peer that accepts
+            // every ALPN doesn't spawn three duplicate rows.
+            val primary = results.maxBy { kindPriority(kindForAlpn(it.first)) }
+            results.filter { it !== primary }.forEach { (_, s) -> scope.launch { runCatching { s.close() } } }
+            val peerId = transport.peerIdForTicket(ticket) ?: ("t" + ticket.hashCode().toString(16))
+            val convId = wireStream(primary.first, primary.second, peerId)
             persistPeer(ticket)
-            // Remember which connection each conversation came from so we can
-            // spawn sibling sessions over it without re-pairing.
-            results.forEach { (alpn, _) -> convIdForAlpn(alpn)?.let { conv(it).sourceTicket = ticket } }
+            // Remember the ticket so we can spawn sibling sessions over it (no re-pair).
+            convId?.let { convOrNull(it)?.sourceTicket = ticket }
             rttMs = 12
             connectStage = ConnectStage.CONNECTED
             delay(1200)
-            val target = when {
-                results.any { it.first == Alpns.CHAT } -> "zuko"
-                results.any { it.first == Alpns.LLM } -> "azula"
-                else -> "term"
-            }
-            navigateAfterConnect(target)
+            if (convId != null) navigateAfterConnect(convId)
             connectStage = ConnectStage.IDLE
             connectInput = ""
             connectStep = 0
@@ -525,15 +566,11 @@ class AzulaState(
         }
         scope.launch {
             val stream = runCatching { transport.connect(ticket, alpn) }.getOrNull() ?: return@launch
-            val n = conversations.count { it.kind == kind } + 1
+            val base = conversationOrNull(convId)?.name ?: mnemonicCode(transport.peerIdForTicket(ticket) ?: ticket)
+            val n = conversations.count { convOrNull(it.id)?.sourceTicket == ticket && it.kind == kind } + 1
             val id = nextId("sess")
-            val (name, glyph, sub) = when (kind) {
-                ConversationKind.TERMINAL -> Triple("terminal $n", "›_", "live session")
-                ConversationKind.LLM -> Triple("session $n", "✦", "llm · live")
-                ConversationKind.PEER -> Triple("peer $n", "z", "direct p2p")
-            }
             convState[id] = ConversationState(emptyList()).also { it.sourceTicket = ticket }
-            conversations.add(Conversation(id, name, kind, glyph, sub, "new session"))
+            conversations.add(Conversation(id, "$base · session $n", kind, glyphFor(base, kind), sub = "live session", preview = ""))
             wireConv(id, stream, isTerminal = kind == ConversationKind.TERMINAL)
             mActive = id
             desktopActive = id
@@ -569,6 +606,7 @@ class AzulaState(
         val saved = pairedPeerStore()?.load().orEmpty()
         if (saved.isEmpty()) return
         saved.forEach { ticket ->
+            val peerId = transport.peerIdForTicket(ticket) ?: return@forEach
             scope.launch {
                 repeat(3) {
                     val results = runCatching {
@@ -582,7 +620,11 @@ class AzulaState(
                         }
                     }.getOrDefault(emptyList())
                     if (results.isNotEmpty()) {
-                        results.forEach { (alpn, stream) -> wireStream(alpn, stream, replace = false) }
+                        // Same "one conversation per peer" collapse as connectPeer.
+                        val primary = results.maxBy { kindPriority(kindForAlpn(it.first)) }
+                        results.filter { it !== primary }.forEach { (_, s) -> runCatching { s.close() } }
+                        val id = wireStream(primary.first, primary.second, peerId, replace = false)
+                        id?.let { convOrNull(it)?.sourceTicket = ticket }
                         return@launch
                     }
                     delay(700)
@@ -593,16 +635,25 @@ class AzulaState(
 
     // ---- stream wiring + incoming frames ----
 
-    private fun convIdForAlpn(alpn: String): String? = when (alpn) {
-        Alpns.CHAT -> "zuko"
-        Alpns.LLM -> "azula"
-        Alpns.TERM -> "term"
-        else -> null
+    private fun kindForAlpn(alpn: String): ConversationKind = when (alpn) {
+        Alpns.CHAT -> ConversationKind.PEER
+        Alpns.LLM -> ConversationKind.LLM
+        Alpns.TERM -> ConversationKind.TERMINAL
+        else -> ConversationKind.PEER
     }
 
-    private fun wireStream(alpn: String, stream: P2pStream, replace: Boolean = true) {
-        val convId = convIdForAlpn(alpn) ?: return
+    /** Wire [stream] into the conversation for [peerId] (created/named on demand). */
+    private fun wireStream(
+        alpn: String,
+        stream: P2pStream,
+        peerId: String,
+        announcedName: String? = null,
+        replace: Boolean = true,
+    ): String? {
+        if (peerId.isBlank()) { scope.launch { runCatching { stream.close() } }; return null }
+        val convId = ensureConv(peerId, kindForAlpn(alpn), announcedName)
         wireConv(convId, stream, isTerminal = alpn == Alpns.TERM, replace = replace)
+        return convId
     }
 
     /** Attach a live [stream] to [convId], replacing any current one unless [replace] is false. */
@@ -619,26 +670,21 @@ class AzulaState(
         receiveLoop(convId, stream)
     }
 
-    private fun receiveLoop(initialConvId: String, stream: P2pStream) {
+    private fun receiveLoop(convId: String, stream: P2pStream) {
         scope.launch {
-            var convId = initialConvId
             try {
                 while (true) {
                     val line = stream.receiveLine() ?: break
                     if (line.isBlank()) continue
                     val frame = runCatching { FrameCodec.decode(line) }.getOrNull() ?: continue
-                    // A named LLM app/game server (Hello) gets its own conversation:
-                    // hand this stream over to it so its surface doesn't land in "azula".
-                    if (frame is Frame.Hello && frame.name.isNotBlank() && convId == "azula") {
-                        val named = ensureConversation(frame.name)
-                        if (named != convId) {
-                            conv(convId).let { if (it.stream === stream) { it.online = false; it.stream = null } }
-                            conv(named).also {
-                                it.sourceTicket = conv(convId).sourceTicket ?: it.sourceTicket
-                                it.stream = stream
-                                it.online = true
-                            }
-                            convId = named
+                    // The conversation is already keyed by the peer's node id. A Hello
+                    // whose name differs from that id is a *friendly announcement*
+                    // (a bridge "azula", a game "Blackjack") — show it as the title
+                    // (the peer code stays the subtitle). A Hello equal to the id is
+                    // just the peer's presence ping; ignore it for naming.
+                    if (frame is Frame.Hello) {
+                        if (frame.name.isNotBlank() && frame.name != convId) {
+                            ensureConv(convId, conversationOrNull(convId)?.kind ?: kindForAlpn(Alpns.LLM), frame.name)
                         }
                         continue
                     }
@@ -687,7 +733,7 @@ class AzulaState(
                 notifyIncoming(convId, frame.text)
             }
             is Frame.Term -> cs.termScreen.feed(frame.line)
-            is Frame.Thinking -> if (convId == "azula") thinking = frame.on
+            is Frame.Thinking -> if (conversationOrNull(convId)?.kind == ConversationKind.LLM) thinking = frame.on
             is Frame.A2ui -> {
                 val msg = A2uiCodec.parse(frame.message.toString()) ?: return
                 when (msg) {
@@ -703,7 +749,7 @@ class AzulaState(
             }
             is Frame.A2uiAction -> Unit // client→server only; ignored on receive
             is Frame.Token -> {
-                val role = if (convId == "azula") Role.AZULA else Role.THEM
+                val role = if (conversationOrNull(convId)?.kind == ConversationKind.LLM) Role.AZULA else Role.THEM
                 if (cs.streamingMsgId == null && !frame.done) {
                     val id = nextId("s")
                     cs.streamingMsgId = id

@@ -76,8 +76,17 @@ private fun MobileHome(state: AzulaState) {
         }
         SectionLabel("CONVERSATIONS")
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (state.conversations.isEmpty()) {
+                item {
+                    Text(
+                        "No conversations yet — connect a peer to begin.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
+                }
+            }
             items(state.conversations, key = { it.id }) { conv ->
-                ConversationRow(conv = conv, active = false, online = state.conv(conv.id).online) { state.openChatMobile(conv.id) }
+                ConversationRow(conv = conv, active = false, online = state.convOrNull(conv.id)?.online == true) { state.openChatMobile(conv.id) }
             }
         }
     }

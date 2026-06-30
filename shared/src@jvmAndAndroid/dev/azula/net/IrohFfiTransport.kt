@@ -2,6 +2,7 @@ package dev.azula.net
 
 import app.azula.iroh.IrohEndpoint
 import app.azula.iroh.IrohStream
+import app.azula.iroh.nodeIdFromTicket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,6 +71,9 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
         val ep = requireNotNull(endpoint) { "transport not bound" }
         return IrohP2pStream(ep.connect(ticket, alpn))
     }
+
+    override fun peerIdForTicket(ticket: String): String? =
+        runCatching { nodeIdFromTicket(ticket) }.getOrNull()
 
     override fun incoming(): Flow<IncomingConnection> = channelFlow {
         val ep = endpoint ?: return@channelFlow

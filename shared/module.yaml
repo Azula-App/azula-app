@@ -21,12 +21,12 @@ dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
 
 dependencies@jvmAndAndroid:
-  - app.azula.iroh:iroh-kmp:0.1.0
+  - app.azula.iroh:iroh-kmp:0.1.1
 
 # iOS consumes the same SDK (Kotlin/Native klib + Rust staticlib), replacing the
 # injected Swift IrohLib bridge.
 dependencies@ios:
-  - app.azula.iroh:iroh-kmp:0.1.0
+  - app.azula.iroh:iroh-kmp:0.1.1
 
 dependencies@android:
   - androidx.activity:activity-compose:1.7.2  # for the system BackHandler

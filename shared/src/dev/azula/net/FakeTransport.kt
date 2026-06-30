@@ -31,6 +31,10 @@ class FakeTransport : IrohTransport {
         return LoopbackStream()
     }
 
+    /** A stable fake peer id derived from the ticket, so demo conversations key consistently. */
+    override fun peerIdForTicket(ticket: String): String =
+        "demo" + (ticket.hashCode().toLong() and 0xffffffffL).toString(16)
+
     override fun incoming(): Flow<IncomingConnection> = emptyFlow()
 
     override suspend fun shutdown() {}

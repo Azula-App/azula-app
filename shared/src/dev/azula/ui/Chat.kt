@@ -67,7 +67,15 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
-    val conv = state.conversation(convId)
+    val conv = state.conversationOrNull(convId) ?: run {
+        Box(
+            modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Connect a peer to start a conversation.", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 13.sp)
+        }
+        return
+    }
     val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
         ChatHeader(state, conv, onBack)
@@ -135,7 +143,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
 fun MessageThread(state: AzulaState, convId: String) {
     val cs = state.conv(convId)
     val listState = rememberLazyListState()
-    val thinking = convId == "azula" && state.thinking
+    val thinking = state.conversationOrNull(convId)?.kind == ConversationKind.LLM && state.thinking
     val count = cs.messages.size + if (thinking) 1 else 0
     LaunchedEffect(count) { if (count > 0) listState.animateScrollToItem(count - 1) }
     LazyColumn(

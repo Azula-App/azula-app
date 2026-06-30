@@ -43,11 +43,20 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(6.dp))
         SectionLabel("CONVERSATIONS")
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (state.conversations.isEmpty()) {
+                item {
+                    Text(
+                        "No conversations yet — connect a peer to begin.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                    )
+                }
+            }
             items(state.conversations, key = { it.id }) { conv ->
                 ConversationRow(
                     conv = conv,
                     active = state.desktopActive == conv.id,
-                    online = state.conv(conv.id).online,
+                    online = state.convOrNull(conv.id)?.online == true,
                     onClick = { state.selectDesktop(conv.id) },
                 )
             }

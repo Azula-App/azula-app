@@ -13,15 +13,15 @@ class AndroidMessageStore(context: Context) : MessageStore {
 
     private fun file(id: String) = File(dir, sanitize(id) + ".json")
 
-    override fun load(conversationId: String): List<MessageDto> = runCatching {
+    override fun load(conversationId: String): ConversationDto? = runCatching {
         val f = file(conversationId)
-        if (!f.exists()) emptyList() else decodeMessages(f.readText())
-    }.getOrDefault(emptyList())
+        if (!f.exists()) null else decodeConversation(f.readText())
+    }.getOrNull()
 
-    override fun save(conversationId: String, messages: List<MessageDto>) {
+    override fun save(conversationId: String, conversation: ConversationDto) {
         runCatching {
             dir.mkdirs()
-            file(conversationId).writeText(encodeMessages(messages))
+            file(conversationId).writeText(encodeConversation(conversation))
         }
     }
 

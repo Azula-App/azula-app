@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 enum class Role { ME, THEM, AZULA, SYSTEM }
 
 /** What kind of conversation a row in the sidebar represents. */
+@Serializable
 enum class ConversationKind { LLM, PEER, TERMINAL }
 
 /** A conversation shown in the sidebar / mobile home. */

@@ -14,13 +14,13 @@ class NsUserDefaultsMessageStore : MessageStore {
 
     private fun key(id: String) = "azula_conv_$id"
 
-    override fun load(conversationId: String): List<MessageDto> = runCatching {
-        val s = defaults.stringForKey(key(conversationId)) ?: return emptyList()
-        decodeMessages(s)
-    }.getOrDefault(emptyList())
+    override fun load(conversationId: String): ConversationDto? = runCatching {
+        val s = defaults.stringForKey(key(conversationId)) ?: return null
+        decodeConversation(s)
+    }.getOrNull()
 
-    override fun save(conversationId: String, messages: List<MessageDto>) {
-        runCatching { defaults.setObject(encodeMessages(messages), key(conversationId)) }
+    override fun save(conversationId: String, conversation: ConversationDto) {
+        runCatching { defaults.setObject(encodeConversation(conversation), key(conversationId)) }
     }
 
     override fun list(): List<String> = runCatching {

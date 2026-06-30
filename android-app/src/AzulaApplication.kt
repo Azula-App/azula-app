@@ -53,6 +53,8 @@ class AzulaApplication : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AppStateHost.shared?.setForeground(true)
+                // Rebind if a previous "Stop" paused the node (no-op otherwise).
+                IrohConfig.activeTransport?.resume()
                 ContextCompat.startForegroundService(
                     this@AzulaApplication, Intent(this@AzulaApplication, IrohService::class.java)
                 )

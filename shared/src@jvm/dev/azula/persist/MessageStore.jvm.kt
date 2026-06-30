@@ -21,6 +21,11 @@ class FileMessageStore : MessageStore {
             file(conversationId).writeText(encodeMessages(messages))
         }
     }
+
+    override fun list(): List<String> = runCatching {
+        dir.listFiles()?.filter { it.isFile && it.name.endsWith(".json") }
+            ?.map { it.name.removeSuffix(".json") } ?: emptyList()
+    }.getOrDefault(emptyList())
 }
 
 private fun sanitize(s: String): String =

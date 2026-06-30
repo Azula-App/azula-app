@@ -22,4 +22,12 @@ class NsUserDefaultsMessageStore : MessageStore {
     override fun save(conversationId: String, messages: List<MessageDto>) {
         runCatching { defaults.setObject(encodeMessages(messages), key(conversationId)) }
     }
+
+    override fun list(): List<String> = runCatching {
+        val prefix = "azula_conv_"
+        defaults.dictionaryRepresentation().keys
+            .mapNotNull { it as? String }
+            .filter { it.startsWith(prefix) }
+            .map { it.removePrefix(prefix) }
+    }.getOrDefault(emptyList())
 }

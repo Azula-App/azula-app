@@ -148,11 +148,31 @@ class AzulaState(
     fun conv(id: String): ConversationState = convState.getValue(id)
     fun conversation(id: String): Conversation = conversations.first { it.id == id }
 
+    /**
+     * Get — or lazily create — a conversation by display name. Used for named
+     * app/game servers (e.g. Blackjack) that announce themselves via a [Frame.Hello]
+     * so their A2UI surface gets its own thread instead of the shared "azula" one.
+     */
+    private fun ensureConversation(name: String): String {
+        val id = name
+        if (convState.containsKey(id)) return id
+        convState[id] = ConversationState(emptyList())
+        val glyph = if (name.equals("blackjack", ignoreCase = true)) "♠" else name.take(1).uppercase()
+        conversations.add(Conversation(id, name, ConversationKind.LLM, glyph, "app · p2p over iroh", ""))
+        return id
+    }
+
     // ---- message persistence (shipping build only) ----
 
     /** Restore every conversation's saved history from disk into [convState]. */
     private fun loadPersisted() {
         val store = activeMessageStore() ?: return
+        // Recreate dynamic (named app/game) conversations saved last session, so
+        // their restored surface is shown (frozen) like the fixed conversations.
+        for (id in runCatching { store.list() }.getOrDefault(emptyList())) {
+            if (!convState.containsKey(id)) ensureConversation(id)
+        }
+        var maxSuffix = -1
         for (id in convState.keys.toList()) {
             val dtos = runCatching { store.load(id) }.getOrDefault(emptyList())
             if (dtos.isEmpty()) continue
@@ -161,7 +181,16 @@ class AzulaState(
             // Restored A2UI surfaces are intentionally NOT registered in [surfaces]
             // so they render frozen (see Chat's `frozen` predicate).
             cs.messages.addAll(dtos.map { it.toMessage() })
+            // Track the highest numeric id suffix among restored messages.
+            for (dto in dtos) {
+                val n = dto.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
+                if (n > maxSuffix) maxSuffix = n
+            }
         }
+        // idCounter resets to 0 each launch, but restored messages carry ids
+        // minted in a previous session; advance past them so newly-generated ids
+        // can't collide (a duplicate id crashes the message LazyColumn).
+        if (maxSuffix >= 0) idCounter = maxSuffix + 1
     }
 
     /**
@@ -576,13 +605,29 @@ class AzulaState(
         receiveLoop(convId, stream)
     }
 
-    private fun receiveLoop(convId: String, stream: P2pStream) {
+    private fun receiveLoop(initialConvId: String, stream: P2pStream) {
         scope.launch {
+            var convId = initialConvId
             try {
                 while (true) {
                     val line = stream.receiveLine() ?: break
                     if (line.isBlank()) continue
                     val frame = runCatching { FrameCodec.decode(line) }.getOrNull() ?: continue
+                    // A named LLM app/game server (Hello) gets its own conversation:
+                    // hand this stream over to it so its surface doesn't land in "azula".
+                    if (frame is Frame.Hello && frame.name.isNotBlank() && convId == "azula") {
+                        val named = ensureConversation(frame.name)
+                        if (named != convId) {
+                            conv(convId).let { if (it.stream === stream) { it.online = false; it.stream = null } }
+                            conv(named).also {
+                                it.sourceTicket = conv(convId).sourceTicket ?: it.sourceTicket
+                                it.stream = stream
+                                it.online = true
+                            }
+                            convId = named
+                        }
+                        continue
+                    }
                     // FileBegin must be handled here (suspend context, access to stream).
                     if (frame is Frame.FileBegin) {
                         runCatching {

@@ -24,6 +24,13 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 interface MessageStore {
     fun load(conversationId: String): List<MessageDto>
     fun save(conversationId: String, messages: List<MessageDto>)
+
+    /**
+     * Ids of every conversation with saved history. Used to restore dynamic
+     * conversations (named app/game servers like Blackjack) on launch, since
+     * those aren't in the fixed conversation set. Defaults to empty.
+     */
+    fun list(): List<String> = emptyList()
 }
 
 object MessageStoreConfig {

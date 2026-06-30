@@ -12,6 +12,8 @@ dependencies:
   - androidx.activity:activity-compose:1.7.2
   - androidx.lifecycle:lifecycle-process:2.8.0
   - androidx.security:security-crypto:1.0.0
+  # NotificationCompat for the foreground service + message notifications.
+  - androidx.core:core-ktx:1.13.1
 
 settings:
   compose: enabled

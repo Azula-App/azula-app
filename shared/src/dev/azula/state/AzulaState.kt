@@ -30,6 +30,7 @@ import dev.azula.net.pairedPeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
+import dev.azula.notify.NotifierConfig
 import dev.azula.persist.activeMessageStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
@@ -105,6 +106,11 @@ class AzulaState(
 
     var thinking by mutableStateOf(false)
         private set
+    /** Whether the app is in the foreground. The platform updates this on
+     *  lifecycle changes; incoming messages post a [Notifier] only when false. */
+    var inForeground by mutableStateOf(true)
+        private set
+    fun setForeground(value: Boolean) { inForeground = value }
     var copied by mutableStateOf(false)
         private set
     var myCode by mutableStateOf("")
@@ -140,6 +146,14 @@ class AzulaState(
     /** True when the real transport failed to bind and we fell back to demo mode. */
     private var demoMode = false
     private fun nextId(p: String): String = "$p${idCounter++}"
+
+    /** Post a system notification for a message that arrived while backgrounded. */
+    private fun notifyIncoming(convId: String, body: String) {
+        if (inForeground) return
+        val notifier = NotifierConfig.notifier ?: return
+        val title = runCatching { conversation(convId).name }.getOrDefault(convId)
+        notifier.postMessage(convId, title, body)
+    }
 
     /** Single-threaded dispatcher so conversation saves run in order (no clobbering races). */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -649,6 +663,7 @@ class AzulaState(
                                 )
                             )
                             persist(convId)
+                            notifyIncoming(convId, received.caption ?: "sent ${received.name}")
                         }
                         continue
                     }
@@ -667,7 +682,10 @@ class AzulaState(
         val cs = conv(convId)
         when (frame) {
             is Frame.Hello -> Unit // presence ping from a peer/bridge; identity is handled at connect, nothing to render
-            is Frame.Chat -> cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
+            is Frame.Chat -> {
+                cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
+                notifyIncoming(convId, frame.text)
+            }
             is Frame.Term -> cs.termScreen.feed(frame.line)
             is Frame.Thinking -> if (convId == "azula") thinking = frame.on
             is Frame.A2ui -> {
@@ -677,6 +695,7 @@ class AzulaState(
                         val surface = A2uiSurface(msg.surfaceId, msg.catalogId)
                         surfaces[msg.surfaceId] = surface
                         cs.messages.add(Message(nextId("p"), Role.AZULA, a2ui = surface))
+                        notifyIncoming(convId, "sent an interactive card")
                     }
                     is DeleteSurface -> surfaces.remove(msg.surfaceId)
                     else -> surfaces[msg.surfaceId]?.apply(msg)
@@ -699,7 +718,13 @@ class AzulaState(
                         }
                     }
                 }
-                if (frame.done) cs.streamingMsgId = null
+                if (frame.done) {
+                    // A completed streamed message (e.g. a bridge `send_message`)
+                    // arriving while backgrounded is an incoming push — notify.
+                    val finished = cs.streamingMsgId?.let { id -> cs.messages.lastOrNull { it.id == id } }
+                    cs.streamingMsgId = null
+                    finished?.text?.takeIf { it.isNotBlank() }?.let { notifyIncoming(convId, it) }
+                }
             }
             is Frame.Input -> Unit // server-side only
             // File frames are handled in receiveLoop directly; these are unreachable here.

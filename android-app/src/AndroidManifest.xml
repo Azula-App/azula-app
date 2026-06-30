@@ -1,7 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <application android:label="azula"
+    <!-- Keep the iroh node alive in the background (foreground service + its
+         persistent notification), wake the CPU to process frames, and post
+         incoming-message notifications. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <application android:name="app.azula.AzulaApplication"
+                 android:label="azula"
                  android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="app.azula.MainActivity"
                   android:exported="true"
@@ -31,5 +39,10 @@
                 <data android:scheme="azula" />
             </intent-filter>
         </activity>
+
+        <!-- Keeps the process (and the iroh node) alive while backgrounded. -->
+        <service android:name="app.azula.IrohService"
+                 android:exported="false"
+                 android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

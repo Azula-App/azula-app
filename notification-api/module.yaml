@@ -1,0 +1,6 @@
+# notification-api — the Notifier contract (post a background message notification).
+# Pure interface; the only impl (AndroidNotifier) lives in android-app and is bound
+# into the graph. Desktop/iOS bind null.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]

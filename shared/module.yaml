@@ -14,6 +14,7 @@ dependencies:
   - ../markdown: exported
   - ../network-api: exported
   - ../network-real: exported
+  - ../notification-api: exported
   - ../persistence-api: exported
   - ../persistence-real: exported
   - ../terminal-api: exported

@@ -1,4 +1,5 @@
 modules:
+  - notification-api
   - persistence-api
   - persistence-real
   - link

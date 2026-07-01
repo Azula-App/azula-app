@@ -1,0 +1,14 @@
+# persistence-api — the storage contracts: the MessageStore / ProfileStore
+# interfaces, the serializable DTOs (ConversationDto, Persona, ProfileBook, …), and
+# the JSON codecs. No platform code and no a2ui (the Message<->DTO mappers live in
+# shared, since Message embeds an a2ui surface). Tests bind a fake store here.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../core: exported
+
+settings:
+  kotlin:
+    serialization: json

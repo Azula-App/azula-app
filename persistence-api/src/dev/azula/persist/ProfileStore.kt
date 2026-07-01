@@ -36,10 +36,6 @@ interface ProfileStore {
     fun save(book: ProfileBook)
 }
 
-/** The platform default store (file on JVM, NSUserDefaults on iOS). Android returns
- *  null; its Context-backed store is bound into the Metro graph by the app module. */
-expect fun platformProfileStore(): ProfileStore?
-
 val ProfileJson: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 private val bookSerializer = ProfileBook.serializer()

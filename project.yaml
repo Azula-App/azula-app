@@ -1,4 +1,6 @@
 modules:
+  - persistence-api
+  - persistence-real
   - link
   - markdown
   - a2ui

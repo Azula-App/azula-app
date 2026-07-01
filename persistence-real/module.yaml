@@ -1,0 +1,13 @@
+# persistence-real — the platform default stores: files on JVM, NSUserDefaults on
+# iOS, and the platform*Store() expect/actuals (Android returns null and binds a
+# Context-backed store into the graph via the app module).
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../persistence-api: exported
+
+settings:
+  kotlin:
+    serialization: json

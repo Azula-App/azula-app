@@ -104,6 +104,7 @@ class AzulaState(
     private val convStore: ConversationStore = ConversationStore(),
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
+    private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // The shipping build starts EMPTY (conversations are created per-peer on
@@ -173,10 +174,9 @@ class AzulaState(
     }
 
     private var azIdx = 0
-    private var idCounter = 0
     /** True when the real transport failed to bind and we fell back to demo mode. */
     private var demoMode = false
-    private fun nextId(p: String): String = "$p${idCounter++}"
+    private fun nextId(p: String): String = convStore.nextId(p)
 
     /** Post a system notification for a message that arrived while backgrounded. */
     private fun notifyIncoming(convId: String, body: String) {
@@ -215,7 +215,7 @@ class AzulaState(
     suspend fun start() {
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
-        if (!isDemo) { val max = persistence.restoreAll(); if (max >= 0) idCounter = max + 1 }
+        if (!isDemo) { val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1) }
         personaService.load()
         // Whenever the transport (re)binds — cold start and Android foreground-
         // resume — re-dial saved peers/bridges and ping them, so a bridge can
@@ -470,27 +470,11 @@ class AzulaState(
      * Called when the user triggers an action on an A2UI surface.
      * If a live stream is open, encodes and sends it; otherwise interprets locally.
      */
-    fun onA2uiAction(convId: String, action: A2uiAction) {
-        val stream = conv(convId).stream
-        if (stream != null) {
-            scope.launch {
-                runCatching {
-                    stream.sendLine(FrameCodec.encode(Frame.A2uiAction(A2uiCodec.encodeAction(action))))
-                }
-            }
-        } else {
-            surfaces[action.surfaceId]?.let { A2uiExamples.handleEvent(it, action) }
-            persist(convId)
-        }
-    }
+    fun onA2uiAction(convId: String, action: A2uiAction) = a2uiService.onAction(convId, action, isDemo)
 
-    /**
-     * Called when a two-way input (TextField, CheckBox, etc.) changes its value.
-     */
-    fun onA2uiDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) {
-        surface.setData(path, value)
-        persist(convId)
-    }
+    /** Called when a two-way input (TextField, CheckBox, etc.) changes its value. */
+    fun onA2uiDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) =
+        a2uiService.onDataChange(convId, surface, path, value, isDemo)
 
     // ---- connecting ----
 

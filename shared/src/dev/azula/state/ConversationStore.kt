@@ -24,6 +24,12 @@ class ConversationStore {
     /** Per-conversation mutable state (thread, draft, live stream), keyed by id. */
     val convState = mutableStateMapOf<String, ConversationState>()
 
+    // Monotonic id generator for messages/conversations/sessions, shared so ids are
+    // unique across features. setIdFloor advances it past ids restored from disk.
+    private var idCounter = 0
+    fun nextId(p: String): String = "$p${idCounter++}"
+    fun setIdFloor(n: Int) { if (n > idCounter) idCounter = n }
+
     fun conv(id: String): ConversationState = convState.getValue(id)
     fun conversation(id: String): Conversation = conversations.first { it.id == id }
     fun convOrNull(id: String): ConversationState? = convState[id]

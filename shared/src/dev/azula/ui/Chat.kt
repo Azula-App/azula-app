@@ -79,27 +79,36 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
     val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
         ChatHeader(state, conv, onBack)
-        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }) {
-            if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId) else MessageThread(state, convId)
-        }
         val cs = state.conv(convId)
         val termLive = conv.kind == ConversationKind.TERMINAL && cs.online
+        // A live terminal owns its own focus (tap → keyboard); everywhere else a
+        // tap on the content area dismisses the keyboard.
+        val contentMod = Modifier.weight(1f).fillMaxWidth().let {
+            if (termLive) it else it.pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
+        }
+        Box(contentMod) {
+            if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId) else MessageThread(state, convId)
+        }
         val launchPicker = rememberFilePicker { picked ->
             state.sendFile(convId, picked.bytes, picked.name, picked.mime)
         }
-        ChatInput(
-            value = cs.draft,
-            onValueChange = { state.updateDraft(convId, it) },
-            onSend = { state.send(convId) },
-            placeholder = when {
-                termLive -> "type a command…"
-                conv.kind == ConversationKind.TERMINAL -> "zuko@remote ~/azula $"
-                else -> "message ${conv.name}"
-            },
-            terminal = conv.kind == ConversationKind.TERMINAL,
-            onInterrupt = if (termLive) { { state.terminalInterrupt(convId) } } else null,
-            onAttach = if (conv.kind == ConversationKind.TERMINAL) null else launchPicker,
-        )
+        if (termLive) {
+            // Type directly in the terminal — no input bar, just the compact key row.
+            TerminalKeysBar(state, convId)
+        } else {
+            ChatInput(
+                value = cs.draft,
+                onValueChange = { state.updateDraft(convId, it) },
+                onSend = { state.send(convId) },
+                placeholder = when {
+                    conv.kind == ConversationKind.TERMINAL -> "zuko@remote ~/azula $"
+                    else -> "message ${conv.name}"
+                },
+                terminal = conv.kind == ConversationKind.TERMINAL,
+                onInterrupt = null,
+                onAttach = if (conv.kind == ConversationKind.TERMINAL) null else launchPicker,
+            )
+        }
     }
 }
 

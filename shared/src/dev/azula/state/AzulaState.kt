@@ -442,8 +442,26 @@ class AzulaState(
 
     /** Send Ctrl-C to the remote shell when a live term stream is open. */
     fun terminalInterrupt(convId: String) {
-        val stream = conv(convId).stream ?: return
-        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(""))) } }
+        terminalRaw(convId, dev.azula.terminal.TermSeq.CTRL_C)
+    }
+
+    /** Send raw keystroke bytes to the live PTY, verbatim (no trim / no newline).
+     *  This is the "type directly in the terminal" path — the shell echoes back. */
+    fun terminalRaw(convId: String, bytes: String) {
+        if (bytes.isEmpty()) return
+        val stream = convOrNull(convId)?.stream ?: return
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(bytes))) } }
+    }
+
+    /** Report the terminal's viewport size (character cells) so the PTY wraps to
+     *  match; deduped so we only send on real changes. */
+    private val termSizes = mutableMapOf<String, Pair<Int, Int>>()
+    fun terminalResize(convId: String, cols: Int, rows: Int) {
+        if (cols < 1 || rows < 1) return
+        if (termSizes[convId] == (cols to rows)) return
+        termSizes[convId] = cols to rows
+        val stream = convOrNull(convId)?.stream ?: return
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Resize(cols, rows))) } }
     }
 
     private fun termOut(cmdRaw: String): List<TerminalLine> {
@@ -837,7 +855,7 @@ class AzulaState(
                     finished?.text?.takeIf { it.isNotBlank() }?.let { notifyIncoming(convId, it) }
                 }
             }
-            is Frame.Input -> Unit // server-side only
+            is Frame.Input, is Frame.Resize -> Unit // client → server only
             // File + Profile frames are handled in receiveLoop directly; unreachable here.
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
         }

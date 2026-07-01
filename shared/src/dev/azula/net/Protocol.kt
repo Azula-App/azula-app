@@ -33,6 +33,12 @@ sealed class Frame {
     @SerialName("input")
     data class Input(val text: String) : Frame()
 
+    /** Client → server: the terminal's size in character cells, so the remote
+     *  PTY wraps output to match the app's viewport. */
+    @Serializable
+    @SerialName("resize")
+    data class Resize(val cols: Int, val rows: Int) : Frame()
+
     /** Server → client: a streamed LLM token (or `done` sentinel). */
     @Serializable
     @SerialName("token")

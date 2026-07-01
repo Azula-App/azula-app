@@ -6,3 +6,4 @@ modules:
   - network-api
   - network-real
   - shared
+  - terminal-api

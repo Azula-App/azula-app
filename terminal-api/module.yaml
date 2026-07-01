@@ -1,0 +1,16 @@
+# terminal-api — the dependency-free terminal engine: the VT-100 screen model
+# (TermScreen/TermSpan) and key-to-bytes encoding (TermSeq/keyEventToBytes). Pure
+# logic over Compose snapshot state + key events; no app dependencies, so it's
+# unit-testable in isolation (see TermScreenTest). The terminal UI + the
+# TerminalSession contract live in terminal-real.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - $compose.runtime: exported
+  - $compose.ui: exported
+
+settings:
+  compose:
+    enabled: true

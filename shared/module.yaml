@@ -11,6 +11,7 @@ dependencies:
   - ../core: exported
   - ../network-api: exported
   - ../network-real: exported
+  - ../terminal-api: exported
   - $compose.foundation: exported
   - $compose.material3: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported

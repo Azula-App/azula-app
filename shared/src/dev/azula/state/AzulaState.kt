@@ -33,11 +33,7 @@ import dev.azula.net.sendFile
 import dev.azula.core.AppScope
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
-import dev.azula.persist.ConversationDto
-import dev.azula.persist.MessageStore
 import dev.azula.persist.Persona
-import dev.azula.persist.toDto
-import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
 import dev.azula.terminal.TerminalSession
 import dev.azula.ui.decodeImageBitmap
@@ -103,10 +99,10 @@ class AzulaState(
     /** Injected collaborators (were service-locator globals). Nullable so a
      *  platform with no impl — e.g. no notifier on desktop/iOS — simply skips it. */
     private val notifier: Notifier? = null,
-    private val messageStore: MessageStore? = null,
     private val peerStore: PeerStore? = null,
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
+    private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // The shipping build starts EMPTY (conversations are created per-peer on
@@ -190,10 +186,6 @@ class AzulaState(
         n.postMessage(convId, title, body)
     }
 
-    /** Single-threaded dispatcher so conversation saves run in order (no clobbering races). */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val saveDispatcher = Dispatchers.Default.limitedParallelism(1)
-
     // Conversation lookup/creation is delegated to ConversationStore; these keep
     // AzulaState's surface stable for the UI and internal callers.
     fun conv(id: String): ConversationState = convStore.conv(id)
@@ -207,60 +199,8 @@ class AzulaState(
 
     // ---- message persistence (shipping build only) ----
 
-    /** Restore every saved conversation (identity + history) from disk. */
-    private fun loadPersisted() {
-        val store = messageStore ?: return
-        var maxSuffix = -1
-        for (id in runCatching { store.list() }.getOrDefault(emptyList())) {
-            val dto = runCatching { store.load(id) }.getOrNull() ?: continue
-            val cs = convState.getOrPut(id) { ConversationState(emptyList()) }
-            cs.messages.clear()
-            // Restored A2UI surfaces are intentionally NOT registered in [surfaces]
-            // so they render frozen (see Chat's `frozen` predicate).
-            cs.messages.addAll(dto.messages.map { it.toMessage() })
-            cs.peerAvatarB64 = dto.avatarB64
-            cs.peerAvatarMime = dto.avatarMime
-            cs.peerDescription = dto.peerDescription
-            cs.peerAvatarBitmap = dto.avatarB64?.let { decodeAvatar(it) }
-            if (conversationOrNull(id) == null) {
-                conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview, dto.enabled))
-            }
-            for (m in dto.messages) {
-                val n = m.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
-                if (n > maxSuffix) maxSuffix = n
-            }
-        }
-        // idCounter resets to 0 each launch, but restored messages carry ids minted
-        // in a previous session; advance past them so newly-generated ids can't
-        // collide (a duplicate id crashes the message LazyColumn).
-        if (maxSuffix >= 0) idCounter = maxSuffix + 1
-    }
-
-    /**
-     * Serialize and save a conversation's identity + full history off the main
-     * thread, on a single-threaded dispatcher so rapid successive saves can't race.
-     */
-    private fun persist(convId: String) {
-        if (isDemo) return
-        val store = messageStore ?: return
-        val cs = convState[convId] ?: return
-        val meta = conversationOrNull(convId)
-        val dto = ConversationDto(
-            name = meta?.name ?: convId,
-            kind = meta?.kind ?: ConversationKind.PEER,
-            glyph = meta?.glyph ?: "•",
-            sub = meta?.sub ?: "",
-            preview = meta?.preview ?: "",
-            messages = cs.messages.map { it.toDto() },
-            enabled = meta?.enabled ?: true,
-            avatarB64 = cs.peerAvatarB64,
-            avatarMime = cs.peerAvatarMime,
-            peerDescription = cs.peerDescription,
-        )
-        scope.launch(saveDispatcher) {
-            runCatching { store.save(convId, dto) }
-        }
-    }
+    // Message-history persistence is delegated to PersistenceCoordinator.
+    private fun persist(convId: String) = persistence.save(convId, isDemo)
 
     /** A human-friendly label derived from any node id (our own or a peer's). */
     fun mnemonicCode(id: String): String = convStore.mnemonicCode(id)
@@ -274,7 +214,7 @@ class AzulaState(
     suspend fun start() {
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
-        if (!isDemo) loadPersisted()
+        if (!isDemo) { val max = persistence.restoreAll(); if (max >= 0) idCounter = max + 1 }
         personaService.load()
         // Whenever the transport (re)binds — cold start and Android foreground-
         // resume — re-dial saved peers/bridges and ping them, so a bridge can
@@ -887,7 +827,7 @@ class AzulaState(
         peerStore?.let { store ->
             store.save(store.load().filter { (transport.peerIdForTicket(it) ?: "") != id })
         }
-        if (!isDemo) scope.launch(saveDispatcher) { runCatching { messageStore?.delete(id) } }
+        persistence.delete(id, isDemo)
         convState.remove(id)
         conversations.removeAll { it.id == id }
         pendingShares.removeAll { it.convId == id }

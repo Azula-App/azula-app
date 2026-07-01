@@ -796,8 +796,17 @@ class AzulaState(
                     is CreateSurface -> {
                         val surface = A2uiSurface(msg.surfaceId, msg.catalogId)
                         surfaces[msg.surfaceId] = surface
-                        cs.messages.add(Message(nextId("p"), Role.AZULA, a2ui = surface))
-                        notifyIncoming(convId, "sent an interactive card")
+                        // If a card with this surface id already exists (e.g. a
+                        // Blackjack game we're reconnecting to, or a restored one),
+                        // re-attach the live surface in place instead of stacking a
+                        // duplicate — the server re-creates the same id to resume.
+                        val existing = cs.messages.indexOfLast { it.a2ui?.surfaceId == msg.surfaceId }
+                        if (existing >= 0) {
+                            cs.messages[existing] = cs.messages[existing].copy(a2ui = surface)
+                        } else {
+                            cs.messages.add(Message(nextId("p"), Role.AZULA, a2ui = surface))
+                            notifyIncoming(convId, "sent an interactive card")
+                        }
                     }
                     is DeleteSurface -> surfaces.remove(msg.surfaceId)
                     else -> surfaces[msg.surfaceId]?.apply(msg)

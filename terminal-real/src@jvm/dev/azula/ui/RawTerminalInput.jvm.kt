@@ -11,14 +11,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import dev.azula.state.AzulaState
+import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.keyEventToBytes
 
 /** Desktop: a focusable Box capturing the full hardware keyboard. No text field,
  *  so no IME concerns — every key (arrows, Esc, Tab, Ctrl-combos, printables)
  *  goes straight to the PTY. Auto-focuses; a tap re-focuses. */
 @Composable
-actual fun RawTerminalInput(state: AzulaState, convId: String, modifier: Modifier) {
+actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(convId) { runCatching { fr.requestFocus() } }
     Box(
@@ -27,7 +27,7 @@ actual fun RawTerminalInput(state: AzulaState, convId: String, modifier: Modifie
             .focusable()
             .pointerInput(Unit) { detectTapGestures { runCatching { fr.requestFocus() } } }
             .onPreviewKeyEvent { ev ->
-                keyEventToBytes(ev)?.let { state.terminalRaw(convId, it); true } ?: false
+                keyEventToBytes(ev)?.let { session.terminalRaw(convId, it); true } ?: false
             },
     )
 }

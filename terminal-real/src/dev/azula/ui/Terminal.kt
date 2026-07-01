@@ -30,36 +30,36 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.model.TerminalLine
-import dev.azula.state.AzulaState
+import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.TermSpan
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
 
 @Composable
-fun TerminalView(state: AzulaState, convId: String) {
+fun TerminalView(session: TerminalSession, convId: String) {
     when {
-        state.conv(convId).online -> LiveTerminalView(state, convId, live = true)
+        session.terminalOnline(convId) -> LiveTerminalView(session, convId, live = true)
         // Only the seeded demo falls back to the canned zuko terminal.
-        state.isDemo -> DemoTerminalView(state)
+        session.isDemo -> DemoTerminalView(session)
         // A real terminal whose session ended: keep the last screen, frozen
         // (read-only, no keyboard capture) — no fake shell.
-        else -> LiveTerminalView(state, convId, live = false)
+        else -> LiveTerminalView(session, convId, live = false)
     }
 }
 
 @Composable
-private fun DemoTerminalView(state: AzulaState) {
+private fun DemoTerminalView(session: TerminalSession) {
     val scroll = rememberScrollState()
-    LaunchedEffect(state.termLines.size) { scroll.animateScrollTo(scroll.maxValue) }
+    LaunchedEffect(session.demoLines.size) { scroll.animateScrollTo(scroll.maxValue) }
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
-        state.termLines.forEach { line -> TermLineRow(line) }
+        session.demoLines.forEach { line -> TermLineRow(line) }
         PromptRow(cursor = true)
     }
 }
 
 @Composable
-private fun LiveTerminalView(state: AzulaState, convId: String, live: Boolean) {
-    val termScreen = state.conv(convId).termScreen
+private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boolean) {
+    val termScreen = session.terminalScreen(convId)
     val scroll = rememberScrollState()
     // Auto-scroll to bottom whenever rows or current line change.
     LaunchedEffect(termScreen.rows.size, termScreen.current) {
@@ -77,14 +77,14 @@ private fun LiveTerminalView(state: AzulaState, convId: String, live: Boolean) {
         Modifier.onSizeChanged { sz ->
             if (cellW > 0 && lineHpx > 0f) {
                 // Account for the 18dp padding on each side (approx: subtract ~2 cells).
-                state.terminalResize(convId, (sz.width / cellW - 2).coerceAtLeast(1), (sz.height / lineHpx).toInt())
+                session.terminalResize(convId, (sz.width / cellW - 2).coerceAtLeast(1), (sz.height / lineHpx).toInt())
             }
         }
     } else Modifier
     Box(Modifier.fillMaxSize().then(sizeMod)) {
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
         // Omitted when frozen (session ended) — the screen is read-only.
-        if (live) RawTerminalInput(state, convId, Modifier.matchParentSize())
+        if (live) RawTerminalInput(session, convId, Modifier.matchParentSize())
         Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
             termScreen.rows.forEach { row -> TermSpanRow(row) }
             Row {

@@ -19,7 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.azula.state.AzulaState
+import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.ctrl
 import dev.azula.theme.AzulaColors
@@ -32,7 +32,7 @@ import dev.azula.theme.Fonts
  * `clickable`) so tapping them never steals focus / dismisses the keyboard.
  */
 @Composable
-fun TerminalKeysBar(state: AzulaState, convId: String) {
+fun TerminalKeysBar(session: TerminalSession, convId: String) {
     Row(
         Modifier.fillMaxWidth()
             .background(AzulaColors.bg2)
@@ -41,15 +41,15 @@ fun TerminalKeysBar(state: AzulaState, convId: String) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Keycap("esc") { state.terminalRaw(convId, TermSeq.ESC) }
-        Keycap("tab") { state.terminalRaw(convId, TermSeq.TAB) }
-        Keycap("^C") { state.terminalInterrupt(convId) }
-        Keycap("^D") { state.terminalRaw(convId, ctrl('d')) }
-        Keycap("^L") { state.terminalRaw(convId, ctrl('l')) }
-        Keycap("←") { state.terminalRaw(convId, TermSeq.LEFT) }
-        Keycap("↓") { state.terminalRaw(convId, TermSeq.DOWN) }
-        Keycap("↑") { state.terminalRaw(convId, TermSeq.UP) }
-        Keycap("→") { state.terminalRaw(convId, TermSeq.RIGHT) }
+        Keycap("esc") { session.terminalRaw(convId, TermSeq.ESC) }
+        Keycap("tab") { session.terminalRaw(convId, TermSeq.TAB) }
+        Keycap("^C") { session.terminalInterrupt(convId) }
+        Keycap("^D") { session.terminalRaw(convId, ctrl('d')) }
+        Keycap("^L") { session.terminalRaw(convId, ctrl('l')) }
+        Keycap("←") { session.terminalRaw(convId, TermSeq.LEFT) }
+        Keycap("↓") { session.terminalRaw(convId, TermSeq.DOWN) }
+        Keycap("↑") { session.terminalRaw(convId, TermSeq.UP) }
+        Keycap("→") { session.terminalRaw(convId, TermSeq.RIGHT) }
     }
 }
 

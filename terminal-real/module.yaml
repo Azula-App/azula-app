@@ -1,0 +1,17 @@
+# terminal-real — the terminal UI: the rendered view, the accessory key row, and
+# the raw keystroke-capture surface (expect/actual per platform). Depends only on
+# the TerminalSession contract (terminal-api) + theme, never on the whole
+# AzulaState, so it's a self-contained feature module.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../terminal-api: exported
+  - ../theme: exported
+  - $compose.foundation: exported
+  - $compose.material3: exported
+
+settings:
+  compose:
+    enabled: true

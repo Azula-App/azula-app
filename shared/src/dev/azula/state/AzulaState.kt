@@ -41,6 +41,7 @@ import dev.azula.persist.ProfileStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
+import dev.azula.terminal.TerminalSession
 import dev.azula.ui.decodeImageBitmap
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -100,14 +101,14 @@ class AzulaState(
     private val scope: CoroutineScope,
     /** True only in the demo / UI-test build: loads seeded demo content and
      *  skips message persistence. The shipping build defaults this to false. */
-    val isDemo: Boolean = false,
+    override val isDemo: Boolean = false,
     /** Injected collaborators (were service-locator globals). Nullable so a
      *  platform with no impl — e.g. no notifier on desktop/iOS — simply skips it. */
     private val notifier: Notifier? = null,
     private val messageStore: MessageStore? = null,
     private val profileStore: ProfileStore? = null,
     private val peerStore: PeerStore? = null,
-) {
+) : TerminalSession {
     // The shipping build starts EMPTY: conversations are created per-peer when you
     // actually connect to something, named after the other side (see ensureConv).
     // The demo/UI-test build keeps the three seeded personas (Maestro depends on them).
@@ -467,14 +468,19 @@ class AzulaState(
         }
     }
 
+    // ---- TerminalSession: the narrow surface the terminal UI depends on ----
+    override val demoLines: List<TerminalLine> get() = termLines
+    override fun terminalScreen(convId: String): TermScreen = conv(convId).termScreen
+    override fun terminalOnline(convId: String): Boolean = convOrNull(convId)?.online == true
+
     /** Send Ctrl-C to the remote shell when a live term stream is open. */
-    fun terminalInterrupt(convId: String) {
+    override fun terminalInterrupt(convId: String) {
         terminalRaw(convId, dev.azula.terminal.TermSeq.CTRL_C)
     }
 
     /** Send raw keystroke bytes to the live PTY, verbatim (no trim / no newline).
      *  This is the "type directly in the terminal" path — the shell echoes back. */
-    fun terminalRaw(convId: String, bytes: String) {
+    override fun terminalRaw(convId: String, bytes: String) {
         if (bytes.isEmpty()) return
         val stream = convOrNull(convId)?.stream ?: return
         scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(bytes))) } }
@@ -483,7 +489,7 @@ class AzulaState(
     /** Report the terminal's viewport size (character cells) so the PTY wraps to
      *  match; deduped so we only send on real changes. */
     private val termSizes = mutableMapOf<String, Pair<Int, Int>>()
-    fun terminalResize(convId: String, cols: Int, rows: Int) {
+    override fun terminalResize(convId: String, cols: Int, rows: Int) {
         if (cols < 1 || rows < 1) return
         if (termSizes[convId] == (cols to rows)) return
         termSizes[convId] = cols to rows

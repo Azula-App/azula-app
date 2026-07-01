@@ -8,6 +8,7 @@ product:
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
 dependencies:
+  - ../core: exported
   - $compose.runtime: exported
   - $compose.ui: exported
 

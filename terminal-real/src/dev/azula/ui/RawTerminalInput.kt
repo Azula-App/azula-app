@@ -21,7 +21,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
-import dev.azula.state.AzulaState
+import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.keyEventToBytes
 
@@ -33,7 +33,7 @@ import dev.azula.terminal.keyEventToBytes
  * terminal is online (the offline demo keeps the classic input bar).
  */
 @Composable
-expect fun RawTerminalInput(state: AzulaState, convId: String, modifier: Modifier = Modifier)
+expect fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier = Modifier)
 
 /**
  * Shared mobile implementation (Android + iOS): an invisible [BasicTextField]
@@ -48,7 +48,7 @@ expect fun RawTerminalInput(state: AzulaState, convId: String, modifier: Modifie
  * [onPreviewKeyEvent] (printables fall through to the field, avoiding double-send).
  */
 @Composable
-internal fun MobileRawTerminalInput(state: AzulaState, convId: String, modifier: Modifier) {
+internal fun MobileRawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier) {
     val baseline = " " // NBSP; the field is invisible so it never shows.
     val fr = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -65,9 +65,9 @@ internal fun MobileRawTerminalInput(state: AzulaState, convId: String, modifier:
             val text = v.text
             when {
                 text.length > baseline.length ->
-                    state.terminalRaw(convId, text.substring(baseline.length).replace("\n", "\r"))
+                    session.terminalRaw(convId, text.substring(baseline.length).replace("\n", "\r"))
                 text.length < baseline.length ->
-                    state.terminalRaw(convId, TermSeq.BACKSPACE)
+                    session.terminalRaw(convId, TermSeq.BACKSPACE)
             }
             // Always snap back to the sentinel so the next keystroke is a clean delta.
             value = TextFieldValue(baseline, TextRange(baseline.length))
@@ -75,7 +75,7 @@ internal fun MobileRawTerminalInput(state: AzulaState, convId: String, modifier:
         modifier = modifier
             .focusRequester(fr)
             .onPreviewKeyEvent { ev ->
-                keyEventToBytes(ev, includePrintable = false)?.let { state.terminalRaw(convId, it); true } ?: false
+                keyEventToBytes(ev, includePrintable = false)?.let { session.terminalRaw(convId, it); true } ?: false
             },
         singleLine = true,
         textStyle = TextStyle(color = Color.Transparent),
@@ -85,6 +85,6 @@ internal fun MobileRawTerminalInput(state: AzulaState, convId: String, modifier:
             keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Go,
         ),
-        keyboardActions = KeyboardActions(onGo = { state.terminalRaw(convId, TermSeq.ENTER) }),
+        keyboardActions = KeyboardActions(onGo = { session.terminalRaw(convId, TermSeq.ENTER) }),
     )
 }

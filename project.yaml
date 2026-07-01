@@ -1,16 +1,16 @@
 modules:
-  - notification-api
-  - persistence-api
-  - persistence-real
-  - link
-  - markdown
   - a2ui
   - android-app
   - core
   - ios-app
   - jvm-app
+  - link
+  - markdown
   - network-api
   - network-real
+  - notification-api
+  - persistence-api
+  - persistence-real
   - shared
   - terminal-api
   - terminal-real

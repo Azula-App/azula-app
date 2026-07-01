@@ -91,14 +91,10 @@ class ConversationState(seed: List<Message>) {
 @Inject
 @SingleIn(AppScope::class)
 class AzulaState(
-    private var transport: IrohTransport,
     private val scope: CoroutineScope,
     /** True only in the demo / UI-test build: loads seeded demo content and
      *  skips message persistence. The shipping build defaults this to false. */
     override val isDemo: Boolean = false,
-    /** Injected collaborators (were service-locator globals). Nullable so a
-     *  platform with no impl — e.g. no notifier on desktop/iOS — simply skips it. */
-    private val notifier: Notifier? = null,
     private val peerStore: PeerStore? = null,
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
@@ -106,6 +102,9 @@ class AzulaState(
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
     private val chatService: ChatService = ChatService(convStore, surfaceStore, persistence, scope),
+    // The connect + transport core (owns the swappable transport, dial/receive/
+    // dispatch). AzulaState wires its navigation + foreground callbacks in init.
+    private val connectService: ConnectService,
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // The shipping build starts EMPTY (conversations are created per-peer on
@@ -133,19 +132,15 @@ class AzulaState(
     fun setForeground(value: Boolean) { inForeground = value }
     var copied by mutableStateOf(false)
         private set
-    var myCode by mutableStateOf("")
-        private set
-    /** Observable copy of the transport's node id, refreshed on every (re)bind.
-     *  Compose can't observe `transport.nodeId` directly, so the UI reads this. */
-    var nodeId by mutableStateOf<String?>(null)
-        private set
-    var connectStage by mutableStateOf(ConnectStage.IDLE)
-        private set
-    var connectStep by mutableStateOf(0)
-        private set
-    var connectInput by mutableStateOf("")
-    var rttMs by mutableStateOf<Int?>(null)
-        private set
+    // Connect UI state is owned by ConnectService; delegate for the connect screen.
+    val myCode get() = connectService.myCode
+    val nodeId get() = connectService.nodeId
+    val connectStage get() = connectService.connectStage
+    val connectStep get() = connectService.connectStep
+    var connectInput: String
+        get() = connectService.connectInput
+        set(v) { connectService.connectInput = v }
+    val rttMs get() = connectService.rttMs
 
     /** All live A2UI surfaces, keyed by surfaceId (owned by SurfaceStore). */
     val surfaces get() = surfaceStore.surfaces
@@ -153,6 +148,9 @@ class AzulaState(
     val termLines = mutableStateListOf<TerminalLine>().also { if (isDemo) it.addAll(seedTerm()) }
 
     init {
+        // Give the connect core its app-shell hooks (navigation + foreground).
+        connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
+        connectService.foreground = { inForeground }
         if (isDemo) {
             convStore.conversations.addAll(
                 listOf(
@@ -177,15 +175,6 @@ class AzulaState(
     private var demoMode = false
     private fun nextId(p: String): String = convStore.nextId(p)
 
-    /** Post a system notification for a message that arrived while backgrounded. */
-    private fun notifyIncoming(convId: String, body: String) {
-        if (inForeground) return
-        if (conversationOrNull(convId)?.enabled == false) return
-        val n = notifier ?: return
-        val title = runCatching { conversation(convId).name }.getOrDefault(convId)
-        n.postMessage(convId, title, body)
-    }
-
     // Conversation lookup/creation is delegated to ConversationStore; these keep
     // AzulaState's surface stable for the UI and internal callers.
     fun conv(id: String): ConversationState = convStore.conv(id)
@@ -206,8 +195,7 @@ class AzulaState(
     fun mnemonicCode(id: String): String = convStore.mnemonicCode(id)
 
     /** Our own code for display. Copy uses [myCode]. */
-    val shortCode: String
-        get() = nodeId?.let { mnemonicCode(it) } ?: "connecting…"
+    val shortCode: String get() = connectService.shortCode
 
     // ---- lifecycle ----
 
@@ -216,56 +204,19 @@ class AzulaState(
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         if (!isDemo) { val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1) }
         personaService.load()
-        // Whenever the transport (re)binds — cold start and Android foreground-
-        // resume — re-dial saved peers/bridges and ping them, so a bridge can
-        // immediately flush any messages it queued while we were offline.
-        transport.onCameOnline = { nodeId = transport.nodeId; scope.launch { reconnectSaved() } }
-        try {
-            transport.bind(Alpns.ALL)
-        } catch (e: Throwable) {
-            // Real binding unavailable (e.g. missing native lib) — degrade to demo.
-            demoMode = true
-            transport = FakeTransport().also { it.bind(Alpns.ALL) }
-        }
-        nodeId = transport.nodeId
-        myCode = runCatching { transport.myTicket() }.getOrDefault("")
-        scope.launch {
-            runCatching {
-                transport.incoming().collect { inc ->
-                    // A disabled conversation refuses inbound from that peer.
-                    if (conversationOrNull(inc.remoteId)?.enabled == false) {
-                        scope.launch { runCatching { inc.stream.close() } }
-                        return@collect
-                    }
-                    val convId = wireStream(inc.alpn, inc.stream, inc.remoteId)
-                    // Inbound peer (CHAT) connection: prompt the user to share a
-                    // profile back ("prompt each time"). Deduped per conversation.
-                    if (convId != null && inc.alpn == Alpns.CHAT) enqueueShareRequest(convId)
-                }
-            }
-        }
-        // Register the deeplink handler AFTER bind so a buffered or cold-start
-        // token (azula://connect?code= / azula.app/s/<token>, or AZULA_CONNECT)
-        // dials an already-bound transport rather than racing the bind.
-        DeepLinkBus.setHandler { token -> connectPeer(token) }
+        // Bind the transport and run the connect/receive core.
+        connectService.start()
     }
 
     // ---- navigation ----
 
     fun selectDesktop(id: String) { desktopActive = id }
-    fun openConnectDesktop() { desktopActive = "connect"; resetConnect() }
+    fun openConnectDesktop() { desktopActive = "connect"; connectService.resetConnect() }
     fun openSettingsDesktop() { desktopActive = "settings" }
     fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT }
-    fun openConnectMobile() { mScreen = MScreen.CONNECT; resetConnect() }
+    fun openConnectMobile() { mScreen = MScreen.CONNECT; connectService.resetConnect() }
     fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }
-
-    private fun resetConnect() {
-        if (connectStage != ConnectStage.DIALING) {
-            connectStage = ConnectStage.IDLE
-            connectStep = 0
-        }
-    }
 
     // ---- input / sending ----
 
@@ -322,13 +273,7 @@ class AzulaState(
      * typed `exit`). Dials the saved ticket again and rewires this same
      * conversation with a fresh stream. No-op if we have no ticket to redial.
      */
-    fun reconnectTerminal(convId: String) {
-        val ticket = convOrNull(convId)?.sourceTicket ?: return
-        scope.launch {
-            val stream = runCatching { transport.connect(ticket, Alpns.TERM) }.getOrNull() ?: return@launch
-            wireConv(convId, stream, isTerminal = true)
-        }
-    }
+    fun reconnectTerminal(convId: String) = connectService.reconnectTerminal(convId)
 
     // ---- TerminalSession: the narrow surface the terminal UI depends on ----
     override val demoLines: List<TerminalLine> get() = termLines
@@ -387,302 +332,11 @@ class AzulaState(
     fun onA2uiDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) =
         a2uiService.onDataChange(convId, surface, path, value, isDemo)
 
-    // ---- connecting ----
+    // ---- connecting (delegated to ConnectService) ----
 
-    fun connectPeer(ticketRaw: String, share: Frame.Profile? = null) {
-        // Accept a raw code or a full azula share URL (azula://connect?code=… /
-        // https://azula.app/s/… /connect/…) pasted into the box.
-        val ticket = dev.azula.link.AzulaLinks.parse(ticketRaw) ?: ticketRaw.trim()
-        if (ticket.isEmpty() || connectStage == ConnectStage.DIALING) return
-        connectStage = ConnectStage.DIALING
-        connectStep = 0
-        scope.launch {
-            val anim = launch { while (connectStep < 2) { delay(650); connectStep++ } }
-            val results = Alpns.ALL.map { alpn ->
-                async {
-                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
-                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
-                }
-            }.awaitAll().filterNotNull()
-            anim.cancel()
-            if (results.isEmpty()) {
-                connectStage = ConnectStage.FAILED
-                return@launch
-            }
-            connectStep = 3
-            // One conversation per peer: keep the highest-priority service the peer
-            // accepts (CHAT > LLM > TERM) and close the rest, so a peer that accepts
-            // every ALPN doesn't spawn three duplicate rows.
-            val primary = results.maxBy { kindPriority(kindForAlpn(it.first)) }
-            results.filter { it !== primary }.forEach { (_, s) -> scope.launch { runCatching { s.close() } } }
-            val peerId = transport.peerIdForTicket(ticket) ?: ("t" + ticket.hashCode().toString(16))
-            val convId = wireStream(primary.first, primary.second, peerId)
-            // Share the chosen persona — peer-to-peer only (CHAT). Never send to
-            // LLM/TERM servers (an older CLI without the Profile frame would drop
-            // the stream). Hello (ping) already went first on every stream.
-            if (share != null && primary.first == Alpns.CHAT) {
-                runCatching { primary.second.sendLine(FrameCodec.encode(share)) }
-            }
-            persistPeer(ticket)
-            // Remember the ticket so we can spawn sibling sessions over it (no re-pair).
-            convId?.let { convOrNull(it)?.sourceTicket = ticket }
-            rttMs = 12
-            connectStage = ConnectStage.CONNECTED
-            delay(1200)
-            if (convId != null) navigateAfterConnect(convId)
-            connectStage = ConnectStage.IDLE
-            connectInput = ""
-            connectStep = 0
-        }
-    }
-
-    private fun navigateAfterConnect(target: String) {
-        desktopActive = target
-        mActive = target
-        mScreen = MScreen.CHAT
-    }
-
-    /**
-     * Open a NEW session over the same peer connection as [convId] — a fresh
-     * terminal or LLM conversation that reuses the known ticket (no re-pairing).
-     * The server multiplexes it onto the existing connection as a new stream.
-     */
-    fun newSessionFrom(convId: String) {
-        val ticket = conv(convId).sourceTicket ?: return
-        val kind = conversation(convId).kind
-        val alpn = when (kind) {
-            ConversationKind.TERMINAL -> Alpns.TERM
-            ConversationKind.LLM -> Alpns.LLM
-            ConversationKind.PEER -> Alpns.CHAT
-        }
-        scope.launch {
-            val stream = runCatching { transport.connect(ticket, alpn) }.getOrNull() ?: return@launch
-            val base = conversationOrNull(convId)?.name ?: mnemonicCode(transport.peerIdForTicket(ticket) ?: ticket)
-            val n = conversations.count { convOrNull(it.id)?.sourceTicket == ticket && it.kind == kind } + 1
-            val id = nextId("sess")
-            convState[id] = ConversationState(emptyList()).also { it.sourceTicket = ticket }
-            conversations.add(Conversation(id, "$base · session $n", kind, glyphFor(base, kind), sub = "live session", preview = ""))
-            wireConv(id, stream, isTerminal = kind == ConversationKind.TERMINAL)
-            mActive = id
-            desktopActive = id
-            mScreen = MScreen.CHAT
-        }
-    }
-
-    /**
-     * Announce presence on a freshly-opened outbound stream by sending a [Frame.Hello]
-     * as its first frame. This is the "ping": it tells the remote we're online and,
-     * for a bridge, unblocks its accept loop so it flushes any mail queued for us.
-     * Best-effort — failures are swallowed by the caller.
-     */
-    private suspend fun ping(stream: P2pStream) {
-        stream.sendLine(FrameCodec.encode(Frame.Hello(transport.nodeId ?: "")))
-    }
-
-    /** Remember a peer ticket (most-recent 10) so we can auto-reconnect later. */
-    private fun persistPeer(ticket: String) {
-        peerStore?.let { store ->
-            store.save((store.load() + ticket).distinct().takeLast(10))
-        }
-    }
-
-    /**
-     * Re-dial every saved peer silently (no connect UI), filling in any
-     * conversation that isn't already live. Retries a few times to ride out the
-     * endpoint still coming up (e.g. just after a foreground rebind). No-op in
-     * demo mode.
-     */
-    fun reconnectSaved() {
-        if (demoMode) return
-        val saved = peerStore?.load().orEmpty()
-        if (saved.isEmpty()) return
-        saved.forEach { ticket ->
-            val peerId = transport.peerIdForTicket(ticket) ?: return@forEach
-            // Disabled conversations don't auto-reconnect.
-            if (conversationOrNull(peerId)?.enabled == false) return@forEach
-            scope.launch {
-                repeat(3) {
-                    val results = runCatching {
-                        coroutineScope {
-                            Alpns.ALL.map { alpn ->
-                                async {
-                                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
-                                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
-                                }
-                            }.awaitAll().filterNotNull()
-                        }
-                    }.getOrDefault(emptyList())
-                    if (results.isNotEmpty()) {
-                        // Same "one conversation per peer" collapse as connectPeer.
-                        val primary = results.maxBy { kindPriority(kindForAlpn(it.first)) }
-                        results.filter { it !== primary }.forEach { (_, s) -> runCatching { s.close() } }
-                        val id = wireStream(primary.first, primary.second, peerId, replace = false)
-                        id?.let { convOrNull(it)?.sourceTicket = ticket }
-                        return@launch
-                    }
-                    delay(700)
-                }
-            }
-        }
-    }
-
-    // ---- stream wiring + incoming frames ----
-
-    private fun kindForAlpn(alpn: String): ConversationKind = when (alpn) {
-        Alpns.CHAT -> ConversationKind.PEER
-        Alpns.LLM -> ConversationKind.LLM
-        Alpns.TERM -> ConversationKind.TERMINAL
-        else -> ConversationKind.PEER
-    }
-
-    /** Wire [stream] into the conversation for [peerId] (created/named on demand). */
-    private fun wireStream(
-        alpn: String,
-        stream: P2pStream,
-        peerId: String,
-        announcedName: String? = null,
-        replace: Boolean = true,
-    ): String? {
-        if (peerId.isBlank()) { scope.launch { runCatching { stream.close() } }; return null }
-        val convId = ensureConv(peerId, kindForAlpn(alpn), announcedName)
-        wireConv(convId, stream, isTerminal = alpn == Alpns.TERM, replace = replace)
-        return convId
-    }
-
-    /** Attach a live [stream] to [convId], replacing any current one unless [replace] is false. */
-    private fun wireConv(convId: String, stream: P2pStream, isTerminal: Boolean, replace: Boolean = true) {
-        val cs = conv(convId)
-        // A silent reconnect must never disrupt an already-live conversation.
-        if (!replace && cs.online && cs.stream != null) {
-            scope.launch { runCatching { stream.close() } }
-            return
-        }
-        cs.stream = stream
-        if (isTerminal) cs.termScreen.clear()
-        cs.online = true
-        receiveLoop(convId, stream)
-    }
-
-    private fun receiveLoop(convId: String, stream: P2pStream) {
-        scope.launch {
-            try {
-                while (true) {
-                    val line = stream.receiveLine() ?: break
-                    if (line.isBlank()) continue
-                    val frame = runCatching { FrameCodec.decode(line) }.getOrNull() ?: continue
-                    // The conversation is already keyed by the peer's node id. A Hello
-                    // whose name differs from that id is a *friendly announcement*
-                    // (a bridge "azula", a game "Blackjack") — show it as the title
-                    // (the peer code stays the subtitle). A Hello equal to the id is
-                    // just the peer's presence ping; ignore it for naming.
-                    if (frame is Frame.Hello) {
-                        if (frame.name.isNotBlank() && frame.name != convId) {
-                            ensureConv(convId, conversationOrNull(convId)?.kind ?: kindForAlpn(Alpns.LLM), frame.name)
-                        }
-                        continue
-                    }
-                    // FileBegin must be handled here (suspend context, access to stream).
-                    if (frame is Frame.FileBegin) {
-                        runCatching {
-                            val received = receiveFile(stream, frame) { stream.receiveLine() }
-                            val attachment = Attachment(
-                                id = received.id,
-                                name = received.name,
-                                mime = received.mime,
-                                size = received.bytes.size.toLong(),
-                                bytes = received.bytes,
-                                caption = received.caption,
-                            )
-                            conv(convId).messages.add(
-                                Message(
-                                    nextId("r"),
-                                    Role.THEM,
-                                    text = received.caption,
-                                    attachments = listOf(attachment),
-                                )
-                            )
-                            persist(convId)
-                            notifyIncoming(convId, received.caption ?: "sent ${received.name}")
-                        }
-                        continue
-                    }
-                    // Stray file_chunk / file_end outside a transfer are ignored.
-                    if (frame is Frame.FileChunk || frame is Frame.FileEnd) continue
-                    // A peer's profile: name the conversation + store the avatar.
-                    if (frame is Frame.Profile) { applyProfile(convId, frame); continue }
-                    applyFrame(convId, frame)
-                }
-            } finally {
-                conv(convId).online = false
-                conv(convId).stream = null
-            }
-        }
-    }
-
-    private fun applyFrame(convId: String, frame: Frame) {
-        val cs = conv(convId)
-        when (frame) {
-            is Frame.Hello -> Unit // presence ping from a peer/bridge; identity is handled at connect, nothing to render
-            is Frame.Chat -> {
-                cs.messages.add(Message(nextId("p"), Role.THEM, text = frame.text))
-                notifyIncoming(convId, frame.text)
-            }
-            is Frame.Term -> cs.termScreen.feed(frame.line)
-            is Frame.Thinking -> if (conversationOrNull(convId)?.kind == ConversationKind.LLM) chatService.updateThinking(frame.on)
-            is Frame.A2ui -> {
-                val msg = A2uiCodec.parse(frame.message.toString()) ?: return
-                when (msg) {
-                    is CreateSurface -> {
-                        val surface = A2uiSurface(msg.surfaceId, msg.catalogId)
-                        surfaces[msg.surfaceId] = surface
-                        // If a card with this surface id already exists (e.g. a
-                        // Blackjack game we're reconnecting to, or a restored one),
-                        // re-attach the live surface in place instead of stacking a
-                        // duplicate — the server re-creates the same id to resume.
-                        val existing = cs.messages.indexOfLast { it.a2ui?.surfaceId == msg.surfaceId }
-                        if (existing >= 0) {
-                            cs.messages[existing] = cs.messages[existing].copy(a2ui = surface)
-                        } else {
-                            cs.messages.add(Message(nextId("p"), Role.AZULA, a2ui = surface))
-                            notifyIncoming(convId, "sent an interactive card")
-                        }
-                    }
-                    is DeleteSurface -> surfaces.remove(msg.surfaceId)
-                    else -> surfaces[msg.surfaceId]?.apply(msg)
-                }
-            }
-            is Frame.A2uiAction -> Unit // client→server only; ignored on receive
-            is Frame.Token -> {
-                val role = if (conversationOrNull(convId)?.kind == ConversationKind.LLM) Role.AZULA else Role.THEM
-                if (cs.streamingMsgId == null && !frame.done) {
-                    val id = nextId("s")
-                    cs.streamingMsgId = id
-                    cs.messages.add(Message(id, role, text = frame.delta))
-                } else {
-                    val id = cs.streamingMsgId
-                    if (id != null) {
-                        val idx = cs.messages.indexOfLast { it.id == id }
-                        if (idx >= 0) {
-                            val cur = cs.messages[idx]
-                            cs.messages[idx] = cur.copy(text = (cur.text ?: "") + frame.delta)
-                        }
-                    }
-                }
-                if (frame.done) {
-                    // A completed streamed message (e.g. a bridge `send_message`)
-                    // arriving while backgrounded is an incoming push — notify.
-                    val finished = cs.streamingMsgId?.let { id -> cs.messages.lastOrNull { it.id == id } }
-                    cs.streamingMsgId = null
-                    finished?.text?.takeIf { it.isNotBlank() }?.let { notifyIncoming(convId, it) }
-                }
-            }
-            is Frame.Input, is Frame.Resize -> Unit // client → server only
-            // File + Profile frames are handled in receiveLoop directly; unreachable here.
-            is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
-        }
-        // Persist after applying — but not on every streamed token delta (only when done).
-        if (frame !is Frame.Token || frame.done) persist(convId)
-    }
+    fun connectPeer(ticketRaw: String, share: Frame.Profile? = null) = connectService.connectPeer(ticketRaw, share)
+    fun newSessionFrom(convId: String) = connectService.newSessionFrom(convId)
+    fun reconnectSaved() = connectService.reconnectSaved()
 
     // ---- conversation management (enable/disable, delete) ----
 
@@ -721,7 +375,7 @@ class AzulaState(
         // PeerStore has no per-item delete — save a filtered list. Match by the
         // ticket's resolved node id (covers inbound-only convs with no sourceTicket).
         peerStore?.let { store ->
-            store.save(store.load().filter { (transport.peerIdForTicket(it) ?: "") != id })
+            store.save(store.load().filter { (connectService.peerIdForTicket(it) ?: "") != id })
         }
         persistence.delete(id, isDemo)
         convState.remove(id)
@@ -738,8 +392,8 @@ class AzulaState(
     val personas get() = personaService.personas
     val defaultPersonaId get() = personaService.defaultPersonaId
 
-    /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
-    val pendingShares = mutableStateListOf<PendingShareRequest>()
+    /** Inbound connections awaiting a "share my profile?" decision (owned by ConnectService). */
+    val pendingShares get() = connectService.pendingShares
 
     fun newPersonaId(): String = personaService.newId()
     fun upsertPersona(persona: Persona) = personaService.upsert(persona)
@@ -747,44 +401,8 @@ class AzulaState(
     fun setDefaultPersona(id: String) = personaService.setDefault(id)
     fun personaById(id: String?): Persona? = personaService.byId(id)
 
-    /** Apply a peer's received profile: rename the conversation + store the avatar. */
-    private fun applyProfile(convId: String, p: Frame.Profile) {
-        if (p.name.isNotBlank()) {
-            ensureConv(convId, conversationOrNull(convId)?.kind ?: kindForAlpn(Alpns.CHAT), p.name)
-        }
-        convOrNull(convId)?.let { cs ->
-            cs.peerDescription = p.description
-            cs.peerAvatarB64 = p.avatar
-            cs.peerAvatarMime = p.mime
-            cs.peerAvatarBitmap = p.avatar?.let { decodeAvatar(it) }
-        }
-        persist(convId)
-    }
-
-    @OptIn(ExperimentalEncodingApi::class)
-    private fun decodeAvatar(b64: String): ImageBitmap? =
-        runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull()
-
-    /** Enqueue a "share my profile?" prompt for a new inbound connection (deduped). */
-    private fun enqueueShareRequest(convId: String) {
-        if (pendingShares.any { it.convId == convId }) return
-        pendingShares.add(PendingShareRequest(convId, mnemonicCode(convId)))
-        if (!inForeground) {
-            notifier?.postMessage(
-                convId, "Connection request", "${mnemonicCode(convId)} connected",
-            )
-        }
-    }
-
     /** Respond to a pending share prompt: send [frame] back (or nothing to decline). */
-    fun respondShare(convId: String, frame: Frame.Profile?) {
-        pendingShares.removeAll { it.convId == convId }
-        if (frame != null) {
-            convOrNull(convId)?.stream?.let { s ->
-                scope.launch { runCatching { s.sendLine(FrameCodec.encode(frame)) } }
-            }
-        }
-    }
+    fun respondShare(convId: String, frame: Frame.Profile?) = connectService.respondShare(convId, frame)
 
     companion object {
         private fun seedAzula(): List<Message> {

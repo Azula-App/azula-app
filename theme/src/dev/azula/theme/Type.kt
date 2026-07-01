@@ -9,9 +9,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import org.jetbrains.compose.resources.Font
-import shared.generated.resources.Res
-import shared.generated.resources.jetbrainsmono_bold
-import shared.generated.resources.jetbrainsmono_regular
+import theme.generated.resources.Res
+import theme.generated.resources.jetbrainsmono_bold
+import theme.generated.resources.jetbrainsmono_regular
 
 /**
  * The design uses four Google fonts. JetBrains Mono is now bundled

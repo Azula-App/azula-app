@@ -1,0 +1,14 @@
+# theme — the app's Compose theme: color palette, typography (the bundled
+# JetBrains Mono fonts live in this module's composeResources), and the
+# MaterialTheme wrapper. A Compose leaf; UI modules depend on it.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - $compose.foundation: exported
+  - $compose.material3: exported
+
+settings:
+  compose:
+    enabled: true

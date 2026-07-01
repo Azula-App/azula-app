@@ -7,3 +7,4 @@ modules:
   - network-real
   - shared
   - terminal-api
+  - theme

@@ -18,5 +18,6 @@ private val AzulaColorScheme = darkColorScheme(
 /** Wraps content in the azula dark theme (drives ripples and Material defaults). */
 @Composable
 fun AzulaTheme(content: @Composable () -> Unit) {
+    LoadFonts()
     MaterialTheme(colorScheme = AzulaColorScheme, content = content)
 }

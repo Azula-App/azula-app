@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Android adaptive-icon FOREGROUND: the mark only, on transparent, scaled to
+     ~0.60 and centred so it stays inside the 66/108dp safe zone (launcher masks
+     never crop it). The background layer supplies the #070709 + glow. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <filter id="glowPink" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="22" result="b"/>
+      <feFlood flood-color="#ff2d9b" flood-opacity="0.6" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowGreen" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18" result="b"/>
+      <feFlood flood-color="#52c98a" flood-opacity="0.45" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(512,512) scale(0.60) translate(-512,-512)">
+    <g font-family="JetBrains Mono, monospace" font-weight="700">
+      <text x="470" y="612" font-size="392" fill="#52c98a" text-anchor="end" filter="url(#glowGreen)">&#x203A;</text>
+      <text x="500" y="632" font-size="437" fill="#ff2d9b" text-anchor="start" filter="url(#glowPink)">a</text>
+    </g>
+  </g>
+</svg>

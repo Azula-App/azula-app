@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -30,6 +32,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import dev.azula.getWorld
 import dev.azula.model.Conversation
 import dev.azula.state.AzulaState
@@ -92,9 +100,33 @@ fun SettingsRow(active: Boolean, onClick: () -> Unit) {
 @Composable
 fun Brand() {
     Column(Modifier.padding(horizontal = 4.dp)) {
-        Text("azula", color = AzulaColors.pink, fontFamily = Fonts.ui, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+        // The brand mark: green prompt "›" + magenta "azula" + a blinking block
+        // cursor, in JetBrains Mono Bold — the "hacker read" from the icon set.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("›", color = AzulaColors.online, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            Spacer(Modifier.width(5.dp))
+            Text("azula", color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            Spacer(Modifier.width(5.dp))
+            BlinkingCursor()
+        }
         Text("p2p over iroh · ${getWorld()}", color = AzulaColors.textFaint2, fontFamily = Fonts.mono, fontSize = 10.sp)
     }
+}
+
+/** A magenta block cursor that blinks on/off ~every second (design: steps(1) 1.05s). */
+@Composable
+fun BlinkingCursor(width: androidx.compose.ui.unit.Dp = 8.dp, height: androidx.compose.ui.unit.Dp = 18.dp) {
+    val transition = rememberInfiniteTransition()
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1050, easing = LinearEasing), RepeatMode.Restart),
+    )
+    Box(
+        Modifier.size(width, height)
+            .alpha(if (phase < 0.5f) 1f else 0f)
+            .background(AzulaColors.pink, RoundedCornerShape(1.dp)),
+    )
 }
 
 @Composable

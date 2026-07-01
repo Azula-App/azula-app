@@ -4,6 +4,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.azula.AzulaApp
 import dev.azula.link.DeepLinkBus
+import dev.azula.ui.appIconPainter
 
 fun main(args: Array<String>) = application {
     // Demo/UI-test build: seed content (off by default → shipping build is empty).
@@ -14,6 +15,7 @@ fun main(args: Array<String>) = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "azula — peer to peer",
+        icon = appIconPainter(),
         state = rememberWindowState(width = 1180.dp, height = 760.dp),
     ) {
         AzulaApp(isDemo)

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application android:name="app.azula.AzulaApplication"
                  android:label="azula"
+                 android:icon="@mipmap/ic_launcher"
+                 android:roundIcon="@mipmap/ic_launcher_round"
                  android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="app.azula.MainActivity"
                   android:exported="true"

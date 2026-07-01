@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- azula brand near-black; the glowing ›a mark lives in the foreground layer. -->
+    <color name="ic_launcher_background">#070709</color>
+</resources>

@@ -105,6 +105,7 @@ class AzulaState(
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
+    private val chatService: ChatService = ChatService(convStore, surfaceStore, persistence, scope),
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // The shipping build starts EMPTY (conversations are created per-peer on
@@ -124,8 +125,7 @@ class AzulaState(
     var mActive by mutableStateOf(if (isDemo) "azula" else "")
         private set
 
-    var thinking by mutableStateOf(false)
-        private set
+    val thinking get() = chatService.thinking
     /** Whether the app is in the foreground. The platform updates this on
      *  lifecycle changes; incoming messages post a [Notifier] only when false. */
     var inForeground by mutableStateOf(true)
@@ -173,7 +173,6 @@ class AzulaState(
         }
     }
 
-    private var azIdx = 0
     /** True when the real transport failed to bind and we fell back to demo mode. */
     private var demoMode = false
     private fun nextId(p: String): String = convStore.nextId(p)
@@ -276,18 +275,9 @@ class AzulaState(
         val cs = conv(convId)
         val txt = cs.draft.trim()
         if (txt.isEmpty()) return
+        // Terminal conversations send keystrokes, not chat messages.
         if (conversation(convId).kind == ConversationKind.TERMINAL) { cs.draft = ""; terminalInput(convId, txt); return }
-        cs.draft = ""
-        cs.messages.add(Message(nextId("u"), Role.ME, text = txt))
-        persist(convId)
-        val stream = cs.stream
-        when {
-            stream != null -> scope.launch {
-                runCatching { stream.sendLine(FrameCodec.encode(Frame.Chat(txt))) }
-            }
-            // Offline LLM conversation: fall back to the canned local assistant.
-            conversationOrNull(convId)?.kind == ConversationKind.LLM -> azulaReply(convId, txt)
-        }
+        chatService.send(convId, txt, isDemo)
     }
 
     /**
@@ -302,26 +292,7 @@ class AzulaState(
         mime: String,
         encoding: FileEncoding = FileEncoding.BASE64,
         caption: String? = null,
-    ) {
-        val cs = conv(convId)
-        val msgId = nextId("f")
-        val attachment = Attachment(
-            id = msgId,
-            name = name,
-            mime = mime,
-            size = bytes.size.toLong(),
-            bytes = bytes,
-            caption = caption,
-        )
-        cs.messages.add(Message(msgId, Role.ME, text = caption, attachments = listOf(attachment)))
-        persist(convId)
-        val stream = cs.stream ?: return
-        scope.launch {
-            runCatching {
-                sendFile(stream, OutgoingFile(name = name, mime = mime, bytes = bytes, caption = caption), encoding)
-            }
-        }
-    }
+    ) = chatService.sendFile(convId, bytes, name, mime, encoding, caption, isDemo)
 
     fun markCopied() {
         copied = true
@@ -401,66 +372,6 @@ class AzulaState(
             c == "clear" -> { scope.launch { termLines.clear() }; emptyList() }
             c.isEmpty() -> emptyList()
             else -> listOf(out("azula: command not found: $cmdRaw (try `help`)", TerminalLine.Tint.ERROR))
-        }
-    }
-
-    // ---- canned azula (used until a real LLM stream is wired) ----
-
-    private fun azulaReply(convId: String, userTxt: String) {
-        thinking = true
-        val low = userTxt.lowercase()
-        val reply: List<Message> = when {
-            Regex("game|dice|play|roll").containsMatchIn(low) -> {
-                val surface = A2uiExamples.diceSurface(nextId("ds"))
-                surfaces[surface.surfaceId] = surface
-                listOf(
-                    Message(nextId("r"), Role.AZULA, text = "you're on. **first to roll higher wins.** 🎲"),
-                    Message(nextId("r"), Role.AZULA, a2ui = surface),
-                )
-            }
-            Regex("poll|vote").containsMatchIn(low) -> {
-                val surface = A2uiExamples.pollSurface(
-                    nextId("ps"),
-                    "ship the build tonight?",
-                    listOf("ship it" to 9, "sleep on it" to 4),
-                )
-                surfaces[surface.surfaceId] = surface
-                listOf(
-                    Message(nextId("r"), Role.AZULA, text = "spinning one up — tap to vote:"),
-                    Message(nextId("r"), Role.AZULA, a2ui = surface),
-                )
-            }
-            Regex("terminal|shell|ssh").containsMatchIn(low) -> listOf(
-                Message(
-                    nextId("r"), Role.AZULA,
-                    text = "opening zuko's shell — switch to the **terminal** tab and you'll share a live cursor.\n\n```bash\n$ whoami\nzuko\n```",
-                ),
-            )
-            else -> {
-                val cycle = listOf(
-                    listOf(Message(nextId("r"), Role.AZULA, text = "current round-trips:\n\n| relay | rtt | load |\n|---|---|---|\n| **sfo** | 12ms | low |\n| ams | 88ms | low |\n| tok | 140ms | med |\n\nwe're direct anyway — this is just insurance.")),
-                    run {
-                        val surface = A2uiExamples.decideSurface(
-                            nextId("dc"),
-                            "what next?",
-                            listOf("play dice", "run a poll", "open terminal"),
-                        )
-                        surfaces[surface.surfaceId] = surface
-                        listOf(
-                            Message(nextId("r"), Role.AZULA, text = "sure — pick how we settle it:"),
-                            Message(nextId("r"), Role.AZULA, a2ui = surface),
-                        )
-                    },
-                    listOf(Message(nextId("r"), Role.AZULA, text = "> **tip:** type `/terminal` to drive a shell, `/poll`, or `play a game`.\n\nI render **markdown**, tables, code, and spin up little UIs inline. what do you need?")),
-                )
-                cycle[azIdx % cycle.size].also { azIdx++ }
-            }
-        }
-        scope.launch {
-            delay(800)
-            thinking = false
-            reply.forEach { conv(convId).messages.add(it) }
-            persist(convId)
         }
     }
 
@@ -717,7 +628,7 @@ class AzulaState(
                 notifyIncoming(convId, frame.text)
             }
             is Frame.Term -> cs.termScreen.feed(frame.line)
-            is Frame.Thinking -> if (conversationOrNull(convId)?.kind == ConversationKind.LLM) thinking = frame.on
+            is Frame.Thinking -> if (conversationOrNull(convId)?.kind == ConversationKind.LLM) chatService.updateThinking(frame.on)
             is Frame.A2ui -> {
                 val msg = A2uiCodec.parse(frame.message.toString()) ?: return
                 when (msg) {

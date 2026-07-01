@@ -60,6 +60,13 @@ for row in mdpi:108:48 hdpi:162:72 xhdpi:216:96 xxhdpi:324:144 xxxhdpi:432:192; 
   cp "$out/android/mipmap-$d/ic_launcher.png" "$out/android/mipmap-$d/ic_launcher_round.png"
 done
 
+# ---- Android notification small icon: white ›a silhouette, density PNGs ----
+for row in mdpi:24 hdpi:36 xhdpi:48 xxhdpi:72 xxxhdpi:96; do
+  d="${row%%:*}"; px="${row##*:}"
+  mkdir -p "$out/android/drawable-$d"
+  ink "$here/icon.notification.svg" "$out/android/drawable-$d/ic_stat_azula.png" "$px"
+done
+
 # ---- Fonts: static JetBrains Mono (Regular + Bold) for composeResources ----
 # Prefer the on-disk static instances (zero network, OFL-licensed).
 src_font="$HOME/Library/Fonts"
@@ -84,8 +91,9 @@ cp "$out/jvm/app_icon.png" "$app/shared/composeResources/drawable/app_icon.png"
 # Android res
 res="$app/android-app/res"
 for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-  mkdir -p "$res/mipmap-$d"
+  mkdir -p "$res/mipmap-$d" "$res/drawable-$d"
   cp "$out/android/mipmap-$d/"*.png "$res/mipmap-$d/"
+  cp "$out/android/drawable-$d/"*.png "$res/drawable-$d/"
 done
 
 # iOS asset catalog

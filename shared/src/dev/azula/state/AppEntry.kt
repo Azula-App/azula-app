@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
+import dev.azula.net.FakeTransport
 import dev.azula.net.createTransport
 import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
@@ -39,7 +40,8 @@ fun rememberAzulaState(isDemo: Boolean = false): AzulaState {
         createGraphFactory<AppGraph.Factory>().create(
             scope = scope,
             isDemo = isDemo,
-            transport = createTransport(),
+            // Mock/UI-test build gets a fake network + terminal; real build the iroh transport.
+            transport = if (isDemo) FakeTransport() else createTransport(),
             notifier = null,
             messageStore = platformMessageStore(),
             profileStore = platformProfileStore(),

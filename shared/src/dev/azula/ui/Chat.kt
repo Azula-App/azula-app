@@ -96,21 +96,17 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             termLive ->
                 // Type directly in the terminal — no input bar, just the compact key row.
                 TerminalKeysBar(state, convId)
-            // A real terminal whose shell exited: show a closed/reconnect bar, not
-            // the canned demo input. (The seeded demo keeps its input bar below.)
-            conv.kind == ConversationKind.TERMINAL && !state.isDemo ->
+            // A terminal whose shell exited: show a closed/reconnect bar.
+            conv.kind == ConversationKind.TERMINAL ->
                 TerminalEndedBar(state, convId)
             else -> ChatInput(
                 value = cs.draft,
                 onValueChange = { state.updateDraft(convId, it) },
                 onSend = { state.send(convId) },
-                placeholder = when {
-                    conv.kind == ConversationKind.TERMINAL -> "zuko@remote ~/azula $"
-                    else -> "message ${conv.name}"
-                },
-                terminal = conv.kind == ConversationKind.TERMINAL,
+                placeholder = "message ${conv.name}",
+                terminal = false,
                 onInterrupt = null,
-                onAttach = if (conv.kind == ConversationKind.TERMINAL) null else launchPicker,
+                onAttach = launchPicker,
             )
         }
     }
@@ -202,7 +198,7 @@ fun MessageThread(state: AzulaState, convId: String) {
             if (m.a2ui != null) {
                 // Frozen when restored from disk (not in the live `surfaces` registry)
                 // or the connection is inactive — but demo seeds stay interactive.
-                val frozen = !state.isDemo && (m.a2ui.surfaceId !in state.surfaces || !cs.online)
+                val frozen = m.a2ui.surfaceId !in state.surfaces || !cs.online
                 A2uiSurfaceView(
                     surface = m.a2ui,
                     onAction = { state.onA2uiAction(convId, it) },

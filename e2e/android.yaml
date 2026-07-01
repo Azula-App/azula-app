@@ -1,8 +1,9 @@
 appId: app.azula
 ---
-# Home screen. The shipping build starts empty; the seeded demo personas this flow
-# asserts only exist in the demo build, enabled via the `demo` intent extra.
-# clearState ensures no saved peers add dynamically-named conversations.
+# The mock/UI-test build (the `demo` intent extra) injects a FakeTransport — real
+# UI, fake network + terminal — so these flows drive the real screens with no live
+# peer. On bind, FakeTransport surfaces one inbound terminal conversation; a
+# connect dials a chat loopback. clearState avoids saved peers adding rows.
 - launchApp:
     clearState: true
     arguments:
@@ -10,54 +11,36 @@ appId: app.azula
 - takeScreenshot: e2e/screenshots/android-home
 - assertVisible: "azula"
 - assertVisible: "CONVERSATIONS"
-- assertVisible: "tap to ask or play"
+# The auto-surfaced terminal conversation (named from the fake peer id).
+- assertVisible: "mo · onyx · ivy"
 
-# Open azula conversation
+# ── Terminal: open it, type a command, see the fake shell echo it ────────────
 - tapOn:
-    text: "tap to ask or play"
-- takeScreenshot: e2e/screenshots/android-azula-chat
-- assertVisible: "azula"
-- assertVisible: "your llm · always on"
-
-# Type and send "play a game"
-- tapOn:
-    text: "message azula"
-- inputText: "play a game"
-- tapOn:
-    text: "↑"
-# NB: no `hideKeyboard` — on Android it issues a system back press, which (absent
-# a BackHandler on the chat screen) backgrounds the app. Maestro asserts against
-# the accessibility tree, so the widget is found without dismissing the keyboard.
+    text: "mo · onyx · ivy"
 - extendedWaitUntil:
     visible:
-      text: "ROLL"
+      text: "mock shell.*"
     timeout: 5000
-- takeScreenshot: e2e/screenshots/android-dice-widget
-- assertVisible: "AZULA · DICE"
-- assertVisible: "ROLL"
+- takeScreenshot: e2e/screenshots/android-terminal
+- inputText: "ls"
+- extendedWaitUntil:
+    visible:
+      text: ".*ls.*"
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/android-terminal-typed
 
-# Go back to home
+# ── Connect a peer: the fake transport loops chat back ───────────────────────
 - tapOn:
     text: "‹"
-- takeScreenshot: e2e/screenshots/android-home-2
-- assertVisible: "CONVERSATIONS"
-
-# Open terminal conversation
 - tapOn:
-    text: "▸ ready on :5173"
-- takeScreenshot: e2e/screenshots/android-terminal
-- assertVisible: "terminal"
-
-# Type and send "help" command
+    text: "+ connect a peer"
 - tapOn:
-    text: "zuko@remote ~/azula $"
-- inputText: "help"
+    text: "paste a code…"
+- inputText: "azula-mock-peer"
 - tapOn:
-    text: "↑"
+    text: "connect"
 - extendedWaitUntil:
     visible:
-      text: ".*commands.*whoami.*"
-    timeout: 5000
-- takeScreenshot: e2e/screenshots/android-terminal-help
-- assertVisible:
-    text: ".*commands.*whoami.*"
+      text: ".*linked over iroh.*"
+    timeout: 8000
+- takeScreenshot: e2e/screenshots/android-connected

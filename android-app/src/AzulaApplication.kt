@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.azula.iroh.IrohAndroid
 import dev.azula.di.AppGraph
 import dev.azula.net.AndroidPeerStore
+import dev.azula.net.FakeTransport
 import dev.azula.net.IrohConfig
 import dev.azula.net.createTransport
 import dev.azula.persist.AndroidMessageStore
@@ -76,7 +77,8 @@ class AzulaApplication : Application() {
         AppStateHost.shared ?: createGraphFactory<AppGraph.Factory>().create(
             scope = appScope,
             isDemo = isDemo,
-            transport = createTransport(),
+            // Mock/UI-test build (demo intent extra) → fake network + terminal.
+            transport = if (isDemo) FakeTransport() else createTransport(),
             notifier = AndroidNotifier(this),
             messageStore = AndroidMessageStore(applicationContext),
             profileStore = AndroidProfileStore(applicationContext),

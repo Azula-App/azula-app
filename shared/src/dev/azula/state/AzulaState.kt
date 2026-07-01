@@ -8,7 +8,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.azula.a2ui.A2uiAction
 import dev.azula.a2ui.A2uiCodec
-import dev.azula.a2ui.A2uiExamples
 import dev.azula.a2ui.A2uiSurface
 import dev.azula.a2ui.CreateSurface
 import dev.azula.a2ui.DeleteSurface
@@ -18,7 +17,6 @@ import dev.azula.model.ConversationKind
 import dev.azula.model.ConnectStage
 import dev.azula.model.Message
 import dev.azula.model.Role
-import dev.azula.model.TerminalLine
 import dev.azula.net.Alpns
 import dev.azula.net.FakeTransport
 import dev.azula.net.FileEncoding
@@ -92,16 +90,16 @@ class ConversationState(seed: List<Message>) {
 @SingleIn(AppScope::class)
 class AzulaState(
     private val scope: CoroutineScope,
-    /** True only in the demo / UI-test build: loads seeded demo content and
-     *  skips message persistence. The shipping build defaults this to false. */
-    override val isDemo: Boolean = false,
+    /** True in the mock / UI-test build: the platform injects a FakeTransport
+     *  (fake network + terminal) and message persistence is skipped. */
+    val isDemo: Boolean = false,
     private val peerStore: PeerStore? = null,
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
-    private val chatService: ChatService = ChatService(convStore, surfaceStore, persistence, scope),
+    private val chatService: ChatService = ChatService(convStore, persistence, scope),
     // The connect + transport core (owns the swappable transport, dial/receive/
     // dispatch). AzulaState wires its navigation + foreground callbacks in init.
     private val connectService: ConnectService,
@@ -145,34 +143,11 @@ class AzulaState(
     /** All live A2UI surfaces, keyed by surfaceId (owned by SurfaceStore). */
     val surfaces get() = surfaceStore.surfaces
 
-    val termLines = mutableStateListOf<TerminalLine>().also { if (isDemo) it.addAll(seedTerm()) }
-
     init {
         // Give the connect core its app-shell hooks (navigation + foreground).
         connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
         connectService.foreground = { inForeground }
-        if (isDemo) {
-            convStore.conversations.addAll(
-                listOf(
-                    Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
-                    Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
-                    Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
-                )
-            )
-            convState["azula"] = ConversationState(seedAzula())
-            convState["zuko"] = ConversationState(seedZuko())
-            convState["term"] = ConversationState(emptyList())
-        }
-        // Register any surfaces embedded in the seed messages so actions work immediately.
-        convState.values.forEach { cs ->
-            cs.messages.forEach { m ->
-                m.a2ui?.let { surfaces[it.surfaceId] = it }
-            }
-        }
     }
-
-    /** True when the real transport failed to bind and we fell back to demo mode. */
-    private var demoMode = false
     private fun nextId(p: String): String = convStore.nextId(p)
 
     // Conversation lookup/creation is delegated to ConversationStore; these keep
@@ -252,20 +227,11 @@ class AzulaState(
 
     // ---- terminal ----
 
+    /** Line-mode terminal input (send a whole command + newline). The live UI uses
+     *  the raw path instead; kept for any line-based sender. */
     fun terminalInput(convId: String, cmdRaw: String) {
-        val cmd = cmdRaw.trim()
-        val stream = conv(convId).stream
-        if (stream != null) {
-            // Live mode: send the line raw; the shell echoes it back via termScreen.
-            scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(cmd + "\n"))) } }
-            return
-        }
-        // Demo mode only (the seeded offline terminal): canned output. A real
-        // terminal that has gone offline (its shell exited) must NOT fall into the
-        // canned interpreter — the UI shows a "session ended" state instead.
-        if (!isDemo) return
-        termLines.add(TerminalLine(TerminalLine.Kind.CMD, cmd))
-        termOut(cmd).forEach { termLines.add(it) }
+        val stream = conv(convId).stream ?: return
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(cmdRaw.trim() + "\n"))) } }
     }
 
     /**
@@ -276,7 +242,6 @@ class AzulaState(
     fun reconnectTerminal(convId: String) = connectService.reconnectTerminal(convId)
 
     // ---- TerminalSession: the narrow surface the terminal UI depends on ----
-    override val demoLines: List<TerminalLine> get() = termLines
     override fun terminalScreen(convId: String): TermScreen = conv(convId).termScreen
     override fun terminalOnline(convId: String): Boolean = convOrNull(convId)?.online == true
 
@@ -302,22 +267,6 @@ class AzulaState(
         termSizes[convId] = cols to rows
         val stream = convOrNull(convId)?.stream ?: return
         scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Resize(cols, rows))) } }
-    }
-
-    private fun termOut(cmdRaw: String): List<TerminalLine> {
-        val c = cmdRaw.trim().lowercase()
-        fun out(t: String, tint: TerminalLine.Tint = TerminalLine.Tint.NORMAL) =
-            TerminalLine(TerminalLine.Kind.OUT, t, tint)
-        return when {
-            c == "ls" -> listOf(out("src/   package.json   iroh.toml   README.md"))
-            c == "help" -> listOf(out("commands: ls · whoami · ping · iroh status · clear"))
-            c == "whoami" -> listOf(out("zuko"))
-            c == "ping" -> listOf(out("64 bytes from peer: time=12.0 ms (direct, e2e)"))
-            c.startsWith("iroh") -> listOf(out("✓ direct · 12ms · e2e · 0 relays", TerminalLine.Tint.GREEN))
-            c == "clear" -> { scope.launch { termLines.clear() }; emptyList() }
-            c.isEmpty() -> emptyList()
-            else -> listOf(out("azula: command not found: $cmdRaw (try `help`)", TerminalLine.Tint.ERROR))
-        }
     }
 
     // ---- A2UI actions ----
@@ -404,72 +353,4 @@ class AzulaState(
     /** Respond to a pending share prompt: send [frame] back (or nothing to decline). */
     fun respondShare(convId: String, frame: Frame.Profile?) = connectService.respondShare(convId, frame)
 
-    companion object {
-        private fun seedAzula(): List<Message> {
-            val decideSurface = A2uiExamples.decideSurface("a4", "pick a backup relay", listOf("sfo", "ams", "tok"))
-            return listOf(
-                Message("a1", Role.AZULA, text = "**hey — I'm azula.** your peer that thinks.\n\nask me anything, drive a terminal, or say *play a game* and I'll build one right here in the chat."),
-                Message("a2", Role.ME, text = "explain how iroh connects us, briefly"),
-                Message("a3", Role.AZULA, text = "**the gist:**\n\n- iroh dials a **direct path** between us via UDP holepunching\n- no path? it falls back to a relay, then *upgrades* to direct\n- all traffic is **end-to-end encrypted** over QUIC\n\n```bash\niroh doctor connect <ticket>\n# ✓ direct · 12ms · e2e — no server in the middle\n```\n\nwant me to lock a backup relay, just in case?"),
-                Message("a4", Role.AZULA, a2ui = decideSurface),
-            )
-        }
-
-        private fun seedZuko(): List<Message> = listOf(
-            Message("z1", Role.THEM, text = "did the tunnel come up?"),
-            Message("z2", Role.ME, text = "yeah — **fully p2p**, no server between us"),
-            Message("z3", Role.THEM, text = "ping?"),
-            Message("z4", Role.ME, text = "`12ms`. direct."),
-            Message("z5", Role.THEM, text = "**12ms?!** that's nuts 🔥"),
-            demoImageMessage(),
-        )
-
-        // A small checkerboard BMP, embedded so the inline-image rendering path
-        // is visible offline (no live transfer needed). BMP decodes on skiko
-        // (JVM/iOS) and Android's BitmapFactory.
-        private fun demoImageMessage(): Message {
-            val bmp = demoImageBmp()
-            return Message(
-                "z6", Role.THEM, text = "sent you a pic 📷",
-                attachments = listOf(Attachment("z6-img", "azula.bmp", "image/bmp", bmp.size.toLong(), bmp, null)),
-            )
-        }
-
-        private fun demoImageBmp(): ByteArray {
-            val w = 160
-            val h = 100
-            val rowSize = ((w * 3 + 3) / 4) * 4
-            val out = ByteArray(54 + rowSize * h)
-            fun le32(off: Int, v: Int) {
-                out[off] = (v and 0xFF).toByte(); out[off + 1] = ((v shr 8) and 0xFF).toByte()
-                out[off + 2] = ((v shr 16) and 0xFF).toByte(); out[off + 3] = ((v shr 24) and 0xFF).toByte()
-            }
-            fun le16(off: Int, v: Int) { out[off] = (v and 0xFF).toByte(); out[off + 1] = ((v shr 8) and 0xFF).toByte() }
-            out[0] = 'B'.code.toByte(); out[1] = 'M'.code.toByte()
-            le32(2, out.size); le32(10, 54)
-            le32(14, 40); le32(18, w); le32(22, h); le16(26, 1); le16(28, 24)
-            le32(34, rowSize * h); le32(38, 2835); le32(42, 2835)
-            var off = 54
-            for (row in 0 until h) {
-                for (x in 0 until w) {
-                    val pink = ((x / 20) + (row / 20)) % 2 == 0
-                    out[off] = (if (pink) 0x9B else 0x1A).toByte()
-                    out[off + 1] = (if (pink) 0x2D else 0x10).toByte()
-                    out[off + 2] = (if (pink) 0xFF else 0x16).toByte()
-                    off += 3
-                }
-                off += rowSize - w * 3
-            }
-            return out
-        }
-
-        private fun seedTerm(): List<TerminalLine> = listOf(
-            TerminalLine(TerminalLine.Kind.OUT, "azula terminal · sharing zuko@remote — 2 cursors live", TerminalLine.Tint.GREEN),
-            TerminalLine(TerminalLine.Kind.CMD, "iroh doctor connect"),
-            TerminalLine(TerminalLine.Kind.OUT, "✓ direct path established · 12ms · holepunched"),
-            TerminalLine(TerminalLine.Kind.OUT, "✓ end-to-end encrypted · QUIC"),
-            TerminalLine(TerminalLine.Kind.CMD, "npm run dev"),
-            TerminalLine(TerminalLine.Kind.OUT, "▸ ready on :5173 — forwarded to you"),
-        )
-    }
 }

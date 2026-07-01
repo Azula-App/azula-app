@@ -1,16 +1,26 @@
 appId: app.azula
 ---
 # System back should navigate within the app (chat → home), not exit it.
-# Demo build (seeded personas) via the `demo` intent extra; clean state.
+# Mock/UI-test build via the `demo` intent extra; clean state. We use a chat
+# conversation (via connect) rather than the terminal, since the terminal
+# auto-shows the keyboard and the first Back would only dismiss that.
 - launchApp:
     clearState: true
     arguments:
       demo: true
 - assertVisible: "CONVERSATIONS"
 - tapOn:
-    text: "tap to ask or play"
-- assertVisible: "your llm · always on"
+    text: "+ connect a peer"
+- tapOn:
+    text: "paste a code…"
+- inputText: "azula-mock-peer"
+- tapOn:
+    text: "connect"
+# The fake transport loops chat back and navigates into the conversation.
+- extendedWaitUntil:
+    visible:
+      text: ".*linked over iroh.*"
+    timeout: 8000
 - pressKey: Back
 # Still inside azula, back on the home list — not dropped to the launcher.
 - assertVisible: "CONVERSATIONS"
-- assertVisible: "tap to ask or play"

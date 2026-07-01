@@ -37,10 +37,13 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun TerminalView(state: AzulaState, convId: String) {
-    if (state.conv(convId).online) {
-        LiveTerminalView(state, convId)
-    } else {
-        DemoTerminalView(state)
+    when {
+        state.conv(convId).online -> LiveTerminalView(state, convId, live = true)
+        // Only the seeded demo falls back to the canned zuko terminal.
+        state.isDemo -> DemoTerminalView(state)
+        // A real terminal whose session ended: keep the last screen, frozen
+        // (read-only, no keyboard capture) — no fake shell.
+        else -> LiveTerminalView(state, convId, live = false)
     }
 }
 
@@ -55,7 +58,7 @@ private fun DemoTerminalView(state: AzulaState) {
 }
 
 @Composable
-private fun LiveTerminalView(state: AzulaState, convId: String) {
+private fun LiveTerminalView(state: AzulaState, convId: String, live: Boolean) {
     val termScreen = state.conv(convId).termScreen
     val scroll = rememberScrollState()
     // Auto-scroll to bottom whenever rows or current line change.
@@ -70,21 +73,23 @@ private fun LiveTerminalView(state: AzulaState, convId: String) {
         measurer.measure("MMMMMMMMMM", TextStyle(fontFamily = Fonts.mono, fontSize = 12.5.sp)).size.width / 10
     }
 
-    Box(
-        Modifier.fillMaxSize().onSizeChanged { sz ->
+    val sizeMod = if (live) {
+        Modifier.onSizeChanged { sz ->
             if (cellW > 0 && lineHpx > 0f) {
                 // Account for the 18dp padding on each side (approx: subtract ~2 cells).
                 state.terminalResize(convId, (sz.width / cellW - 2).coerceAtLeast(1), (sz.height / lineHpx).toInt())
             }
-        },
-    ) {
+        }
+    } else Modifier
+    Box(Modifier.fillMaxSize().then(sizeMod)) {
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
-        RawTerminalInput(state, convId, Modifier.matchParentSize())
+        // Omitted when frozen (session ended) — the screen is read-only.
+        if (live) RawTerminalInput(state, convId, Modifier.matchParentSize())
         Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
             termScreen.rows.forEach { row -> TermSpanRow(row) }
             Row {
                 TermSpanRow(termScreen.current)
-                LiveCursor()
+                if (live) LiveCursor()
             }
         }
     }

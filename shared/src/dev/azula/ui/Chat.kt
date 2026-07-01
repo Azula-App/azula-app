@@ -92,11 +92,15 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         val launchPicker = rememberFilePicker { picked ->
             state.sendFile(convId, picked.bytes, picked.name, picked.mime)
         }
-        if (termLive) {
-            // Type directly in the terminal — no input bar, just the compact key row.
-            TerminalKeysBar(state, convId)
-        } else {
-            ChatInput(
+        when {
+            termLive ->
+                // Type directly in the terminal — no input bar, just the compact key row.
+                TerminalKeysBar(state, convId)
+            // A real terminal whose shell exited: show a closed/reconnect bar, not
+            // the canned demo input. (The seeded demo keeps its input bar below.)
+            conv.kind == ConversationKind.TERMINAL && !state.isDemo ->
+                TerminalEndedBar(state, convId)
+            else -> ChatInput(
                 value = cs.draft,
                 onValueChange = { state.updateDraft(convId, it) },
                 onSend = { state.send(convId) },
@@ -108,6 +112,30 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
                 onInterrupt = null,
                 onAttach = if (conv.kind == ConversationKind.TERMINAL) null else launchPicker,
             )
+        }
+    }
+}
+
+/** Footer shown when a live terminal's remote shell has exited: a clear "closed"
+ *  state with a reconnect action (when we still hold the ticket to redial). */
+@Composable
+private fun TerminalEndedBar(state: AzulaState, convId: String) {
+    val canReconnect = state.conv(convId).sourceTicket != null
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("● session closed", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+        Spacer(Modifier.weight(1f))
+        if (canReconnect) {
+            Box(
+                Modifier.clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                    .clickable { state.reconnectTerminal(convId) }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            ) {
+                Text("reconnect", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
         }
     }
 }

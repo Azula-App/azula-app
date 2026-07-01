@@ -435,9 +435,25 @@ class AzulaState(
             scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(cmd + "\n"))) } }
             return
         }
-        // Demo mode (the seeded offline terminal): canned output.
+        // Demo mode only (the seeded offline terminal): canned output. A real
+        // terminal that has gone offline (its shell exited) must NOT fall into the
+        // canned interpreter — the UI shows a "session ended" state instead.
+        if (!isDemo) return
         termLines.add(TerminalLine(TerminalLine.Kind.CMD, cmd))
         termOut(cmd).forEach { termLines.add(it) }
+    }
+
+    /**
+     * Re-open the remote shell for a terminal whose session ended (e.g. the user
+     * typed `exit`). Dials the saved ticket again and rewires this same
+     * conversation with a fresh stream. No-op if we have no ticket to redial.
+     */
+    fun reconnectTerminal(convId: String) {
+        val ticket = convOrNull(convId)?.sourceTicket ?: return
+        scope.launch {
+            val stream = runCatching { transport.connect(ticket, Alpns.TERM) }.getOrNull() ?: return@launch
+            wireConv(convId, stream, isTerminal = true)
+        }
     }
 
     /** Send Ctrl-C to the remote shell when a live term stream is open. */

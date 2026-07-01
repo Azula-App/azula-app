@@ -103,6 +103,7 @@ class AzulaState(
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
+    private val surfaceStore: SurfaceStore = SurfaceStore(),
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // The shipping build starts EMPTY (conversations are created per-peer on
@@ -145,8 +146,8 @@ class AzulaState(
     var rttMs by mutableStateOf<Int?>(null)
         private set
 
-    /** All live A2UI surfaces, keyed by surfaceId. */
-    val surfaces = mutableStateMapOf<String, A2uiSurface>()
+    /** All live A2UI surfaces, keyed by surfaceId (owned by SurfaceStore). */
+    val surfaces get() = surfaceStore.surfaces
 
     val termLines = mutableStateListOf<TerminalLine>().also { if (isDemo) it.addAll(seedTerm()) }
 

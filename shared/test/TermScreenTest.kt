@@ -47,6 +47,31 @@ class TermScreenTest {
         assertEquals("100%ing...", ts.rowsText[0])
     }
 
+    // ---- backspace moves the cursor ----
+
+    @Test
+    fun backspaceMovesCursorColumn() {
+        val ts = TermScreen()
+        ts.feed("abc")
+        assertEquals(3, ts.cursorCol)
+        ts.feed("\b")            // move cursor left one
+        assertEquals(2, ts.cursorCol)
+    }
+
+    @Test
+    fun destructiveBackspaceSplitsAtCursor() {
+        val ts = TermScreen()
+        // Type "ls", then the shell erases the 's' with the classic "\b \b".
+        ts.feed("ls")
+        ts.feed("\b \b")
+        assertEquals(1, ts.cursorCol)
+        // The caret splits the line: "l" before, the erased-to-space cell after.
+        assertEquals("l", spansText(ts.currentBeforeCursor))
+        assertEquals(" ", spansText(ts.currentAfterCursor))
+    }
+
+    private fun spansText(spans: List<dev.azula.terminal.TermSpan>) = spans.joinToString("") { it.text }
+
     // ---- ANSI color strip ----
 
     @Test

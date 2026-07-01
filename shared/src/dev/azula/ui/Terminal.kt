@@ -88,8 +88,15 @@ private fun LiveTerminalView(state: AzulaState, convId: String, live: Boolean) {
         Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(18.dp)) {
             termScreen.rows.forEach { row -> TermSpanRow(row) }
             Row {
-                TermSpanRow(termScreen.current)
-                if (live) LiveCursor()
+                if (live) {
+                    // Draw the caret at the real cursor column so backspace / left-arrow
+                    // move it, splitting the line around it.
+                    if (termScreen.currentBeforeCursor.isNotEmpty()) TermSpanRow(termScreen.currentBeforeCursor)
+                    LiveCursor()
+                    if (termScreen.currentAfterCursor.isNotEmpty()) TermSpanRow(termScreen.currentAfterCursor)
+                } else {
+                    TermSpanRow(termScreen.current)
+                }
             }
         }
     }

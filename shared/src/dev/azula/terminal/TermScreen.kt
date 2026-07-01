@@ -27,9 +27,18 @@ class TermScreen {
     var current by mutableStateOf<List<TermSpan>>(emptyList())
         private set
 
+    /** The current line split at the cursor column, so a caret can be drawn at the
+     *  real cursor position (mid-line) rather than always at the line end. */
+    var currentBeforeCursor by mutableStateOf<List<TermSpan>>(emptyList())
+        private set
+    var currentAfterCursor by mutableStateOf<List<TermSpan>>(emptyList())
+        private set
+
     /** Plain-text views (for tests / search). */
     val rowsText: List<String> get() = rows.map { spansText(it) }
     val currentText: String get() = spansText(current)
+    /** Cursor column within the current line (0-based). */
+    val cursorCol: Int get() = col
 
     private class Cell(var ch: Char, var fg: Long?, var bold: Boolean)
 
@@ -46,6 +55,8 @@ class TermScreen {
         curFg = null
         curBold = false
         current = emptyList()
+        currentBeforeCursor = emptyList()
+        currentAfterCursor = emptyList()
     }
 
     /**
@@ -76,6 +87,9 @@ class TermScreen {
             i++
         }
         current = spansOf(line)
+        val c = col.coerceIn(0, line.size)
+        currentBeforeCursor = spansOf(line.subList(0, c))
+        currentAfterCursor = spansOf(line.subList(c, line.size))
     }
 
     // ---- private helpers ----

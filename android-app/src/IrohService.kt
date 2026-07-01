@@ -10,17 +10,43 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import dev.azula.net.IrohConfig
 
 /**
- * Foreground service that keeps the process — and thus the iroh node owned by
- * [AzulaApplication] — alive while the app is backgrounded, so messages arrive in
- * real time. Shows the persistent notification Android requires (with a Stop
- * action to turn background listening off). It holds no transport reference; the
- * node lives on the application scope.
+ * Keeps the process — and thus the iroh node owned by [AzulaApplication] — alive
+ * while the app is backgrounded, so messages arrive in real time.
+ *
+ * The persistent "connected" notification only makes sense in the background:
+ * while the app is in the foreground the Activity already keeps the process
+ * alive, so the service runs as an ordinary started service with **no**
+ * notification. When the app goes to the background it promotes itself to a
+ * foreground service (Android's requirement for surviving there), showing the
+ * notification; on return to the foreground it drops back down and removes it.
+ *
+ * The service is started with plain `startService` while the app is visible, so
+ * the OS lets it promote to a foreground service later (the background-start
+ * restriction targets launching a service from the background, not an
+ * already-running one promoting itself).
  */
 class IrohService : Service() {
+    private var observer: DefaultLifecycleObserver? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureChannel()
+        val obs = object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = hideNotification() // app → foreground
+            override fun onStop(owner: LifecycleOwner) = showNotification()  // app → background
+        }
+        observer = obs
+        ProcessLifecycleOwner.get().lifecycle.addObserver(obs)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // The user tapped "Stop" on the notification: shut the node down so it
@@ -36,7 +62,19 @@ class IrohService : Service() {
         // Guarantee the node exists even on a headless START_STICKY restart.
         runCatching { (application as AzulaApplication).obtainState(false) }
 
-        ensureChannel()
+        // Reflect the app's current state: hidden in the foreground, shown in the
+        // background. This also covers a START_STICKY restart while backgrounded
+        // (the lifecycle observer won't re-fire onStop for an already-stopped app).
+        if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            hideNotification()
+        } else {
+            showNotification()
+        }
+        return START_STICKY
+    }
+
+    /** Promote to a foreground service with the persistent notification (background). */
+    private fun showNotification() {
         val stopIntent = PendingIntent.getService(
             this, 0,
             Intent(this, IrohService::class.java).setAction(ACTION_STOP),
@@ -52,12 +90,25 @@ class IrohService : Service() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_ID, notification)
+        // Guarded: on some OEM/Android-12+ states startForeground can be refused;
+        // failing to show the notification is preferable to crashing.
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
         }
-        return START_STICKY
+    }
+
+    /** Drop back to an ordinary started service and remove the notification (foreground). */
+    private fun hideNotification() {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+    }
+
+    override fun onDestroy() {
+        observer?.let { ProcessLifecycleOwner.get().lifecycle.removeObserver(it) }
+        super.onDestroy()
     }
 
     private fun ensureChannel() {

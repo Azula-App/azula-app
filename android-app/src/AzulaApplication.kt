@@ -1,7 +1,6 @@
 package app.azula
 
 import android.content.Intent
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -50,17 +49,20 @@ class AzulaApplication : Application() {
         NotifierConfig.notifier = AndroidNotifier(this)
 
         // App-wide foreground/background: gate notifications and keep the node alive.
-        // We start the foreground service while we're in the foreground (reliable on
-        // Android 12+) and deliberately do NOT stop it on background, so the node
-        // keeps receiving. We also never call the transport's pause()/shutdown().
+        // We start the service (plain startService) while we're in the foreground,
+        // which keeps it eligible to promote itself to a foreground service later.
+        // The service shows its persistent notification only in the background and
+        // removes it in the foreground (see IrohService). We never stop the service
+        // on background and never call the transport's pause()/shutdown(), so the
+        // node keeps receiving.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AppStateHost.shared?.setForeground(true)
                 // Rebind if a previous "Stop" paused the node (no-op otherwise).
                 IrohConfig.activeTransport?.resume()
-                ContextCompat.startForegroundService(
-                    this@AzulaApplication, Intent(this@AzulaApplication, IrohService::class.java)
-                )
+                runCatching {
+                    startService(Intent(this@AzulaApplication, IrohService::class.java))
+                }
             }
 
             override fun onStop(owner: LifecycleOwner) {

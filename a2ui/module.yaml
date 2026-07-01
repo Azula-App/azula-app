@@ -1,0 +1,22 @@
+# a2ui — the agent-to-UI surface engine: the component/data-model, JSON-pointer
+# updates, and the Compose renderer that turns a server-described surface into
+# live UI. Depends only on theme + ui-common; consumed by shared (Message embeds
+# an A2uiSurface) and the chat UI.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../theme: exported
+  - ../ui-common: exported
+  - $compose.foundation: exported
+  - $compose.material3: exported
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  compose:
+    enabled: true
+  kotlin:
+    serialization: json

@@ -8,6 +8,7 @@ repositories:
   - mavenLocal
 
 dependencies:
+  - ../a2ui: exported
   - ../core: exported
   - ../network-api: exported
   - ../network-real: exported

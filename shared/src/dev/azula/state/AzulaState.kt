@@ -106,27 +106,14 @@ class AzulaState(
     private val messageStore: MessageStore? = null,
     private val peerStore: PeerStore? = null,
     private val personaService: PersonaService = PersonaService(null),
+    private val convStore: ConversationStore = ConversationStore(),
 ) : TerminalSession {
-    // The shipping build starts EMPTY: conversations are created per-peer when you
-    // actually connect to something, named after the other side (see ensureConv).
-    // The demo/UI-test build keeps the three seeded personas (Maestro depends on them).
-    val conversations = mutableStateListOf<Conversation>().also {
-        if (isDemo) it.addAll(
-            listOf(
-                Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
-                Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
-                Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
-            )
-        )
-    }
-
-    private val convState = mutableStateMapOf<String, ConversationState>().also {
-        if (isDemo) {
-            it["azula"] = ConversationState(seedAzula())
-            it["zuko"] = ConversationState(seedZuko())
-            it["term"] = ConversationState(emptyList())
-        }
-    }
+    // Conversation state lives in ConversationStore; expose the list for the UI.
+    // The shipping build starts EMPTY (conversations are created per-peer on
+    // connect); the demo/UI-test build seeds three (Maestro depends on them) — see
+    // init below.
+    val conversations get() = convStore.conversations
+    private val convState get() = convStore.convState
 
     // Desktop: a conversation id, or "connect" (the default landing — and the only
     // valid view when the list is empty).
@@ -168,6 +155,18 @@ class AzulaState(
     val termLines = mutableStateListOf<TerminalLine>().also { if (isDemo) it.addAll(seedTerm()) }
 
     init {
+        if (isDemo) {
+            convStore.conversations.addAll(
+                listOf(
+                    Conversation("azula", "azula", ConversationKind.LLM, "✦", "your llm · always on", "tap to ask or play"),
+                    Conversation("zuko", "zuko", ConversationKind.PEER, "z", "connected · direct p2p", "12ms?! that's nuts"),
+                    Conversation("term", "terminal", ConversationKind.TERMINAL, "›_", "zuko@remote · live", "▸ ready on :5173"),
+                )
+            )
+            convState["azula"] = ConversationState(seedAzula())
+            convState["zuko"] = ConversationState(seedZuko())
+            convState["term"] = ConversationState(emptyList())
+        }
         // Register any surfaces embedded in the seed messages so actions work immediately.
         convState.values.forEach { cs ->
             cs.messages.forEach { m ->
@@ -195,57 +194,16 @@ class AzulaState(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val saveDispatcher = Dispatchers.Default.limitedParallelism(1)
 
-    fun conv(id: String): ConversationState = convState.getValue(id)
-    fun conversation(id: String): Conversation = conversations.first { it.id == id }
-    fun convOrNull(id: String): ConversationState? = convState[id]
-    fun conversationOrNull(id: String): Conversation? = conversations.firstOrNull { it.id == id }
-
-    /**
-     * Get — or create — the conversation for [peerId] (one conversation per peer).
-     * [kind] is derived from the ALPN; [announcedName] (a server's Hello, e.g.
-     * "Blackjack"/"azula") becomes the title, otherwise the peer's mnemonic code is.
-     * The code is always shown as the secondary line, so the row reads as the
-     * announced name + the peer code. A higher-priority service (CHAT > LLM > TERM)
-     * upgrades the kind of an existing conversation.
-     */
-    private fun ensureConv(peerId: String, kind: ConversationKind, announcedName: String? = null): String {
-        val id = peerId
-        val code = mnemonicCode(peerId)
-        val existing = conversationOrNull(id)
-        if (existing != null) {
-            val newKind = if (kindPriority(kind) > kindPriority(existing.kind)) kind else existing.kind
-            val newName = announcedName ?: existing.name
-            if (newKind != existing.kind || newName != existing.name) {
-                val idx = conversations.indexOfFirst { it.id == id }
-                if (idx >= 0) conversations[idx] = existing.copy(
-                    name = newName,
-                    kind = newKind,
-                    glyph = glyphFor(newName, newKind),
-                    preview = if (newName != code) code else "",
-                )
-            }
-            return id
-        }
-        convState[id] = ConversationState(emptyList())
-        val name = announcedName ?: code
-        conversations.add(
-            Conversation(id, name, kind, glyphFor(name, kind), sub = code, preview = if (name != code) code else "")
-        )
-        return id
-    }
-
-    private fun kindPriority(k: ConversationKind): Int = when (k) {
-        ConversationKind.PEER -> 3
-        ConversationKind.LLM -> 2
-        ConversationKind.TERMINAL -> 1
-    }
-
-    private fun glyphFor(name: String, kind: ConversationKind): String = when {
-        name.equals("blackjack", ignoreCase = true) -> "♠"
-        kind == ConversationKind.TERMINAL -> "›_"
-        kind == ConversationKind.LLM -> "✦"
-        else -> name.firstOrNull()?.uppercaseChar()?.toString() ?: "•"
-    }
+    // Conversation lookup/creation is delegated to ConversationStore; these keep
+    // AzulaState's surface stable for the UI and internal callers.
+    fun conv(id: String): ConversationState = convStore.conv(id)
+    fun conversation(id: String): Conversation = convStore.conversation(id)
+    fun convOrNull(id: String): ConversationState? = convStore.convOrNull(id)
+    fun conversationOrNull(id: String): Conversation? = convStore.conversationOrNull(id)
+    private fun ensureConv(peerId: String, kind: ConversationKind, announcedName: String? = null): String =
+        convStore.ensureConv(peerId, kind, announcedName)
+    private fun glyphFor(name: String, kind: ConversationKind): String = convStore.glyphFor(name, kind)
+    private fun kindPriority(k: ConversationKind): Int = convStore.kindPriority(k)
 
     // ---- message persistence (shipping build only) ----
 
@@ -305,13 +263,7 @@ class AzulaState(
     }
 
     /** A human-friendly label derived from any node id (our own or a peer's). */
-    fun mnemonicCode(id: String): String {
-        val h = id.filter { it.isLetterOrDigit() }
-        if (h.length < 4) return "··· offline"
-        val words = MNEMONICS
-        fun pick(i: Int) = words[(h[i % h.length].code) % words.size]
-        return "${h.take(2)} · ${pick(2)} · ${pick(5)}"
-    }
+    fun mnemonicCode(id: String): String = convStore.mnemonicCode(id)
 
     /** Our own code for display. Copy uses [myCode]. */
     val shortCode: String
@@ -999,11 +951,6 @@ class AzulaState(
     }
 
     companion object {
-        private val MNEMONICS = listOf(
-            "fox", "ember", "lyra", "onyx", "moth", "ivy", "rune", "echo",
-            "wren", "kite", "sol", "vex", "nyx", "zephyr", "cobalt", "flint",
-        )
-
         private fun seedAzula(): List<Message> {
             val decideSurface = A2uiExamples.decideSurface("a4", "pick a backup relay", listOf("sfo", "ams", "tok"))
             return listOf(

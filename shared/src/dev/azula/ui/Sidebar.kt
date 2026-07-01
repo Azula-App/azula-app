@@ -1,8 +1,10 @@
 package dev.azula.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -27,6 +32,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,6 +157,7 @@ fun ConnectRow(active: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationRow(
     conv: Conversation,
@@ -160,11 +168,19 @@ fun ConversationRow(
     onToggleEnabled: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
 ) {
+    val hasMenu = onToggleEnabled != null || onDelete != null
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(if (active) Color(0x1AFF2D9B) else Color.Transparent)
             .border(1.dp, if (active) Color(0x4DFF2D9B) else Color.Transparent, RoundedCornerShape(12.dp))
-            .clickable { onClick() }
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (hasMenu) {
+                    { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }
+                } else null,
+            )
             .padding(horizontal = 11.dp, vertical = 10.dp)
             .alpha(if (conv.enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
@@ -185,8 +201,14 @@ fun ConversationRow(
             )
         }
         StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
-        if (onToggleEnabled != null || onDelete != null) {
-            ConvOverflowMenu(enabled = conv.enabled, onToggleEnabled = onToggleEnabled, onDelete = onDelete)
+        if (hasMenu) {
+            ConvOverflowMenu(
+                enabled = conv.enabled,
+                onToggleEnabled = onToggleEnabled,
+                onDelete = onDelete,
+                expanded = menuOpen,
+                onExpandedChange = { menuOpen = it },
+            )
         }
     }
 }

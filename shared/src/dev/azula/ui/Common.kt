@@ -91,6 +91,10 @@ fun StatusDot(color: Color, size: Dp = 8.dp) {
 /**
  * A ⋮ overflow menu for managing a conversation: Enable/Disable + Delete (with a
  * confirmation dialog). Shared by the sidebar/mobile rows and the chat header.
+ *
+ * The expanded state is optionally controllable: pass [onExpandedChange] to drive
+ * it from outside (e.g. a long-press on the whole row). Left unset, the menu owns
+ * its own state and opens only from the ⋮ button.
  */
 @Composable
 fun ConvOverflowMenu(
@@ -98,27 +102,31 @@ fun ConvOverflowMenu(
     onToggleEnabled: (() -> Unit)?,
     onDelete: (() -> Unit)?,
     glyphSize: Int = 16,
+    expanded: Boolean = false,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
-    var open by remember { mutableStateOf(false) }
+    var internalOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val open = if (onExpandedChange != null) expanded else internalOpen
+    val setOpen: (Boolean) -> Unit = onExpandedChange ?: { internalOpen = it }
     Box {
         Box(
-            Modifier.clip(RoundedCornerShape(6.dp)).clickable { open = true }
+            Modifier.clip(RoundedCornerShape(6.dp)).clickable { setOpen(true) }
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
             Text("⋮", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = glyphSize.sp)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(expanded = open, onDismissRequest = { setOpen(false) }) {
             if (onToggleEnabled != null) {
                 DropdownMenuItem(
                     text = { Text(if (enabled) "Disable" else "Enable") },
-                    onClick = { open = false; onToggleEnabled() },
+                    onClick = { setOpen(false); onToggleEnabled() },
                 )
             }
             if (onDelete != null) {
                 DropdownMenuItem(
                     text = { Text("Delete") },
-                    onClick = { open = false; confirmDelete = true },
+                    onClick = { setOpen(false); confirmDelete = true },
                 )
             }
         }

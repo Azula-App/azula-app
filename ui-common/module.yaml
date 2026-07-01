@@ -1,0 +1,14 @@
+# ui-common — shared platform UI utilities that aren't tied to a feature: image
+# decoding (bytes → Compose ImageBitmap) and avatar downscaling (expect/actual per
+# platform). Lives here rather than in a feature so state / a2ui / feature UIs can
+# use it without a reverse dependency on the app's ui package.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - $compose.ui: exported
+
+settings:
+  compose:
+    enabled: true

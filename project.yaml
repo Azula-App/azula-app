@@ -9,3 +9,4 @@ modules:
   - terminal-api
   - terminal-real
   - theme
+  - ui-common

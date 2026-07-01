@@ -1,5 +1,6 @@
 package dev.azula.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -41,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.link.AzulaLinks
+import dev.azula.link.Qr
 import dev.azula.model.ConnectStage
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
@@ -102,7 +107,9 @@ private fun ConnectIdle(state: AzulaState) {
             "anyone with this code can open a direct, end-to-end-encrypted chat with you. no account, no server.",
             color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
         )
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode() }
+        if (state.myCode.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.webLink(state.myCode)) }
+        }
         if (state.connectStage == ConnectStage.FAILED) {
             Text("couldn't reach that peer — check the code and try again.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.5.sp)
         }
@@ -182,34 +189,32 @@ private fun ProgressStep(label: String, done: Boolean) {
     )
 }
 
-/** A decorative QR-style matrix (the shareable value is the copyable code text). */
+/**
+ * A real, scannable QR of the connect [data] link — hand-rolled encoder (see [Qr]).
+ * Dark modules on a light card (high luminance contrast is what camera scanners
+ * need; the brand pink-on-dark would not reliably decode).
+ */
 @Composable
-private fun QrCode() {
-    val n = 13
-    var seed = 99173
-    fun rnd(): Double { seed = (seed * 1103515245 + 12345) and 0x7fffffff; return seed / 0x7fffffff.toDouble() }
-    val cells = ArrayList<Boolean>(n * n)
-    for (y in 0 until n) for (x in 0 until n) {
-        val corner = (x < 3 && y < 3) || (x > n - 4 && y < 3) || (x < 3 && y > n - 4)
-        val on = if (corner) {
-            x == 0 || x == 2 || y == 0 || y == 2 || x == n - 1 || x == n - 3 || y == n - 1 || y == n - 3 ||
-                (x == 1 && y == 1) || (x == n - 2 && y == 1) || (x == 1 && y == n - 2)
-        } else rnd() > 0.52
-        cells += on
-    }
+private fun QrCode(data: String) {
+    val modules = remember(data) { Qr.encode(data, Qr.Ecc.MEDIUM) }
+    val n = modules.size
+    val dark = Color(0xFF070709) // brand near-black
     Box(
-        Modifier.size(150.dp).clip(RoundedCornerShape(12.dp)).background(AzulaColors.codeBlock)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(12.dp)).padding(11.dp),
+        Modifier.size(168.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(12.dp)),
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            for (y in 0 until n) {
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    for (x in 0 until n) {
-                        Box(
-                            Modifier.weight(1f).aspectRatio(1f).padding(1.dp)
-                                .background(if (cells[y * n + x]) AzulaColors.pink else Color.Transparent),
-                        )
-                    }
+        Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
+            // Reserve a quiet zone (~4 modules of white) so the finder patterns read cleanly.
+            val quiet = 4
+            val cell = size.width / (n + quiet * 2)
+            val origin = cell * quiet
+            for (y in 0 until n) for (x in 0 until n) {
+                if (modules[y][x]) {
+                    drawRect(
+                        color = dark,
+                        topLeft = Offset(origin + x * cell, origin + y * cell),
+                        size = Size(cell + 0.5f, cell + 0.5f), // slight overdraw kills seams
+                    )
                 }
             }
         }

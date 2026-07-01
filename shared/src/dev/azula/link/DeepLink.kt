@@ -10,6 +10,9 @@ object AzulaLinks {
     const val HOST = "azula.app"
     const val SCHEME = "azula"
 
+    /** The canonical web link for a connect [token] — what the QR encodes and share sheets present. */
+    fun webLink(token: String): String = "https://$HOST/s/$token"
+
     fun parse(raw: String): String? {
         val s = raw.trim()
 

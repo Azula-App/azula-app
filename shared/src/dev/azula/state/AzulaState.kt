@@ -571,7 +571,9 @@ class AzulaState(
     // ---- connecting ----
 
     fun connectPeer(ticketRaw: String, share: Frame.Profile? = null) {
-        val ticket = ticketRaw.trim()
+        // Accept a raw code or a full azula share URL (azula://connect?code=… /
+        // https://azula.app/s/… /connect/…) pasted into the box.
+        val ticket = dev.azula.link.AzulaLinks.parse(ticketRaw) ?: ticketRaw.trim()
         if (ticket.isEmpty() || connectStage == ConnectStage.DIALING) return
         connectStage = ConnectStage.DIALING
         connectStep = 0

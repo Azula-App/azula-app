@@ -30,7 +30,7 @@ import dev.azula.net.P2pStream
 import dev.azula.net.PeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
-import dev.azula.di.AppScope
+import dev.azula.core.AppScope
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
 import dev.azula.persist.ConversationDto

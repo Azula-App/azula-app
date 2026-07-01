@@ -1,0 +1,6 @@
+# core — the dependency leaf. Currently just the Metro AppScope marker, which
+# every module (feature graphs and contributed bindings) references. Leaf domain
+# value types move here as they're decoupled from Compose/a2ui in later phases.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]

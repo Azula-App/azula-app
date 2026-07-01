@@ -1,5 +1,6 @@
 package dev.azula.di
 
+import dev.azula.core.AppScope
 import dev.azula.net.IrohTransport
 import dev.azula.net.PeerStore
 import dev.azula.notify.Notifier
@@ -10,9 +11,6 @@ import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
-
-/** Marker type for the app-wide Metro scope — one flat graph, one per process. */
-abstract class AppScope private constructor()
 
 /**
  * The single, flat application dependency graph. Its [Factory] takes the

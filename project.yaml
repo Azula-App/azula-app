@@ -1,5 +1,6 @@
 modules:
   - android-app
+  - core
   - ios-app
   - jvm-app
   - shared

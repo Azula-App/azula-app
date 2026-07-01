@@ -36,8 +36,6 @@ import dev.azula.notify.Notifier
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.MessageStore
 import dev.azula.persist.Persona
-import dev.azula.persist.ProfileBook
-import dev.azula.persist.ProfileStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
@@ -106,8 +104,8 @@ class AzulaState(
      *  platform with no impl — e.g. no notifier on desktop/iOS — simply skips it. */
     private val notifier: Notifier? = null,
     private val messageStore: MessageStore? = null,
-    private val profileStore: ProfileStore? = null,
     private val peerStore: PeerStore? = null,
+    private val personaService: PersonaService = PersonaService(null),
 ) : TerminalSession {
     // The shipping build starts EMPTY: conversations are created per-peer when you
     // actually connect to something, named after the other side (see ensureConv).
@@ -325,7 +323,7 @@ class AzulaState(
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         if (!isDemo) loadPersisted()
-        loadProfiles()
+        personaService.load()
         // Whenever the transport (re)binds — cold start and Android foreground-
         // resume — re-dial saved peers/bridges and ping them, so a bridge can
         // immediately flush any messages it queued while we were offline.
@@ -947,48 +945,19 @@ class AzulaState(
 
     // ---- profiles / personas ----
 
-    /** The user's saved personas and the default (pre-selected when sharing). */
-    val personas = mutableStateListOf<Persona>()
-    var defaultPersonaId by mutableStateOf<String?>(null)
-        private set
+    // Persona management is delegated to PersonaService; these accessors + methods
+    // keep AzulaState's public surface stable so the UI is unchanged.
+    val personas get() = personaService.personas
+    val defaultPersonaId get() = personaService.defaultPersonaId
 
     /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
     val pendingShares = mutableStateListOf<PendingShareRequest>()
 
-    private fun loadProfiles() {
-        val book = profileStore?.load() ?: return
-        personas.clear()
-        personas.addAll(book.personas)
-        defaultPersonaId = book.defaultId ?: book.personas.firstOrNull()?.id
-    }
-
-    private fun saveProfiles() {
-        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId))
-    }
-
-    /** A persona id not already used in the book (stable within the book). */
-    fun newPersonaId(): String {
-        var n = personas.size
-        while (personas.any { it.id == "persona$n" }) n++
-        return "persona$n"
-    }
-
-    fun upsertPersona(persona: Persona) {
-        val i = personas.indexOfFirst { it.id == persona.id }
-        if (i >= 0) personas[i] = persona else personas.add(persona)
-        if (defaultPersonaId == null) defaultPersonaId = persona.id
-        saveProfiles()
-    }
-
-    fun deletePersona(id: String) {
-        personas.removeAll { it.id == id }
-        if (defaultPersonaId == id) defaultPersonaId = personas.firstOrNull()?.id
-        saveProfiles()
-    }
-
-    fun setDefaultPersona(id: String) { defaultPersonaId = id; saveProfiles() }
-
-    fun personaById(id: String?): Persona? = id?.let { pid -> personas.firstOrNull { it.id == pid } }
+    fun newPersonaId(): String = personaService.newId()
+    fun upsertPersona(persona: Persona) = personaService.upsert(persona)
+    fun deletePersona(id: String) = personaService.delete(id)
+    fun setDefaultPersona(id: String) = personaService.setDefault(id)
+    fun personaById(id: String?): Persona? = personaService.byId(id)
 
     /** Apply a peer's received profile: rename the conversation + store the avatar. */
     private fun applyProfile(convId: String, p: Frame.Profile) {

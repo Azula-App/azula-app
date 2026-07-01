@@ -32,6 +32,9 @@ interface MessageStore {
      * build has no fixed conversation set. Defaults to empty.
      */
     fun list(): List<String> = emptyList()
+
+    /** Remove a conversation's persisted blob. Defaults to a no-op. */
+    fun delete(conversationId: String) {}
 }
 
 object MessageStoreConfig {
@@ -92,6 +95,12 @@ data class ConversationDto(
     val sub: String = "",
     val preview: String = "",
     val messages: List<MessageDto> = emptyList(),
+    /** Whether the conversation is enabled (see [dev.azula.model.Conversation.enabled]). */
+    val enabled: Boolean = true,
+    /** Last received peer profile: base64 avatar, its mime, and description. */
+    val avatarB64: String? = null,
+    val avatarMime: String? = null,
+    val peerDescription: String? = null,
 )
 
 // ---------------------------------------------------------------------------

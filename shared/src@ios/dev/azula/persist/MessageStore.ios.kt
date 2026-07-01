@@ -30,4 +30,8 @@ class NsUserDefaultsMessageStore : MessageStore {
             .filter { it.startsWith(prefix) }
             .map { it.removePrefix(prefix) }
     }.getOrDefault(emptyList())
+
+    override fun delete(conversationId: String) {
+        runCatching { defaults.removeObjectForKey(key(conversationId)) }
+    }
 }

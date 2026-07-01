@@ -18,6 +18,13 @@ data class Conversation(
     val glyph: String,
     val sub: String,
     val preview: String,
+    /**
+     * When false the conversation is disabled: it won't auto-reconnect, incoming
+     * connections from this peer are refused, and notifications are silenced. The
+     * row + history stay (greyed). Defaults true so demo seeds and old persisted
+     * rows are unaffected.
+     */
+    val enabled: Boolean = true,
 )
 
 /**

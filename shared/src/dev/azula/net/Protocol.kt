@@ -83,6 +83,22 @@ sealed class Frame {
     @Serializable
     @SerialName("file_end")
     data class FileEnd(val id: String) : Frame()
+
+    /**
+     * Peer → peer: the sender's chosen profile (a "persona"). Sent over the CHAT
+     * ALPN only — the receiver names the conversation after [name] and shows the
+     * avatar. All fields but [name] are optional so the sender can share a
+     * subset; an empty [name] means "name not shared". [avatar] is base64-encoded,
+     * downscaled image bytes. Servers ignore this frame.
+     */
+    @Serializable
+    @SerialName("profile")
+    data class Profile(
+        val name: String,
+        val description: String? = null,
+        val avatar: String? = null,
+        val mime: String? = null,
+    ) : Frame()
 }
 
 object FrameCodec {

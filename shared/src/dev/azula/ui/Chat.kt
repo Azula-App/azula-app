@@ -117,15 +117,19 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 Text("‹", color = AzulaColors.textDim, fontSize = 22.sp)
             }
         }
-        GlyphBox(glyphStyleFor(conv.kind), conv.glyph)
+        AvatarBox(cs.peerAvatarBitmap, conv.glyph, conv.kind)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(conv.name, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (online) AzulaColors.online else dotColorFor(conv.kind))
+                StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
                 Spacer(Modifier.width(7.dp))
                 val rtt = state.rttMs
-                val sub = if (online && rtt != null) "direct · ${rtt}ms · e2e" else conv.sub
+                val sub = when {
+                    !conv.enabled -> "disabled"
+                    online && rtt != null -> "direct · ${rtt}ms · e2e"
+                    else -> conv.sub
+                }
                 Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
         }
@@ -135,6 +139,11 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 Text("+", color = AzulaColors.pinkLight, fontSize = 22.sp)
             }
         }
+        ConvOverflowMenu(
+            enabled = conv.enabled,
+            onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
+            onDelete = { state.deleteConversation(conv.id) },
+        )
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
 }

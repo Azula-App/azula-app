@@ -47,6 +47,7 @@ fun MobileApp(state: AzulaState) {
                 MScreen.HOME -> MobileHome(state)
                 MScreen.CONNECT -> MobileConnect(state)
                 MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
+                MScreen.SETTINGS -> SettingsScreen(state, onBack = { state.mobileBack() })
             }
         }
     }
@@ -58,7 +59,13 @@ private fun MobileHome(state: AzulaState) {
         Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Brand()
-                Text("◉ online", color = AzulaColors.online, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("◉ online", color = AzulaColors.online, fontFamily = Fonts.mono, fontSize = 11.sp)
+                    Text(
+                        "⚙", color = AzulaColors.textDim, fontSize = 17.sp,
+                        modifier = Modifier.clickable { state.openSettingsMobile() },
+                    )
+                }
             }
             Spacer(Modifier.height(14.dp))
             YourCodeBox(state)
@@ -86,7 +93,15 @@ private fun MobileHome(state: AzulaState) {
                 }
             }
             items(state.conversations, key = { it.id }) { conv ->
-                ConversationRow(conv = conv, active = false, online = state.convOrNull(conv.id)?.online == true) { state.openChatMobile(conv.id) }
+                ConversationRow(
+                    conv = conv,
+                    active = false,
+                    online = state.convOrNull(conv.id)?.online == true,
+                    avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
+                    onClick = { state.openChatMobile(conv.id) },
+                    onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
+                    onDelete = { state.deleteConversation(conv.id) },
+                )
             }
         }
     }

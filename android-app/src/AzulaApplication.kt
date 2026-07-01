@@ -12,7 +12,9 @@ import dev.azula.net.PeerStoreConfig
 import dev.azula.net.createTransport
 import dev.azula.notify.NotifierConfig
 import dev.azula.persist.AndroidMessageStore
+import dev.azula.persist.AndroidProfileStore
 import dev.azula.persist.MessageStoreConfig
+import dev.azula.persist.ProfileStoreConfig
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +46,7 @@ class AzulaApplication : Application() {
         IrohConfig.keyStore = AndroidSecretKeyStore(applicationContext)
         PeerStoreConfig.store = AndroidPeerStore(applicationContext)
         MessageStoreConfig.store = AndroidMessageStore(applicationContext)
+        ProfileStoreConfig.store = AndroidProfileStore(applicationContext)
         NotifierConfig.notifier = AndroidNotifier(this)
 
         // App-wide foreground/background: gate notifications and keep the node alive.

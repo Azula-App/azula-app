@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import dev.azula.a2ui.A2uiAction
 import dev.azula.a2ui.A2uiCodec
 import dev.azula.a2ui.A2uiExamples
@@ -32,10 +33,16 @@ import dev.azula.net.sendFile
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.NotifierConfig
 import dev.azula.persist.ConversationDto
+import dev.azula.persist.Persona
+import dev.azula.persist.ProfileBook
 import dev.azula.persist.activeMessageStore
+import dev.azula.persist.activeProfileStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
+import dev.azula.ui.decodeImageBitmap
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -45,7 +52,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 
-enum class MScreen { HOME, CONNECT, CHAT }
+enum class MScreen { HOME, CONNECT, CHAT, SETTINGS }
+
+/** An inbound connection awaiting the user's "share my profile?" decision. */
+data class PendingShareRequest(val convId: String, val peerCode: String)
+
+/** Build a [Frame.Profile] from a persona, including only the toggled-on fields. */
+fun Persona.toFrame(shareName: Boolean, sharePic: Boolean, shareDesc: Boolean): Frame.Profile =
+    Frame.Profile(
+        name = if (shareName) name else "",
+        description = if (shareDesc) description else null,
+        avatar = if (sharePic) avatarB64 else null,
+        mime = if (sharePic) mime else null,
+    )
 
 /** Per-conversation mutable state: the thread, the draft, and any live stream. */
 class ConversationState(seed: List<Message>) {
@@ -58,6 +77,11 @@ class ConversationState(seed: List<Message>) {
     val termScreen = TermScreen()
     /** The peer ticket this conversation was dialed from — used to spawn siblings. */
     var sourceTicket: String? = null
+    /** Last received peer profile (a "persona"): base64 avatar + mime + description. */
+    var peerAvatarB64: String? = null
+    var peerAvatarMime: String? = null
+    var peerAvatarBitmap by mutableStateOf<ImageBitmap?>(null)
+    var peerDescription by mutableStateOf<String?>(null)
 }
 
 /**
@@ -151,6 +175,7 @@ class AzulaState(
     /** Post a system notification for a message that arrived while backgrounded. */
     private fun notifyIncoming(convId: String, body: String) {
         if (inForeground) return
+        if (conversationOrNull(convId)?.enabled == false) return
         val notifier = NotifierConfig.notifier ?: return
         val title = runCatching { conversation(convId).name }.getOrDefault(convId)
         notifier.postMessage(convId, title, body)
@@ -225,8 +250,12 @@ class AzulaState(
             // Restored A2UI surfaces are intentionally NOT registered in [surfaces]
             // so they render frozen (see Chat's `frozen` predicate).
             cs.messages.addAll(dto.messages.map { it.toMessage() })
+            cs.peerAvatarB64 = dto.avatarB64
+            cs.peerAvatarMime = dto.avatarMime
+            cs.peerDescription = dto.peerDescription
+            cs.peerAvatarBitmap = dto.avatarB64?.let { decodeAvatar(it) }
             if (conversationOrNull(id) == null) {
-                conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview))
+                conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview, dto.enabled))
             }
             for (m in dto.messages) {
                 val n = m.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
@@ -255,6 +284,10 @@ class AzulaState(
             sub = meta?.sub ?: "",
             preview = meta?.preview ?: "",
             messages = cs.messages.map { it.toDto() },
+            enabled = meta?.enabled ?: true,
+            avatarB64 = cs.peerAvatarB64,
+            avatarMime = cs.peerAvatarMime,
+            peerDescription = cs.peerDescription,
         )
         scope.launch(saveDispatcher) {
             runCatching { store.save(convId, dto) }
@@ -280,6 +313,7 @@ class AzulaState(
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         if (!isDemo) loadPersisted()
+        loadProfiles()
         // Whenever the transport (re)binds — cold start and Android foreground-
         // resume — re-dial saved peers/bridges and ping them, so a bridge can
         // immediately flush any messages it queued while we were offline.
@@ -295,7 +329,17 @@ class AzulaState(
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
         scope.launch {
             runCatching {
-                transport.incoming().collect { inc -> wireStream(inc.alpn, inc.stream, inc.remoteId) }
+                transport.incoming().collect { inc ->
+                    // A disabled conversation refuses inbound from that peer.
+                    if (conversationOrNull(inc.remoteId)?.enabled == false) {
+                        scope.launch { runCatching { inc.stream.close() } }
+                        return@collect
+                    }
+                    val convId = wireStream(inc.alpn, inc.stream, inc.remoteId)
+                    // Inbound peer (CHAT) connection: prompt the user to share a
+                    // profile back ("prompt each time"). Deduped per conversation.
+                    if (convId != null && inc.alpn == Alpns.CHAT) enqueueShareRequest(convId)
+                }
             }
         }
         // Register the deeplink handler AFTER bind so a buffered or cold-start
@@ -308,8 +352,10 @@ class AzulaState(
 
     fun selectDesktop(id: String) { desktopActive = id }
     fun openConnectDesktop() { desktopActive = "connect"; resetConnect() }
+    fun openSettingsDesktop() { desktopActive = "settings" }
     fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT }
     fun openConnectMobile() { mScreen = MScreen.CONNECT; resetConnect() }
+    fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }
 
     private fun resetConnect() {
@@ -506,7 +552,7 @@ class AzulaState(
 
     // ---- connecting ----
 
-    fun connectPeer(ticketRaw: String) {
+    fun connectPeer(ticketRaw: String, share: Frame.Profile? = null) {
         val ticket = ticketRaw.trim()
         if (ticket.isEmpty() || connectStage == ConnectStage.DIALING) return
         connectStage = ConnectStage.DIALING
@@ -532,6 +578,12 @@ class AzulaState(
             results.filter { it !== primary }.forEach { (_, s) -> scope.launch { runCatching { s.close() } } }
             val peerId = transport.peerIdForTicket(ticket) ?: ("t" + ticket.hashCode().toString(16))
             val convId = wireStream(primary.first, primary.second, peerId)
+            // Share the chosen persona — peer-to-peer only (CHAT). Never send to
+            // LLM/TERM servers (an older CLI without the Profile frame would drop
+            // the stream). Hello (ping) already went first on every stream.
+            if (share != null && primary.first == Alpns.CHAT) {
+                runCatching { primary.second.sendLine(FrameCodec.encode(share)) }
+            }
             persistPeer(ticket)
             // Remember the ticket so we can spawn sibling sessions over it (no re-pair).
             convId?.let { convOrNull(it)?.sourceTicket = ticket }
@@ -607,6 +659,8 @@ class AzulaState(
         if (saved.isEmpty()) return
         saved.forEach { ticket ->
             val peerId = transport.peerIdForTicket(ticket) ?: return@forEach
+            // Disabled conversations don't auto-reconnect.
+            if (conversationOrNull(peerId)?.enabled == false) return@forEach
             scope.launch {
                 repeat(3) {
                     val results = runCatching {
@@ -715,6 +769,8 @@ class AzulaState(
                     }
                     // Stray file_chunk / file_end outside a transfer are ignored.
                     if (frame is Frame.FileChunk || frame is Frame.FileEnd) continue
+                    // A peer's profile: name the conversation + store the avatar.
+                    if (frame is Frame.Profile) { applyProfile(convId, frame); continue }
                     applyFrame(convId, frame)
                 }
             } finally {
@@ -773,11 +829,142 @@ class AzulaState(
                 }
             }
             is Frame.Input -> Unit // server-side only
-            // File frames are handled in receiveLoop directly; these are unreachable here.
-            is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd -> Unit
+            // File + Profile frames are handled in receiveLoop directly; unreachable here.
+            is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
         }
         // Persist after applying — but not on every streamed token delta (only when done).
         if (frame !is Frame.Token || frame.done) persist(convId)
+    }
+
+    // ---- conversation management (enable/disable, delete) ----
+
+    /**
+     * Enable or disable a conversation. Disabling closes any live stream and
+     * stops auto-reconnect + notifications (the row + history stay, greyed).
+     * Enabling re-dials saved peers so it can come back online.
+     */
+    fun setConversationEnabled(id: String, enabled: Boolean) {
+        val idx = conversations.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        conversations[idx] = conversations[idx].copy(enabled = enabled)
+        if (!enabled) {
+            convOrNull(id)?.let { cs ->
+                cs.stream?.let { s -> scope.launch { runCatching { s.close() } } }
+                cs.stream = null
+                cs.online = false
+            }
+        } else {
+            scope.launch { reconnectSaved() }
+        }
+        persist(id)
+    }
+
+    /**
+     * Delete a conversation entirely: close its stream, drop its saved ticket,
+     * remove its on-disk history, and reset the active selection if it pointed
+     * here. Demo mode keeps its blob untouched (persistence is a no-op there).
+     */
+    fun deleteConversation(id: String) {
+        convOrNull(id)?.let { cs ->
+            cs.stream?.let { s -> scope.launch { runCatching { s.close() } } }
+            cs.stream = null
+            cs.online = false
+        }
+        // PeerStore has no per-item delete — save a filtered list. Match by the
+        // ticket's resolved node id (covers inbound-only convs with no sourceTicket).
+        pairedPeerStore()?.let { store ->
+            store.save(store.load().filter { (transport.peerIdForTicket(it) ?: "") != id })
+        }
+        if (!isDemo) scope.launch(saveDispatcher) { runCatching { activeMessageStore()?.delete(id) } }
+        convState.remove(id)
+        conversations.removeAll { it.id == id }
+        pendingShares.removeAll { it.convId == id }
+        if (desktopActive == id) desktopActive = conversations.firstOrNull()?.id ?: "connect"
+        if (mActive == id) { mActive = ""; mScreen = MScreen.HOME }
+    }
+
+    // ---- profiles / personas ----
+
+    /** The user's saved personas and the default (pre-selected when sharing). */
+    val personas = mutableStateListOf<Persona>()
+    var defaultPersonaId by mutableStateOf<String?>(null)
+        private set
+
+    /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
+    val pendingShares = mutableStateListOf<PendingShareRequest>()
+
+    private fun loadProfiles() {
+        val book = activeProfileStore()?.load() ?: return
+        personas.clear()
+        personas.addAll(book.personas)
+        defaultPersonaId = book.defaultId ?: book.personas.firstOrNull()?.id
+    }
+
+    private fun saveProfiles() {
+        activeProfileStore()?.save(ProfileBook(personas.toList(), defaultPersonaId))
+    }
+
+    /** A persona id not already used in the book (stable within the book). */
+    fun newPersonaId(): String {
+        var n = personas.size
+        while (personas.any { it.id == "persona$n" }) n++
+        return "persona$n"
+    }
+
+    fun upsertPersona(persona: Persona) {
+        val i = personas.indexOfFirst { it.id == persona.id }
+        if (i >= 0) personas[i] = persona else personas.add(persona)
+        if (defaultPersonaId == null) defaultPersonaId = persona.id
+        saveProfiles()
+    }
+
+    fun deletePersona(id: String) {
+        personas.removeAll { it.id == id }
+        if (defaultPersonaId == id) defaultPersonaId = personas.firstOrNull()?.id
+        saveProfiles()
+    }
+
+    fun setDefaultPersona(id: String) { defaultPersonaId = id; saveProfiles() }
+
+    fun personaById(id: String?): Persona? = id?.let { pid -> personas.firstOrNull { it.id == pid } }
+
+    /** Apply a peer's received profile: rename the conversation + store the avatar. */
+    private fun applyProfile(convId: String, p: Frame.Profile) {
+        if (p.name.isNotBlank()) {
+            ensureConv(convId, conversationOrNull(convId)?.kind ?: kindForAlpn(Alpns.CHAT), p.name)
+        }
+        convOrNull(convId)?.let { cs ->
+            cs.peerDescription = p.description
+            cs.peerAvatarB64 = p.avatar
+            cs.peerAvatarMime = p.mime
+            cs.peerAvatarBitmap = p.avatar?.let { decodeAvatar(it) }
+        }
+        persist(convId)
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun decodeAvatar(b64: String): ImageBitmap? =
+        runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull()
+
+    /** Enqueue a "share my profile?" prompt for a new inbound connection (deduped). */
+    private fun enqueueShareRequest(convId: String) {
+        if (pendingShares.any { it.convId == convId }) return
+        pendingShares.add(PendingShareRequest(convId, mnemonicCode(convId)))
+        if (!inForeground) {
+            NotifierConfig.notifier?.postMessage(
+                convId, "Connection request", "${mnemonicCode(convId)} connected",
+            )
+        }
+    }
+
+    /** Respond to a pending share prompt: send [frame] back (or nothing to decline). */
+    fun respondShare(convId: String, frame: Frame.Profile?) {
+        pendingShares.removeAll { it.convId == convId }
+        if (frame != null) {
+            convOrNull(convId)?.stream?.let { s ->
+                scope.launch { runCatching { s.sendLine(FrameCodec.encode(frame)) } }
+            }
+        }
     }
 
     companion object {

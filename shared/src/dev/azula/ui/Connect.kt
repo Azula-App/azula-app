@@ -25,6 +25,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +59,27 @@ fun ConnectScreen(state: AzulaState, modifier: Modifier = Modifier) {
 @Composable
 private fun ConnectIdle(state: AzulaState) {
     val clipboard = LocalClipboardManager.current
+    var showShare by remember { mutableStateOf(false) }
+    var pendingTicket by remember { mutableStateOf("") }
+    // Connecting opens the share-sheet (pre-filled from the default persona) so
+    // the user can choose what to present; if they have no personas, connect
+    // straight away with nothing shared.
+    fun beginConnect(ticket: String) {
+        if (ticket.isBlank()) return
+        if (state.personas.isEmpty()) state.connectPeer(ticket)
+        else { pendingTicket = ticket; showShare = true }
+    }
+    if (showShare) {
+        ShareSheet(
+            state = state,
+            title = "Share a profile?",
+            subtitle = "Choose which persona — and which details — to show this peer.",
+            confirmLabel = "Share & connect",
+            dismissLabel = "Connect without sharing",
+            onResult = { frame -> showShare = false; state.connectPeer(pendingTicket, frame) },
+            onCancel = { showShare = false },
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("YOUR CODE", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -99,7 +124,7 @@ private fun ConnectIdle(state: AzulaState) {
                     textStyle = TextStyle(color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 13.sp),
                     cursorBrush = SolidColor(AzulaColors.pink),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = { state.connectPeer(state.connectInput) }),
+                    keyboardActions = KeyboardActions(onGo = { beginConnect(state.connectInput) }),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
                         if (state.connectInput.isEmpty()) Text("paste a code…", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
@@ -109,7 +134,7 @@ private fun ConnectIdle(state: AzulaState) {
             }
             Box(
                 Modifier.clip(RoundedCornerShape(10.dp)).background(PinkButtonBrush)
-                    .clickable { state.connectPeer(state.connectInput) }
+                    .clickable { beginConnect(state.connectInput) }
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             ) {
                 Text("connect", color = Color.White, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)

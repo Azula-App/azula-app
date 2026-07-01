@@ -20,8 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -57,12 +59,33 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
                     conv = conv,
                     active = state.desktopActive == conv.id,
                     online = state.convOrNull(conv.id)?.online == true,
+                    avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
                     onClick = { state.selectDesktop(conv.id) },
+                    onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
+                    onDelete = { state.deleteConversation(conv.id) },
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
+        SettingsRow(active = state.desktopActive == "settings") { state.openSettingsDesktop() }
+        Spacer(Modifier.height(10.dp))
         YourCodeBox(state)
+    }
+}
+
+@Composable
+fun SettingsRow(active: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+            .background(if (active) Color(0x14FFFFFF) else Color.Transparent)
+            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, RoundedCornerShape(11.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text("⚙", color = AzulaColors.textDim, fontSize = 14.sp)
+        Text("profiles & settings", color = AzulaColors.text2, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }
 }
 
@@ -96,17 +119,26 @@ fun ConnectRow(active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ConversationRow(conv: Conversation, active: Boolean, online: Boolean, onClick: () -> Unit) {
+fun ConversationRow(
+    conv: Conversation,
+    active: Boolean,
+    online: Boolean,
+    avatar: ImageBitmap? = null,
+    onClick: () -> Unit,
+    onToggleEnabled: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(if (active) Color(0x1AFF2D9B) else Color.Transparent)
             .border(1.dp, if (active) Color(0x4DFF2D9B) else Color.Transparent, RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 10.dp),
+            .padding(horizontal = 11.dp, vertical = 10.dp)
+            .alpha(if (conv.enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
-        GlyphBox(glyphStyleFor(conv.kind), conv.glyph)
+        AvatarBox(avatar, conv.glyph, conv.kind)
         Column(Modifier.weight(1f)) {
             Text(
                 conv.name,
@@ -115,12 +147,15 @@ fun ConversationRow(conv: Conversation, active: Boolean, online: Boolean, onClic
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Text(
-                conv.preview,
+                if (conv.enabled) conv.preview else "disabled",
                 color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        StatusDot(if (online) AzulaColors.online else dotColorFor(conv.kind))
+        StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
+        if (onToggleEnabled != null || onDelete != null) {
+            ConvOverflowMenu(enabled = conv.enabled, onToggleEnabled = onToggleEnabled, onDelete = onDelete)
+        }
     }
 }
 

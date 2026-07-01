@@ -37,6 +37,7 @@ fun DesktopApp(state: AzulaState) {
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 when (val active = state.desktopActive) {
                     "connect" -> ConnectPane(state)
+                    "settings" -> SettingsScreen(state, onBack = { state.openConnectDesktop() })
                     else -> ChatPane(state, active)
                 }
             }

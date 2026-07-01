@@ -61,19 +61,6 @@ data class Attachment(
     }
 }
 
-/**
- * One entry in a thread. Either a [text] message (markdown) or an inline [a2ui]
- * surface, optionally carrying file [attachments].
- * The [a2ui] surface is in-memory only; Message is never serialized.
- */
-data class Message(
-    val id: String,
-    val role: Role,
-    val text: String? = null,
-    val a2ui: dev.azula.a2ui.A2uiSurface? = null,
-    val attachments: List<Attachment> = emptyList(),
-)
-
 /** A single line in the terminal view. */
 data class TerminalLine(val kind: Kind, val text: String, val tint: Tint = Tint.NORMAL) {
     enum class Kind { CMD, OUT }

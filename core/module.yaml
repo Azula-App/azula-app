@@ -1,6 +1,11 @@
-# core — the dependency leaf. Currently just the Metro AppScope marker, which
-# every module (feature graphs and contributed bindings) references. Leaf domain
-# value types move here as they're decoupled from Compose/a2ui in later phases.
+# core — the dependency leaf: pure domain value types (Conversation, Attachment,
+# TerminalLine, the enums) and the Metro AppScope marker. No Compose, no platform
+# code, no a2ui. Everything depends on core; core depends on nothing. (Message
+# stays in shared because it embeds an a2ui surface.)
 product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+settings:
+  kotlin:
+    serialization: json

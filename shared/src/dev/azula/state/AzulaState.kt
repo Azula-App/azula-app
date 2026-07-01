@@ -27,20 +27,23 @@ import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
 import dev.azula.net.OutgoingFile
 import dev.azula.net.P2pStream
-import dev.azula.net.pairedPeerStore
+import dev.azula.net.PeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
+import dev.azula.di.AppScope
 import dev.azula.link.DeepLinkBus
-import dev.azula.notify.NotifierConfig
+import dev.azula.notify.Notifier
 import dev.azula.persist.ConversationDto
+import dev.azula.persist.MessageStore
 import dev.azula.persist.Persona
 import dev.azula.persist.ProfileBook
-import dev.azula.persist.activeMessageStore
-import dev.azula.persist.activeProfileStore
+import dev.azula.persist.ProfileStore
 import dev.azula.persist.toDto
 import dev.azula.persist.toMessage
 import dev.azula.terminal.TermScreen
 import dev.azula.ui.decodeImageBitmap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.CoroutineScope
@@ -90,12 +93,20 @@ class ConversationState(seed: List<Message>) {
  * and a long-lived [scope]. Conversations stay lively offline (canned azula,
  * local terminal) and go live the moment a real iroh stream is wired in.
  */
+@Inject
+@SingleIn(AppScope::class)
 class AzulaState(
     private var transport: IrohTransport,
     private val scope: CoroutineScope,
     /** True only in the demo / UI-test build: loads seeded demo content and
      *  skips message persistence. The shipping build defaults this to false. */
     val isDemo: Boolean = false,
+    /** Injected collaborators (were service-locator globals). Nullable so a
+     *  platform with no impl — e.g. no notifier on desktop/iOS — simply skips it. */
+    private val notifier: Notifier? = null,
+    private val messageStore: MessageStore? = null,
+    private val profileStore: ProfileStore? = null,
+    private val peerStore: PeerStore? = null,
 ) {
     // The shipping build starts EMPTY: conversations are created per-peer when you
     // actually connect to something, named after the other side (see ensureConv).
@@ -176,9 +187,9 @@ class AzulaState(
     private fun notifyIncoming(convId: String, body: String) {
         if (inForeground) return
         if (conversationOrNull(convId)?.enabled == false) return
-        val notifier = NotifierConfig.notifier ?: return
+        val n = notifier ?: return
         val title = runCatching { conversation(convId).name }.getOrDefault(convId)
-        notifier.postMessage(convId, title, body)
+        n.postMessage(convId, title, body)
     }
 
     /** Single-threaded dispatcher so conversation saves run in order (no clobbering races). */
@@ -241,7 +252,7 @@ class AzulaState(
 
     /** Restore every saved conversation (identity + history) from disk. */
     private fun loadPersisted() {
-        val store = activeMessageStore() ?: return
+        val store = messageStore ?: return
         var maxSuffix = -1
         for (id in runCatching { store.list() }.getOrDefault(emptyList())) {
             val dto = runCatching { store.load(id) }.getOrNull() ?: continue
@@ -274,7 +285,7 @@ class AzulaState(
      */
     private fun persist(convId: String) {
         if (isDemo) return
-        val store = activeMessageStore() ?: return
+        val store = messageStore ?: return
         val cs = convState[convId] ?: return
         val meta = conversationOrNull(convId)
         val dto = ConversationDto(
@@ -678,7 +689,7 @@ class AzulaState(
 
     /** Remember a peer ticket (most-recent 10) so we can auto-reconnect later. */
     private fun persistPeer(ticket: String) {
-        pairedPeerStore()?.let { store ->
+        peerStore?.let { store ->
             store.save((store.load() + ticket).distinct().takeLast(10))
         }
     }
@@ -691,7 +702,7 @@ class AzulaState(
      */
     fun reconnectSaved() {
         if (demoMode) return
-        val saved = pairedPeerStore()?.load().orEmpty()
+        val saved = peerStore?.load().orEmpty()
         if (saved.isEmpty()) return
         saved.forEach { ticket ->
             val peerId = transport.peerIdForTicket(ticket) ?: return@forEach
@@ -917,10 +928,10 @@ class AzulaState(
         }
         // PeerStore has no per-item delete — save a filtered list. Match by the
         // ticket's resolved node id (covers inbound-only convs with no sourceTicket).
-        pairedPeerStore()?.let { store ->
+        peerStore?.let { store ->
             store.save(store.load().filter { (transport.peerIdForTicket(it) ?: "") != id })
         }
-        if (!isDemo) scope.launch(saveDispatcher) { runCatching { activeMessageStore()?.delete(id) } }
+        if (!isDemo) scope.launch(saveDispatcher) { runCatching { messageStore?.delete(id) } }
         convState.remove(id)
         conversations.removeAll { it.id == id }
         pendingShares.removeAll { it.convId == id }
@@ -939,14 +950,14 @@ class AzulaState(
     val pendingShares = mutableStateListOf<PendingShareRequest>()
 
     private fun loadProfiles() {
-        val book = activeProfileStore()?.load() ?: return
+        val book = profileStore?.load() ?: return
         personas.clear()
         personas.addAll(book.personas)
         defaultPersonaId = book.defaultId ?: book.personas.firstOrNull()?.id
     }
 
     private fun saveProfiles() {
-        activeProfileStore()?.save(ProfileBook(personas.toList(), defaultPersonaId))
+        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId))
     }
 
     /** A persona id not already used in the book (stable within the book). */
@@ -996,7 +1007,7 @@ class AzulaState(
         if (pendingShares.any { it.convId == convId }) return
         pendingShares.add(PendingShareRequest(convId, mnemonicCode(convId)))
         if (!inForeground) {
-            NotifierConfig.notifier?.postMessage(
+            notifier?.postMessage(
                 convId, "Connection request", "${mnemonicCode(convId)} connected",
             )
         }

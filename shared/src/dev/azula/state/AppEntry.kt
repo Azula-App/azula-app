@@ -4,7 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import dev.azula.di.AppGraph
 import dev.azula.net.createTransport
+import dev.azula.persist.platformMessageStore
+import dev.azula.persist.platformProfileStore
+import dev.azula.net.platformPeerStore
+import dev.zacsweers.metro.createGraphFactory
 import kotlin.concurrent.Volatile
 
 /**
@@ -27,7 +32,20 @@ object AppStateHost {
 fun rememberAzulaState(isDemo: Boolean = false): AzulaState {
     AppStateHost.shared?.let { return it }
     val scope = rememberCoroutineScope()
-    val state = remember { AzulaState(createTransport(), scope, isDemo) }
+    // Composition-scoped path (desktop/iOS): build the flat graph with the platform
+    // default stores and no notifier. Android instead pre-installs a process-scoped
+    // instance in AppStateHost (see AzulaApplication) and returns above.
+    val state = remember {
+        createGraphFactory<AppGraph.Factory>().create(
+            scope = scope,
+            isDemo = isDemo,
+            transport = createTransport(),
+            notifier = null,
+            messageStore = platformMessageStore(),
+            profileStore = platformProfileStore(),
+            peerStore = platformPeerStore(),
+        ).azulaState
+    }
     LaunchedEffect(Unit) { state.start() }
     return state
 }

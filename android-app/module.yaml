@@ -14,10 +14,17 @@ dependencies:
   - androidx.security:security-crypto:1.0.0
   # NotificationCompat for the foreground service + message notifications.
   - androidx.core:core-ktx:1.13.1
+  # Metro runtime — this module builds the AppGraph (createGraphFactory intrinsic),
+  # so it needs the compiler plugin (below) applied here too.
+  - dev.zacsweers.metro:runtime:0.13.2
 
 settings:
   compose: enabled
   junit: junit-4
+  kotlin:
+    compilerPlugins:
+      - id: dev.zacsweers.metro.compiler
+        dependency: dev.zacsweers.metro:compiler:0.13.2
   android:
     minSdk: 26
     applicationId: app.azula

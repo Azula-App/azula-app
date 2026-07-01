@@ -5,17 +5,15 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.azula.iroh.IrohAndroid
+import dev.azula.di.AppGraph
 import dev.azula.net.AndroidPeerStore
 import dev.azula.net.IrohConfig
-import dev.azula.net.PeerStoreConfig
 import dev.azula.net.createTransport
-import dev.azula.notify.NotifierConfig
 import dev.azula.persist.AndroidMessageStore
 import dev.azula.persist.AndroidProfileStore
-import dev.azula.persist.MessageStoreConfig
-import dev.azula.persist.ProfileStoreConfig
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
+import dev.zacsweers.metro.createGraphFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,13 +38,10 @@ class AzulaApplication : Application() {
         // endpoint is bound. Once per process.
         IrohAndroid.installAndroidContext(applicationContext)
 
-        // Persist the iroh key (stable node id), paired peers, conversation history,
-        // and route incoming background messages to system notifications.
+        // Persist the iroh key (stable node id). The paired-peer / message / profile
+        // stores and the notifier are now injected into the Metro graph in
+        // obtainState() rather than set as globals.
         IrohConfig.keyStore = AndroidSecretKeyStore(applicationContext)
-        PeerStoreConfig.store = AndroidPeerStore(applicationContext)
-        MessageStoreConfig.store = AndroidMessageStore(applicationContext)
-        ProfileStoreConfig.store = AndroidProfileStore(applicationContext)
-        NotifierConfig.notifier = AndroidNotifier(this)
 
         // App-wide foreground/background: gate notifications and keep the node alive.
         // We start the service (plain startService) while we're in the foreground,
@@ -78,7 +73,15 @@ class AzulaApplication : Application() {
      */
     @Synchronized
     fun obtainState(isDemo: Boolean): AzulaState =
-        AppStateHost.shared ?: AzulaState(createTransport(), appScope, isDemo).also {
+        AppStateHost.shared ?: createGraphFactory<AppGraph.Factory>().create(
+            scope = appScope,
+            isDemo = isDemo,
+            transport = createTransport(),
+            notifier = AndroidNotifier(this),
+            messageStore = AndroidMessageStore(applicationContext),
+            profileStore = AndroidProfileStore(applicationContext),
+            peerStore = AndroidPeerStore(applicationContext),
+        ).azulaState.also {
             AppStateHost.shared = it
             appScope.launch { it.start() }
         }

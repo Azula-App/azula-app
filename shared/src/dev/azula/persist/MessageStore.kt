@@ -12,7 +12,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -37,17 +36,9 @@ interface MessageStore {
     fun delete(conversationId: String) {}
 }
 
-object MessageStoreConfig {
-    /** Platforms that need a Context (Android) inject their store here. */
-    @Volatile
-    var store: MessageStore? = null
-}
-
-/** The platform default store (file on JVM/iOS). Android returns null and injects one. */
+/** The platform default store (file on JVM/iOS). Android returns null; its
+ *  Context-backed store is bound into the Metro graph by the app module instead. */
 expect fun platformMessageStore(): MessageStore?
-
-/** The active store: an injected one (Android) or the platform default. */
-fun activeMessageStore(): MessageStore? = MessageStoreConfig.store ?: platformMessageStore()
 
 // ---------------------------------------------------------------------------
 // Serializable DTOs (the domain types are Compose-state holders, not @Serializable)

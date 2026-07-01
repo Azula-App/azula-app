@@ -2,7 +2,6 @@ package dev.azula.persist
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlin.concurrent.Volatile
 
 /**
  * A user "persona": the identity you present to a peer when connecting. The app
@@ -37,17 +36,9 @@ interface ProfileStore {
     fun save(book: ProfileBook)
 }
 
-object ProfileStoreConfig {
-    /** Platforms that need a Context (Android) inject their store here. */
-    @Volatile
-    var store: ProfileStore? = null
-}
-
-/** The platform default store (file on JVM, NSUserDefaults on iOS). Android injects one. */
+/** The platform default store (file on JVM, NSUserDefaults on iOS). Android returns
+ *  null; its Context-backed store is bound into the Metro graph by the app module. */
 expect fun platformProfileStore(): ProfileStore?
-
-/** The active store: an injected one (Android) or the platform default. */
-fun activeProfileStore(): ProfileStore? = ProfileStoreConfig.store ?: platformProfileStore()
 
 val ProfileJson: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 

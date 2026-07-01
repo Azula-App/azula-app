@@ -10,17 +10,9 @@ interface PeerStore {
     fun save(tickets: List<String>)
 }
 
-object PeerStoreConfig {
-    // Platforms that need a Context (Android) inject their store here.
-    @kotlin.concurrent.Volatile
-    var store: PeerStore? = null
-}
-
 /**
  * The platform default store (a file on JVM, NSUserDefaults on iOS). Android
- * returns null here and injects a Context-backed store via [PeerStoreConfig].
+ * returns null here; its Context-backed store is bound into the Metro graph by
+ * the app module.
  */
 expect fun platformPeerStore(): PeerStore?
-
-/** The active store: an injected one (Android) or the platform default. */
-fun pairedPeerStore(): PeerStore? = PeerStoreConfig.store ?: platformPeerStore()

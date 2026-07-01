@@ -19,6 +19,9 @@ dependencies:
   - $compose.foundation: exported
   - $compose.material3: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+  # Metro DI — runtime annotations (the compiler plugin is applied under settings.kotlin
+  # below). Pinned to the 0.13.x line, which supports this project's Kotlin 2.3.21.
+  - dev.zacsweers.metro:runtime:0.13.2: exported
 
 dependencies@jvmAndAndroid:
   - app.azula.iroh:iroh-kmp:0.1.1
@@ -39,3 +42,6 @@ settings:
     enabled: true
   kotlin:
     serialization: json
+    compilerPlugins:
+      - id: dev.zacsweers.metro.compiler
+        dependency: dev.zacsweers.metro:compiler:0.13.2

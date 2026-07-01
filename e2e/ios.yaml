@@ -1,9 +1,8 @@
-appId: ios-app
+appId: ios-app-mock
 ---
-# The mock/UI-test build injects a FakeTransport (real UI, fake network + terminal).
-# On iOS this requires the app's Swift entry to call ViewController(isDemo = true)
-# for the test build. On bind, FakeTransport surfaces one inbound terminal
-# conversation; a connect dials a chat loopback.
+# The `-mock` app (ios-app-mock) injects a FakeTransport (real UI, fake network +
+# terminal). On bind, FakeTransport surfaces one inbound terminal conversation; a
+# connect dials a chat loopback.
 
 # ── Home screen ─────────────────────────────────────────────────────────────
 - launchApp

@@ -19,7 +19,6 @@ import dev.azula.model.ConversationKind
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.net.Alpns
-import dev.azula.net.FakeTransport
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
@@ -53,9 +52,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 @Inject
 @SingleIn(AppScope::class)
 class ConnectService(
-    private var transport: IrohTransport,
+    private val transport: IrohTransport,
     private val scope: CoroutineScope,
-    private val isDemo: Boolean,
     private val convStore: ConversationStore,
     private val surfaceStore: SurfaceStore,
     private val persistence: PersistenceCoordinator,
@@ -85,8 +83,8 @@ class ConnectService(
     /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
     val pendingShares = mutableStateListOf<PendingShareRequest>()
 
-    /** True when the real transport failed to bind and we fell back to demo mode. */
-    private var demoMode = false
+    /** True when the transport failed to bind — we stay offline (no auto-reconnect). */
+    private var offline = false
 
     fun resetConnect() {
         if (connectStage != ConnectStage.DIALING) {
@@ -104,9 +102,8 @@ class ConnectService(
         try {
             transport.bind(Alpns.ALL)
         } catch (e: Throwable) {
-            // Real binding unavailable (e.g. missing native lib) — degrade to demo.
-            demoMode = true
-            transport = FakeTransport().also { it.bind(Alpns.ALL) }
+            // Binding unavailable (e.g. missing native lib) — stay offline.
+            offline = true
         }
         nodeId = transport.nodeId
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
@@ -210,7 +207,7 @@ class ConnectService(
     }
 
     fun reconnectSaved() {
-        if (demoMode) return
+        if (offline) return
         val saved = peerStore?.load().orEmpty()
         if (saved.isEmpty()) return
         saved.forEach { ticket ->
@@ -289,7 +286,7 @@ class ConnectService(
                             convStore.conv(convId).messages.add(
                                 Message(convStore.nextId("r"), Role.THEM, text = received.caption, attachments = listOf(attachment))
                             )
-                            persistence.save(convId, isDemo)
+                            persistence.save(convId)
                             notify(convId, received.caption ?: "sent ${received.name}")
                         }
                         continue
@@ -359,7 +356,7 @@ class ConnectService(
             is Frame.Input, is Frame.Resize -> Unit
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
         }
-        if (frame !is Frame.Token || frame.done) persistence.save(convId, isDemo)
+        if (frame !is Frame.Token || frame.done) persistence.save(convId)
     }
 
     // ---- peer profile handshake ----
@@ -374,7 +371,7 @@ class ConnectService(
             cs.peerAvatarMime = p.mime
             cs.peerAvatarBitmap = p.avatar?.let { decodeAvatar(it) }
         }
-        persistence.save(convId, isDemo)
+        persistence.save(convId)
     }
 
     @OptIn(ExperimentalEncodingApi::class)

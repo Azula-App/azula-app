@@ -63,9 +63,9 @@ class PersistenceCoordinator(
         return maxSuffix
     }
 
-    /** Serialize and save a conversation's identity + full history off the main thread. */
-    fun save(convId: String, isDemo: Boolean) {
-        if (isDemo) return
+    /** Serialize and save a conversation's identity + full history off the main
+     *  thread. No-op when no store is bound (e.g. the mock build passes null). */
+    fun save(convId: String) {
         val store = messageStore ?: return
         val cs = convStore.convOrNull(convId) ?: return
         val meta = convStore.conversationOrNull(convId)
@@ -84,9 +84,8 @@ class PersistenceCoordinator(
         scope.launch(saveDispatcher) { runCatching { store.save(convId, dto) } }
     }
 
-    /** Remove a conversation's persisted blob (shipping build only). */
-    fun delete(convId: String, isDemo: Boolean) {
-        if (isDemo) return
+    /** Remove a conversation's persisted blob (no-op when no store is bound). */
+    fun delete(convId: String) {
         scope.launch(saveDispatcher) { runCatching { messageStore?.delete(convId) } }
     }
 }

@@ -1,0 +1,16 @@
+# jvm-app-mock — the desktop `-mock` build: real UI, fake backend. It only differs
+# from jvm-app by pre-installing a buildMockState() (FakeTransport + no persistence)
+# before the composition, so none of the fake wiring lives in the shipping app.
+product: jvm/app
+
+# mock-support -> shared -> network-real transitively pulls iroh-kmp from mavenLocal.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../shared
+  - ../mock-support
+  - $compose.desktop.currentOs
+
+settings:
+  compose: enabled

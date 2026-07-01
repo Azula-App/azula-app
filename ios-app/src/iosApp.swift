@@ -7,9 +7,7 @@ import KotlinModules
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> some UIViewController {
-        // Demo/UI-test build: set AZULA_DEMO=1 in the scheme's environment to seed content.
-        let isDemo = ProcessInfo.processInfo.environment["AZULA_DEMO"] == "1"
-        return ViewControllerKt.ViewController(isDemo: isDemo)
+        return ViewControllerKt.ViewController()
     }
     func updateUIViewController(_ uiViewController: UIViewControllerType, context: Context) {}
 }

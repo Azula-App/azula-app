@@ -58,8 +58,9 @@ Deeplinks route into the app's existing connect flow via `dev.azula.link`.
 
 The transport is an `expect`/`actual` factory (`dev.azula.net.createTransport`).
 JVM/Android use the `computer.iroh:iroh` binding directly; iOS delegates to a
-Swift implementation injected from `iosApp.swift`. A `FakeTransport` keeps the UI
-fully alive offline and is used as a fallback when the native binding is missing.
+Swift implementation injected from `iosApp.swift`. The `-mock` apps
+(`android-app-mock` / `jvm-app-mock` / `ios-app-mock`) swap in a `FakeTransport`
+(from `mock-support`) to run the real UI over a fake backend for UI tests.
 
 ## Wire protocol
 

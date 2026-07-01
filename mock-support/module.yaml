@@ -1,0 +1,26 @@
+# mock-support — the fakes for the `-mock` apps, kept entirely out of the real app
+# modules: FakeTransport (fake network + fake terminal + chat loopback) and the
+# buildMockState() helper that wires it into the AppGraph with null stores.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+# shared transitively pulls in the iroh-kmp artifact from mavenLocal.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../shared: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0
+  # Metro runtime — buildMockState calls the createGraphFactory intrinsic, so the
+  # compiler plugin (below) is applied here too.
+  - dev.zacsweers.metro:runtime:0.13.2
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: dev.zacsweers.metro.compiler
+        dependency: dev.zacsweers.metro:compiler:0.13.2

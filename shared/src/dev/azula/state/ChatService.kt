@@ -36,11 +36,11 @@ class ChatService(
     fun updateThinking(on: Boolean) { thinking = on }
 
     /** Append a chat message locally, persist, then ship it on the live stream. */
-    fun send(convId: String, txt: String, isDemo: Boolean) {
+    fun send(convId: String, txt: String) {
         val cs = convStore.conv(convId)
         cs.draft = ""
         cs.messages.add(Message(convStore.nextId("u"), Role.ME, text = txt))
-        persistence.save(convId, isDemo)
+        persistence.save(convId)
         cs.stream?.let { stream ->
             scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Chat(txt))) } }
         }
@@ -53,13 +53,12 @@ class ChatService(
         mime: String,
         encoding: FileEncoding,
         caption: String?,
-        isDemo: Boolean,
     ) {
         val cs = convStore.conv(convId)
         val msgId = convStore.nextId("f")
         val attachment = Attachment(msgId, name, mime, bytes.size.toLong(), bytes, caption)
         cs.messages.add(Message(msgId, Role.ME, text = caption, attachments = listOf(attachment)))
-        persistence.save(convId, isDemo)
+        persistence.save(convId)
         val stream = cs.stream ?: return
         scope.launch {
             runCatching { sendFile(stream, OutgoingFile(name = name, mime = mime, bytes = bytes, caption = caption), encoding) }

@@ -1,5 +1,5 @@
 import dev.azula.net.Alpns
-import dev.azula.net.FakeTransport
+import dev.azula.mock.FakeTransport
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport

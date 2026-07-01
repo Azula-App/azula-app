@@ -1,13 +1,11 @@
-appId: app.azula
+appId: app.azula.mock
 ---
-# The mock/UI-test build (the `demo` intent extra) injects a FakeTransport — real
-# UI, fake network + terminal — so these flows drive the real screens with no live
-# peer. On bind, FakeTransport surfaces one inbound terminal conversation; a
-# connect dials a chat loopback. clearState avoids saved peers adding rows.
+# The `-mock` app (android-app-mock) injects a FakeTransport — real UI, fake network
+# + terminal — so these flows drive the real screens with no live peer. On bind,
+# FakeTransport surfaces one inbound terminal conversation; a connect dials a chat
+# loopback. clearState avoids saved peers adding rows.
 - launchApp:
     clearState: true
-    arguments:
-      demo: true
 - takeScreenshot: e2e/screenshots/android-home
 - assertVisible: "azula"
 - assertVisible: "CONVERSATIONS"

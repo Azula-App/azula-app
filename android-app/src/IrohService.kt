@@ -60,7 +60,7 @@ class IrohService : Service() {
         }
 
         // Guarantee the node exists even on a headless START_STICKY restart.
-        runCatching { (application as AzulaApplication).obtainState(false) }
+        runCatching { (application as AzulaApplication).obtainState() }
 
         // Reflect the app's current state: hidden in the foreground, shown in the
         // background. This also covers a START_STICKY restart while backgrounded

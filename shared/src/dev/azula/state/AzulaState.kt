@@ -18,7 +18,6 @@ import dev.azula.model.ConnectStage
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.net.Alpns
-import dev.azula.net.FakeTransport
 import dev.azula.net.FileEncoding
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
@@ -90,9 +89,6 @@ class ConversationState(seed: List<Message>) {
 @SingleIn(AppScope::class)
 class AzulaState(
     private val scope: CoroutineScope,
-    /** True in the mock / UI-test build: the platform injects a FakeTransport
-     *  (fake network + terminal) and message persistence is skipped. */
-    val isDemo: Boolean = false,
     private val peerStore: PeerStore? = null,
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
@@ -105,21 +101,19 @@ class AzulaState(
     private val connectService: ConnectService,
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
-    // The shipping build starts EMPTY (conversations are created per-peer on
-    // connect); the demo/UI-test build seeds three (Maestro depends on them) — see
-    // init below.
+    // Conversations are created per-peer when you connect.
     val conversations get() = convStore.conversations
     private val convState get() = convStore.convState
 
     // Desktop: a conversation id, or "connect" (the default landing — and the only
     // valid view when the list is empty).
-    var desktopActive by mutableStateOf(if (isDemo) "azula" else "connect")
+    var desktopActive by mutableStateOf("connect")
         private set
 
     // Mobile navigation.
     var mScreen by mutableStateOf(MScreen.HOME)
         private set
-    var mActive by mutableStateOf(if (isDemo) "azula" else "")
+    var mActive by mutableStateOf("")
         private set
 
     val thinking get() = chatService.thinking
@@ -164,7 +158,7 @@ class AzulaState(
     // ---- message persistence (shipping build only) ----
 
     // Message-history persistence is delegated to PersistenceCoordinator.
-    private fun persist(convId: String) = persistence.save(convId, isDemo)
+    private fun persist(convId: String) = persistence.save(convId)
 
     /** A human-friendly label derived from any node id (our own or a peer's). */
     fun mnemonicCode(id: String): String = convStore.mnemonicCode(id)
@@ -177,7 +171,7 @@ class AzulaState(
     suspend fun start() {
         // Restore persisted conversation history (shipping build only; the demo
         // build shows seeds instead). Restored A2UI surfaces render frozen.
-        if (!isDemo) { val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1) }
+        val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1)
         personaService.load()
         // Bind the transport and run the connect/receive core.
         connectService.start()
@@ -203,7 +197,7 @@ class AzulaState(
         if (txt.isEmpty()) return
         // Terminal conversations send keystrokes, not chat messages.
         if (conversation(convId).kind == ConversationKind.TERMINAL) { cs.draft = ""; terminalInput(convId, txt); return }
-        chatService.send(convId, txt, isDemo)
+        chatService.send(convId, txt)
     }
 
     /**
@@ -218,7 +212,7 @@ class AzulaState(
         mime: String,
         encoding: FileEncoding = FileEncoding.BASE64,
         caption: String? = null,
-    ) = chatService.sendFile(convId, bytes, name, mime, encoding, caption, isDemo)
+    ) = chatService.sendFile(convId, bytes, name, mime, encoding, caption)
 
     fun markCopied() {
         copied = true
@@ -275,11 +269,11 @@ class AzulaState(
      * Called when the user triggers an action on an A2UI surface.
      * If a live stream is open, encodes and sends it; otherwise interprets locally.
      */
-    fun onA2uiAction(convId: String, action: A2uiAction) = a2uiService.onAction(convId, action, isDemo)
+    fun onA2uiAction(convId: String, action: A2uiAction) = a2uiService.onAction(convId, action)
 
     /** Called when a two-way input (TextField, CheckBox, etc.) changes its value. */
     fun onA2uiDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) =
-        a2uiService.onDataChange(convId, surface, path, value, isDemo)
+        a2uiService.onDataChange(convId, surface, path, value)
 
     // ---- connecting (delegated to ConnectService) ----
 
@@ -326,7 +320,7 @@ class AzulaState(
         peerStore?.let { store ->
             store.save(store.load().filter { (connectService.peerIdForTicket(it) ?: "") != id })
         }
-        persistence.delete(id, isDemo)
+        persistence.delete(id)
         convState.remove(id)
         conversations.removeAll { it.id == id }
         pendingShares.removeAll { it.convId == id }

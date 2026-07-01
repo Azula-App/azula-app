@@ -5,7 +5,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
-import dev.azula.net.FakeTransport
 import dev.azula.net.createTransport
 import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
@@ -30,18 +29,16 @@ object AppStateHost {
  * pre-installed a process-scoped singleton in [AppStateHost] (Android).
  */
 @Composable
-fun rememberAzulaState(isDemo: Boolean = false): AzulaState {
+fun rememberAzulaState(): AzulaState {
     AppStateHost.shared?.let { return it }
     val scope = rememberCoroutineScope()
-    // Composition-scoped path (desktop/iOS): build the flat graph with the platform
-    // default stores and no notifier. Android instead pre-installs a process-scoped
-    // instance in AppStateHost (see AzulaApplication) and returns above.
+    // Composition-scoped path (desktop/iOS): build the flat graph with the real
+    // iroh transport + platform default stores. Android pre-installs a process-scoped
+    // instance in AppStateHost (AzulaApplication); the -mock apps pre-install one too.
     val state = remember {
         createGraphFactory<AppGraph.Factory>().create(
             scope = scope,
-            isDemo = isDemo,
-            // Mock/UI-test build gets a fake network + terminal; real build the iroh transport.
-            transport = if (isDemo) FakeTransport() else createTransport(),
+            transport = createTransport(),
             notifier = null,
             messageStore = platformMessageStore(),
             profileStore = platformProfileStore(),

@@ -1,0 +1,36 @@
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import dev.azula.AzulaApp
+import dev.azula.link.DeepLinkBus
+import dev.azula.mock.buildMockState
+import dev.azula.state.AppStateHost
+import dev.azula.ui.appIconPainter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
+fun main(args: Array<String>) {
+    // -mock build: install an AzulaState wired to the fakes (FakeTransport + no
+    // persistence) before the composition, so rememberAzulaState() returns it and
+    // the real iroh transport is never created.
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    AppStateHost.shared = buildMockState(scope).also { scope.launch { it.start() } }
+
+    // Test/automation hook: auto-dial a peer ticket on launch (here it hits the
+    // fake loopback). The bus buffers the token until AzulaState.start() registers.
+    System.getenv("AZULA_CONNECT")?.takeIf { it.isNotBlank() }?.let { DeepLinkBus.deliver(it) }
+
+    application {
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "azula — mock",
+            icon = appIconPainter(),
+            state = rememberWindowState(width = 1180.dp, height = 760.dp),
+        ) {
+            AzulaApp()
+        }
+    }
+}

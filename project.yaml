@@ -1,11 +1,15 @@
 modules:
   - a2ui
   - android-app
+  - android-app-mock
   - core
   - ios-app
+  - ios-app-mock
   - jvm-app
+  - jvm-app-mock
   - link
   - markdown
+  - mock-support
   - network-api
   - network-real
   - notification-api

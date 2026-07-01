@@ -7,7 +7,6 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.azula.iroh.IrohAndroid
 import dev.azula.di.AppGraph
 import dev.azula.net.AndroidPeerStore
-import dev.azula.net.FakeTransport
 import dev.azula.net.IrohConfig
 import dev.azula.net.createTransport
 import dev.azula.persist.AndroidMessageStore
@@ -68,17 +67,14 @@ class AzulaApplication : Application() {
     }
 
     /**
-     * Create the singleton [AzulaState] on first use (the Activity supplies isDemo;
-     * a headless service restart defaults it to false). Subsequent calls return the
+     * Create the singleton [AzulaState] on first use; subsequent calls return the
      * existing instance.
      */
     @Synchronized
-    fun obtainState(isDemo: Boolean): AzulaState =
+    fun obtainState(): AzulaState =
         AppStateHost.shared ?: createGraphFactory<AppGraph.Factory>().create(
             scope = appScope,
-            isDemo = isDemo,
-            // Mock/UI-test build (demo intent extra) → fake network + terminal.
-            transport = if (isDemo) FakeTransport() else createTransport(),
+            transport = createTransport(),
             notifier = AndroidNotifier(this),
             messageStore = AndroidMessageStore(applicationContext),
             profileStore = AndroidProfileStore(applicationContext),

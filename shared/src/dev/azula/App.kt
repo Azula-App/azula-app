@@ -13,11 +13,14 @@ import dev.azula.ui.DesktopApp
 import dev.azula.ui.MobileApp
 import dev.azula.ui.ShareSheet
 
-/** The single entry point every platform calls. [isDemo] enables seeded demo
- *  content for the demo/UI-test build; the shipping build leaves it false. */
+/**
+ * The single entry point every platform calls. Uses the process-scoped [AzulaState]
+ * if a platform pre-installed one (Android's foreground service, or a `-mock` app
+ * that injects fakes); otherwise builds the real one in-composition.
+ */
 @Composable
-fun AzulaApp(isDemo: Boolean = false) {
-    val state = rememberAzulaState(isDemo)
+fun AzulaApp() {
+    val state = rememberAzulaState()
     AzulaTheme {
         BoxWithConstraints(Modifier.fillMaxSize().background(AppBackgroundBrush)) {
             if (maxWidth >= 820.dp) DesktopApp(state) else MobileApp(state)

@@ -1,0 +1,22 @@
+# android-app-mock — the Android `-mock` build: real UI, fake backend. Separate
+# applicationId (app.azula.mock) so it installs alongside the real app. No iroh node,
+# no foreground service, no notifier — MainActivity just pre-installs a
+# buildMockState() (FakeTransport + no persistence) and shows the real UI.
+product: android/app
+
+# mock-support -> shared -> network-real transitively pulls iroh-kmp from mavenLocal.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../shared
+  - ../mock-support
+  - androidx.activity:activity-compose:1.7.2
+  - androidx.core:core-ktx:1.13.1
+
+settings:
+  compose: enabled
+  android:
+    minSdk: 26
+    applicationId: app.azula.mock
+    namespace: app.azula.mock

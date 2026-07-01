@@ -30,7 +30,6 @@ interface AppGraph {
     fun interface Factory {
         fun create(
             @Provides scope: CoroutineScope,
-            @Provides isDemo: Boolean,
             @Provides transport: IrohTransport,
             @Provides notifier: Notifier?,
             @Provides messageStore: MessageStore?,

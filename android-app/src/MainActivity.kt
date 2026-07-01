@@ -26,18 +26,15 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
 
-        // Demo/UI-test build: `adb shell am start --ez demo true …` enables seeds.
-        val isDemo = intent?.getBooleanExtra("demo", false) ?: false
-
         // The node is owned by the Application (process-scoped) so it survives
         // backgrounding; rememberAzulaState returns this singleton. The
         // ProcessLifecycleOwner observer + foreground service live in
         // AzulaApplication — we no longer pause()/shutdown() on background.
-        (application as AzulaApplication).obtainState(isDemo)
+        (application as AzulaApplication).obtainState()
 
         requestNotificationPermission()
 
-        setContent { AzulaApp(isDemo) }
+        setContent { AzulaApp() }
 
         // A deeplink (cold start) and/or a notification tap that launched us.
         intent?.dataString?.let { handleDeepLink(it) }

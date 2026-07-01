@@ -26,7 +26,7 @@ class A2uiService(
     private val persistence: PersistenceCoordinator,
     private val scope: CoroutineScope,
 ) {
-    fun onAction(convId: String, action: A2uiAction, isDemo: Boolean) {
+    fun onAction(convId: String, action: A2uiAction) {
         val stream = convStore.conv(convId).stream
         if (stream != null) {
             scope.launch {
@@ -34,12 +34,12 @@ class A2uiService(
             }
         } else {
             surfaceStore.surfaces[action.surfaceId]?.let { A2uiExamples.handleEvent(it, action) }
-            persistence.save(convId, isDemo)
+            persistence.save(convId)
         }
     }
 
-    fun onDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement, isDemo: Boolean) {
+    fun onDataChange(convId: String, surface: A2uiSurface, path: String, value: JsonElement) {
         surface.setData(path, value)
-        persistence.save(convId, isDemo)
+        persistence.save(convId)
     }
 }

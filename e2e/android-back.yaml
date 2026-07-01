@@ -1,13 +1,11 @@
-appId: app.azula
+appId: app.azula.mock
 ---
 # System back should navigate within the app (chat → home), not exit it.
-# Mock/UI-test build via the `demo` intent extra; clean state. We use a chat
-# conversation (via connect) rather than the terminal, since the terminal
-# auto-shows the keyboard and the first Back would only dismiss that.
+# The `-mock` app (android-app-mock); clean state. We use a chat conversation (via
+# connect) rather than the terminal, since the terminal auto-shows the keyboard and
+# the first Back would only dismiss that.
 - launchApp:
     clearState: true
-    arguments:
-      demo: true
 - assertVisible: "CONVERSATIONS"
 - tapOn:
     text: "+ connect a peer"

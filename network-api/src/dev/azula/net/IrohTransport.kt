@@ -39,7 +39,8 @@ data class IncomingConnection(
 /**
  * Platform abstraction over an iroh endpoint. JVM/Android back this with the
  * `computer.iroh:iroh` binding; iOS delegates to an injected Swift `IrohLib`
- * implementation. A [FakeTransport] backs the UI before any real networking.
+ * implementation. The `-mock` apps back the UI with a FakeTransport (in the
+ * mock-support module) instead, so no real networking is involved.
  */
 interface IrohTransport {
     /** Hex node id, available after [bind]. */

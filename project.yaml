@@ -1,4 +1,6 @@
 modules:
+  - link
+  - markdown
   - a2ui
   - android-app
   - core

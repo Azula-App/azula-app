@@ -1,0 +1,5 @@
+# link — deeplink parsing/building (azula:// and https://azula.app/s/…) and the
+# hand-rolled QR encoder. Pure Kotlin, no dependencies; both are unit-tested.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]

@@ -1,0 +1,14 @@
+# markdown — a tiny markdown parser + Compose renderer for chat message text.
+# Depends only on theme. MarkdownParser is pure (unit-tested); Markdown renders it.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../theme: exported
+  - $compose.foundation: exported
+  - $compose.material3: exported
+
+settings:
+  compose:
+    enabled: true

@@ -2,35 +2,21 @@ product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
-# A shared source set + dependency scope for the two JVM-flavoured targets.
-# The iroh binding (app.azula.iroh:iroh-kmp, built from ../../iroh-kmp via Gobley)
-# provides JNI-backed UniFFI bindings whose async calls complete on Android. Its
-# jvm + android artifacts back the real transport in src@jvmAndAndroid/ without
-# duplication; iOS still uses the injected Swift bridge for now.
-aliases:
-  - jvmAndAndroid: [jvm, android]
-
-# The iroh-kmp SDK is published to the local Maven repo (`./gradlew publishToMavenLocal`
-# in ../../iroh-kmp). Pull it from there.
+# iroh-kmp (a mavenLocal artifact) is now an implementation detail of network-real;
+# keep the repo so it resolves transitively at runtime.
 repositories:
   - mavenLocal
 
 dependencies:
   - ../core: exported
+  - ../network-api: exported
+  - ../network-real: exported
   - $compose.foundation: exported
   - $compose.material3: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
   # Metro DI — runtime annotations (the compiler plugin is applied under settings.kotlin
   # below). Pinned to the 0.13.x line, which supports this project's Kotlin 2.3.21.
   - dev.zacsweers.metro:runtime:0.13.2: exported
-
-dependencies@jvmAndAndroid:
-  - app.azula.iroh:iroh-kmp:0.1.1
-
-# iOS consumes the same SDK (Kotlin/Native klib + Rust staticlib), replacing the
-# injected Swift IrohLib bridge.
-dependencies@ios:
-  - app.azula.iroh:iroh-kmp:0.1.1
 
 dependencies@android:
   - androidx.activity:activity-compose:1.7.2  # for the system BackHandler

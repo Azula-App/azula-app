@@ -9,10 +9,3 @@ interface PeerStore {
     fun load(): List<String>
     fun save(tickets: List<String>)
 }
-
-/**
- * The platform default store (a file on JVM, NSUserDefaults on iOS). Android
- * returns null here; its Context-backed store is bound into the Metro graph by
- * the app module.
- */
-expect fun platformPeerStore(): PeerStore?

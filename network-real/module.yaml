@@ -1,0 +1,24 @@
+# network-real — the concrete iroh transport (JVM/Android via the iroh-kmp JNI
+# binding, iOS via the Kotlin/Native klib) plus the platform peer stores. Depends
+# on network-api's interfaces; nothing depends on it except the app assembly.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+# Shared source set for the two JVM-flavoured targets (the JNI-backed transport).
+aliases:
+  - jvmAndAndroid: [jvm, android]
+
+# iroh-kmp is published to the local Maven repo (see ../../iroh-kmp).
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../network-api: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+
+dependencies@jvmAndAndroid:
+  - app.azula.iroh:iroh-kmp:0.1.1
+
+dependencies@ios:
+  - app.azula.iroh:iroh-kmp:0.1.1

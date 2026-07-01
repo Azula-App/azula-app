@@ -3,4 +3,6 @@ modules:
   - core
   - ios-app
   - jvm-app
+  - network-api
+  - network-real
   - shared

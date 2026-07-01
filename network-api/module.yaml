@@ -1,0 +1,17 @@
+# network-api — the transport contract: the IrohTransport / P2pStream interfaces,
+# the wire Frame protocol, ALPNs, file-transfer helpers, and the in-memory
+# FakeTransport (kept here so any module can bind it in tests). No platform code,
+# no iroh-kmp — this is the seam that lets the network be mocked in isolation.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    serialization: json

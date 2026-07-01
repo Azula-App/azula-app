@@ -74,6 +74,3 @@ interface IrohTransport {
      */
     var onCameOnline: (() -> Unit)?
 }
-
-/** Each platform supplies its concrete transport. */
-expect fun createTransport(): IrohTransport

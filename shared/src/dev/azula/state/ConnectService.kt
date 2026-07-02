@@ -96,6 +96,17 @@ class ConnectService(
 
     fun peerIdForTicket(ticket: String): String? = transport.peerIdForTicket(ticket)
 
+    /** The peer node id referenced by a pasted connect input (URL or bare ticket). */
+    fun peerIdForInput(input: String): String? {
+        val ticket = AzulaLinks.parse(input) ?: input.trim()
+        if (ticket.isEmpty()) return null
+        return transport.peerIdForTicket(ticket)
+    }
+
+    /** The peer's mnemonic code for a pasted connect input, if it parses. */
+    fun peerCodeForInput(input: String): String? =
+        peerIdForInput(input)?.let { convStore.mnemonicCode(it) }
+
     // ---- identity backup / restore ----
 
     /** This device's secret key as a 24-word BIP-39 recovery phrase, or null if the

@@ -144,6 +144,10 @@ class AzulaState(
         get() = connectService.connectInput
         set(v) { connectService.connectInput = v }
     val rttMs get() = connectService.rttMs
+    /** Resolve the peer being connected to from the current connect input (for the
+     *  setup screen): their node id and mnemonic code. */
+    fun peerIdForInput(input: String): String? = connectService.peerIdForInput(input)
+    fun peerCodeForInput(input: String): String? = connectService.peerCodeForInput(input)
 
     // ---- identity backup / restore (recovery phrase) ----
     /** This device's secret key as a 24-word recovery phrase, or null if unavailable. */

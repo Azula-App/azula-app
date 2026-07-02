@@ -154,12 +154,32 @@ private fun ConnectIdle(state: AzulaState) {
 private fun HolepunchProgress(state: AzulaState) {
     val connected = state.connectStage == ConnectStage.CONNECTED
     val step = state.connectStep
+    // Who we're dialing: the peer's code from the pasted input, plus any identity
+    // (name / avatar / description) once the connection resolves it. This is the one
+    // place the mnemonic "three words" belongs — the chat view shows status instead.
+    val peerId = state.peerIdForInput(state.connectInput)
+    val peerCode = state.peerCodeForInput(state.connectInput)
+    val peerConv = peerId?.let { state.conversationOrNull(it) }
+    val peerCs = peerId?.let { state.convOrNull(it) }
+    val peerName = peerConv?.name?.takeIf { peerCode == null || it != peerCode }
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
         Text(
             if (connected) "CONNECTED" else "HOLEPUNCHING",
             color = if (connected) AzulaColors.onlineBright else AzulaColors.pink,
             fontFamily = Fonts.pixel, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         )
+        // ── who you're connecting to ──
+        if (peerCode != null || peerName != null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("CONNECTING TO", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
+                if (peerConv != null) AvatarBox(peerCs?.peerAvatarBitmap, peerConv.glyph, peerConv.kind, size = 52.dp)
+                if (peerName != null) Text(peerName, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                peerCode?.let { Text(it, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+                peerCs?.peerDescription?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+                }
+            }
+        }
         Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
             if (connected) {
                 Box(Modifier.size(62.dp).clip(CircleShape).border(3.dp, AzulaColors.onlineBright, CircleShape), contentAlignment = Alignment.Center) {
@@ -170,7 +190,7 @@ private fun HolepunchProgress(state: AzulaState) {
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            ProgressStep("found peer · ${state.shortCode}", step >= 1 || connected)
+            ProgressStep(if (peerCode != null) "found peer · $peerCode" else "found peer", step >= 1 || connected)
             ProgressStep("punching NAT", step >= 2 || connected)
             ProgressStep(if (connected) "direct path established" else "opening direct path…", connected)
         }

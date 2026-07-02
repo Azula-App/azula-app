@@ -88,6 +88,9 @@ class ConversationState(seed: List<Message>) {
     var peerAvatarMime: String? = null
     var peerAvatarBitmap by mutableStateOf<ImageBitmap?>(null)
     var peerDescription by mutableStateOf<String?>(null)
+    /** Live round-trip time to the peer (ms), polled off the stream while online;
+     *  null when offline or not yet measured. */
+    var rttMs by mutableStateOf<Int?>(null)
 }
 
 /**
@@ -143,7 +146,6 @@ class AzulaState(
     var connectInput: String
         get() = connectService.connectInput
         set(v) { connectService.connectInput = v }
-    val rttMs get() = connectService.rttMs
     /** Resolve the peer being connected to from the current connect input (for the
      *  setup screen): their node id and mnemonic code. */
     fun peerIdForInput(input: String): String? = connectService.peerIdForInput(input)

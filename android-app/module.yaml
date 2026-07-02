@@ -8,7 +8,7 @@ dependencies:
   - ../shared
   # Direct dep so MainActivity can call IrohAndroid.installAndroidContext; also
   # carries the per-ABI iroh .so into the APK.
-  - app.azula.iroh:iroh-kmp:0.1.1
+  - app.azula.iroh:iroh-kmp:0.1.2
   - androidx.activity:activity-compose:1.7.2
   - androidx.lifecycle:lifecycle-process:2.8.0
   - androidx.security:security-crypto:1.0.0

@@ -130,6 +130,8 @@ private class IrohP2pStream(private val stream: IrohStream) : P2pStream {
 
     override suspend fun receiveBytes(n: Int): ByteArray? = lines.readBytes(n)
 
+    override fun rttMs(): Long? = runCatching { stream.rttMs()?.toLong() }.getOrNull()
+
     override suspend fun close() {
         runCatching { stream.finish() }
     }

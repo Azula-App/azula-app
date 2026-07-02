@@ -157,7 +157,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
                 Spacer(Modifier.width(7.dp))
-                val rtt = state.rttMs
+                val rtt = cs.rttMs
                 // Status only — the mnemonic code belongs on the connect screen, not here.
                 val sub = when {
                     !conv.enabled -> "disabled"

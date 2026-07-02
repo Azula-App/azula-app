@@ -76,6 +76,7 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
                     online = state.convOrNull(conv.id)?.online == true,
                     avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
                     description = state.convOrNull(conv.id)?.peerDescription,
+                    rttMs = state.convOrNull(conv.id)?.rttMs,
                     onClick = { state.selectDesktop(conv.id) },
                     onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
                     onDelete = { state.deleteConversation(conv.id) },
@@ -166,6 +167,7 @@ fun ConversationRow(
     online: Boolean,
     avatar: ImageBitmap? = null,
     description: String? = null,
+    rttMs: Int? = null,
     onClick: () -> Unit,
     onToggleEnabled: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -205,6 +207,9 @@ fun ConversationRow(
                 color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (online && conv.enabled && rttMs != null) {
+            Text("${rttMs}ms", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
         }
         StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
         if (hasMenu) {

@@ -77,8 +77,6 @@ class ConnectService(
     var connectStep by mutableStateOf(0)
         private set
     var connectInput by mutableStateOf("")
-    var rttMs by mutableStateOf<Int?>(null)
-        private set
     val shortCode: String get() = nodeId?.let { convStore.mnemonicCode(it) } ?: "connecting…"
 
     /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
@@ -184,7 +182,6 @@ class ConnectService(
             }
             persistPeer(ticket)
             convId?.let { convStore.convOrNull(it)?.sourceTicket = ticket }
-            rttMs = 12
             connectStage = ConnectStage.CONNECTED
             delay(1200)
             if (convId != null) onNavigate(convId)
@@ -303,6 +300,21 @@ class ConnectService(
         }
         cs.online = true
         receiveLoop(convId, stream)
+        pollRtt(cs, stream)
+    }
+
+    /**
+     * Poll the live QUIC RTT off [stream] into [cs] while it's the conversation's
+     * active stream. The `cs.stream === stream` identity guard makes the loop
+     * self-terminate on rewire/close (receiveLoop's `finally` nulls the stream).
+     */
+    private fun pollRtt(cs: ConversationState, stream: P2pStream) {
+        scope.launch {
+            while (cs.stream === stream) {
+                cs.rttMs = stream.rttMs()?.toInt()
+                delay(2000)
+            }
+        }
     }
 
     private fun receiveLoop(convId: String, stream: P2pStream) {
@@ -337,6 +349,7 @@ class ConnectService(
             } finally {
                 convStore.conv(convId).online = false
                 convStore.conv(convId).stream = null
+                convStore.conv(convId).rttMs = null
             }
         }
     }

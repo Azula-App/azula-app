@@ -26,6 +26,14 @@ interface P2pStream {
      */
     suspend fun receiveBytes(n: Int): ByteArray?
 
+    /**
+     * The live round-trip time to the peer in milliseconds, or null if not yet
+     * available (no path established) or unsupported by this transport. Backed by
+     * iroh's smoothed per-connection QUIC RTT — a cheap, non-blocking snapshot.
+     * The mock and any non-iroh stream return null.
+     */
+    fun rttMs(): Long? = null
+
     suspend fun close()
 }
 

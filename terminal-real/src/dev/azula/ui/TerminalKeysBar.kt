@@ -41,15 +41,18 @@ fun TerminalKeysBar(session: TerminalSession, convId: String) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Arrows honor the app-cursor-keys mode (vi/less flip to `ESC O x`); read at
+        // tap time so it always reflects the emulator's current mode.
+        fun appKeys() = session.terminalScreen(convId).applicationCursorKeys
         Keycap("esc") { session.terminalRaw(convId, TermSeq.ESC) }
         Keycap("tab") { session.terminalRaw(convId, TermSeq.TAB) }
         Keycap("^C") { session.terminalInterrupt(convId) }
         Keycap("^D") { session.terminalRaw(convId, ctrl('d')) }
         Keycap("^L") { session.terminalRaw(convId, ctrl('l')) }
-        Keycap("←") { session.terminalRaw(convId, TermSeq.LEFT) }
-        Keycap("↓") { session.terminalRaw(convId, TermSeq.DOWN) }
-        Keycap("↑") { session.terminalRaw(convId, TermSeq.UP) }
-        Keycap("→") { session.terminalRaw(convId, TermSeq.RIGHT) }
+        Keycap("←") { session.terminalRaw(convId, if (appKeys()) TermSeq.APP_LEFT else TermSeq.LEFT) }
+        Keycap("↓") { session.terminalRaw(convId, if (appKeys()) TermSeq.APP_DOWN else TermSeq.DOWN) }
+        Keycap("↑") { session.terminalRaw(convId, if (appKeys()) TermSeq.APP_UP else TermSeq.UP) }
+        Keycap("→") { session.terminalRaw(convId, if (appKeys()) TermSeq.APP_RIGHT else TermSeq.RIGHT) }
     }
 }
 

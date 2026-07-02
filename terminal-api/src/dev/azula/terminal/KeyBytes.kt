@@ -19,6 +19,13 @@ object TermSeq {
     val DOWN: String = "$ESC_CH[B"
     val RIGHT: String = "$ESC_CH[C"
     val LEFT: String = "$ESC_CH[D"
+    // Application-cursor-keys mode (DECCKM ?1h): apps like vi/less expect `ESC O x`.
+    val APP_UP: String = "${ESC_CH}OA"
+    val APP_DOWN: String = "${ESC_CH}OB"
+    val APP_RIGHT: String = "${ESC_CH}OC"
+    val APP_LEFT: String = "${ESC_CH}OD"
+    val APP_HOME: String = "${ESC_CH}OH"
+    val APP_END: String = "${ESC_CH}OF"
     val TAB: String = "\t"
     val ENTER: String = "\r"
     val BACKSPACE: String = 0x7f.toChar().toString()   // DEL — what terminals send
@@ -40,21 +47,21 @@ object TermSeq {
  * want the *special* keys (arrows, Esc, Tab, Enter, Backspace, Ctrl-combos) from
  * a hardware keyboard, so printable keys fall through and aren't double-sent.
  */
-fun keyEventToBytes(ev: KeyEvent, includePrintable: Boolean = true): String? {
+fun keyEventToBytes(ev: KeyEvent, includePrintable: Boolean = true, appCursorKeys: Boolean = false): String? {
     if (ev.type != KeyEventType.KeyDown) return null
 
     when (ev.key) {
-        Key.DirectionUp -> return TermSeq.UP
-        Key.DirectionDown -> return TermSeq.DOWN
-        Key.DirectionRight -> return TermSeq.RIGHT
-        Key.DirectionLeft -> return TermSeq.LEFT
+        Key.DirectionUp -> return if (appCursorKeys) TermSeq.APP_UP else TermSeq.UP
+        Key.DirectionDown -> return if (appCursorKeys) TermSeq.APP_DOWN else TermSeq.DOWN
+        Key.DirectionRight -> return if (appCursorKeys) TermSeq.APP_RIGHT else TermSeq.RIGHT
+        Key.DirectionLeft -> return if (appCursorKeys) TermSeq.APP_LEFT else TermSeq.LEFT
         Key.Enter, Key.NumPadEnter -> return TermSeq.ENTER
         Key.Tab -> return TermSeq.TAB
         Key.Escape -> return TermSeq.ESC
         Key.Backspace -> return TermSeq.BACKSPACE
         Key.Delete -> return TermSeq.DELETE
-        Key.MoveHome -> return TermSeq.HOME
-        Key.MoveEnd -> return TermSeq.END
+        Key.MoveHome -> return if (appCursorKeys) TermSeq.APP_HOME else TermSeq.HOME
+        Key.MoveEnd -> return if (appCursorKeys) TermSeq.APP_END else TermSeq.END
         Key.PageUp -> return TermSeq.PAGE_UP
         Key.PageDown -> return TermSeq.PAGE_DOWN
     }

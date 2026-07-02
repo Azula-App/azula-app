@@ -27,7 +27,8 @@ actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: 
             .focusable()
             .pointerInput(Unit) { detectTapGestures { runCatching { fr.requestFocus() } } }
             .onPreviewKeyEvent { ev ->
-                keyEventToBytes(ev)?.let { session.terminalRaw(convId, it); true } ?: false
+                val appKeys = session.terminalScreen(convId).applicationCursorKeys
+                keyEventToBytes(ev, appCursorKeys = appKeys)?.let { session.terminalRaw(convId, it); true } ?: false
             },
     )
 }

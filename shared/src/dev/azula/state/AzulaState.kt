@@ -31,7 +31,8 @@ import dev.azula.core.AppScope
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
 import dev.azula.persist.Persona
-import dev.azula.terminal.TermScreen
+import dev.azula.terminal.PredictionEngine
+import dev.azula.terminal.TerminalEmulator
 import dev.azula.terminal.TerminalSession
 import dev.azula.ui.decodeImageBitmap
 import dev.zacsweers.metro.Inject
@@ -61,6 +62,15 @@ fun Persona.toFrame(shareName: Boolean, sharePic: Boolean, shareDesc: Boolean): 
         mime = if (sharePic) mime else null,
     )
 
+/**
+ * All terminal-emulator mutation (feed / resize / clear / prediction) is confined to
+ * this single serial dispatcher, so the background receive loop, the UI-thread resize,
+ * and the keystroke path never touch the grid concurrently. The UI reads only the
+ * emulator's immutable published [dev.azula.terminal.TermFrame], so rendering is safe.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal val terminalDispatcher = Dispatchers.Default.limitedParallelism(1)
+
 /** Per-conversation mutable state: the thread, the draft, and any live stream. */
 class ConversationState(seed: List<Message>) {
     val messages = mutableStateListOf<Message>().also { it.addAll(seed) }
@@ -68,8 +78,9 @@ class ConversationState(seed: List<Message>) {
     var online by mutableStateOf(false)
     var stream: P2pStream? = null
     var streamingMsgId: String? = null
-    /** Each terminal session gets its own screen buffer. */
-    val termScreen = TermScreen()
+    /** Each terminal session gets its own emulator (grid + parser) with a
+     *  speculative local-echo predictor attached. */
+    val termScreen = TerminalEmulator().also { it.predictor = PredictionEngine(it) }
     /** The peer ticket this conversation was dialed from — used to spawn siblings. */
     var sourceTicket: String? = null
     /** Last received peer profile (a "persona"): base64 avatar + mime + description. */
@@ -133,6 +144,12 @@ class AzulaState(
         get() = connectService.connectInput
         set(v) { connectService.connectInput = v }
     val rttMs get() = connectService.rttMs
+
+    // ---- identity backup / restore (recovery phrase) ----
+    /** This device's secret key as a 24-word recovery phrase, or null if unavailable. */
+    fun exportRecoveryPhrase(): String? = connectService.exportRecoveryPhrase()
+    /** Restore identity from a recovery phrase; false if the phrase is invalid. */
+    suspend fun importRecoveryPhrase(phrase: String): Boolean = connectService.importRecoveryPhrase(phrase)
 
     /** All live A2UI surfaces, keyed by surfaceId (owned by SurfaceStore). */
     val surfaces get() = surfaceStore.surfaces
@@ -236,7 +253,7 @@ class AzulaState(
     fun reconnectTerminal(convId: String) = connectService.reconnectTerminal(convId)
 
     // ---- TerminalSession: the narrow surface the terminal UI depends on ----
-    override fun terminalScreen(convId: String): TermScreen = conv(convId).termScreen
+    override fun terminalScreen(convId: String): TerminalEmulator = conv(convId).termScreen
     override fun terminalOnline(convId: String): Boolean = convOrNull(convId)?.online == true
 
     /** Send Ctrl-C to the remote shell when a live term stream is open. */
@@ -245,21 +262,38 @@ class AzulaState(
     }
 
     /** Send raw keystroke bytes to the live PTY, verbatim (no trim / no newline).
-     *  This is the "type directly in the terminal" path — the shell echoes back. */
+     *  This is the "type directly in the terminal" path — the shell echoes back.
+     *  The predictor optimistically echoes the keystroke locally first (on the
+     *  terminal dispatcher, serialized with feed) so it shows before the round-trip. */
     override fun terminalRaw(convId: String, bytes: String) {
         if (bytes.isEmpty()) return
-        val stream = convOrNull(convId)?.stream ?: return
+        val cs = convOrNull(convId) ?: return
+        scope.launch(terminalDispatcher) { cs.termScreen.predictor?.onInput(bytes) }
+        val stream = cs.stream ?: return
         scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(bytes))) } }
     }
 
+    /** Paste text into the PTY, wrapping in bracketed-paste markers when the remote
+     *  app enabled it (`ESC[200~ … ESC[201~`). Never predicted. */
+    override fun terminalPaste(convId: String, text: String) {
+        if (text.isEmpty()) return
+        val cs = convOrNull(convId) ?: return
+        val wrapped = if (cs.termScreen.bracketedPaste) "\u001b[200~$text\u001b[201~" else text
+        val stream = cs.stream ?: return
+        scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Input(wrapped))) } }
+    }
+
     /** Report the terminal's viewport size (character cells) so the PTY wraps to
-     *  match; deduped so we only send on real changes. */
+     *  match; deduped so we only send on real changes. Also reflows the local grid
+     *  (on the terminal dispatcher) so it matches before the server's next output. */
     private val termSizes = mutableMapOf<String, Pair<Int, Int>>()
     override fun terminalResize(convId: String, cols: Int, rows: Int) {
         if (cols < 1 || rows < 1) return
         if (termSizes[convId] == (cols to rows)) return
         termSizes[convId] = cols to rows
-        val stream = convOrNull(convId)?.stream ?: return
+        val cs = convOrNull(convId) ?: return
+        scope.launch(terminalDispatcher) { cs.termScreen.resize(cols, rows) }
+        val stream = cs.stream ?: return
         scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Resize(cols, rows))) } }
     }
 

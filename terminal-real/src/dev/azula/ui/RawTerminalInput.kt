@@ -63,11 +63,14 @@ internal fun MobileRawTerminalInput(session: TerminalSession, convId: String, mo
         value = value,
         onValueChange = { v ->
             val text = v.text
+            val delta = if (text.length > baseline.length) text.substring(baseline.length).replace("\n", "\r") else ""
             when {
-                text.length > baseline.length ->
-                    session.terminalRaw(convId, text.substring(baseline.length).replace("\n", "\r"))
-                text.length < baseline.length ->
-                    session.terminalRaw(convId, TermSeq.BACKSPACE)
+                // A multi-character delta is a paste — route it through the paste path
+                // (bracketed-paste wrapped when the remote app enabled it). Single
+                // characters are ordinary keystrokes (and get predicted).
+                delta.length > 1 -> session.terminalPaste(convId, delta)
+                delta.length == 1 -> session.terminalRaw(convId, delta)
+                text.length < baseline.length -> session.terminalRaw(convId, TermSeq.BACKSPACE)
             }
             // Always snap back to the sentinel so the next keystroke is a clean delta.
             value = TextFieldValue(baseline, TextRange(baseline.length))
@@ -75,7 +78,9 @@ internal fun MobileRawTerminalInput(session: TerminalSession, convId: String, mo
         modifier = modifier
             .focusRequester(fr)
             .onPreviewKeyEvent { ev ->
-                keyEventToBytes(ev, includePrintable = false)?.let { session.terminalRaw(convId, it); true } ?: false
+                val appKeys = session.terminalScreen(convId).applicationCursorKeys
+                keyEventToBytes(ev, includePrintable = false, appCursorKeys = appKeys)
+                    ?.let { session.terminalRaw(convId, it); true } ?: false
             },
         singleLine = true,
         textStyle = TextStyle(color = Color.Transparent),

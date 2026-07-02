@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import dev.azula.core.RecoveryPhrase
 import dev.azula.a2ui.A2uiCodec
 import dev.azula.a2ui.A2uiSurface
 import dev.azula.a2ui.CreateSurface
@@ -94,6 +95,24 @@ class ConnectService(
     }
 
     fun peerIdForTicket(ticket: String): String? = transport.peerIdForTicket(ticket)
+
+    // ---- identity backup / restore ----
+
+    /** This device's secret key as a 24-word BIP-39 recovery phrase, or null if the
+     *  key isn't available yet (e.g. offline before the first bind). */
+    fun exportRecoveryPhrase(): String? =
+        transport.secretKeyBytes()?.takeIf { it.size == 32 }?.let { RecoveryPhrase.encode(it) }
+
+    /** Restore the identity from a recovery phrase: replaces the device key and
+     *  re-binds so the node id / code reflect it. Returns false if [phrase] is
+     *  malformed or its checksum doesn't verify (nothing changes in that case). */
+    suspend fun importRecoveryPhrase(phrase: String): Boolean {
+        val key = RecoveryPhrase.decode(phrase) ?: return false
+        transport.importSecretKey(key) // persists + rebinds; onCameOnline refreshes nodeId + reconnects
+        nodeId = transport.nodeId
+        myCode = runCatching { transport.myTicket() }.getOrDefault("")
+        return true
+    }
 
     // ---- lifecycle ----
 
@@ -261,7 +280,16 @@ class ConnectService(
             return
         }
         cs.stream = stream
-        if (isTerminal) cs.termScreen.clear()
+        if (isTerminal) {
+            // Device-status/attribute replies (DA/DSR) the emulator generates go back
+            // to the server on the current stream — server-directed, never predicted.
+            cs.termScreen.onResponse = { resp ->
+                convStore.convOrNull(convId)?.stream?.let { st ->
+                    scope.launch { runCatching { st.sendLine(FrameCodec.encode(Frame.Input(resp))) } }
+                }
+            }
+            scope.launch(terminalDispatcher) { cs.termScreen.clear() }
+        }
         cs.online = true
         receiveLoop(convId, stream)
     }
@@ -310,7 +338,7 @@ class ConnectService(
                 cs.messages.add(Message(convStore.nextId("p"), Role.THEM, text = frame.text))
                 notify(convId, frame.text)
             }
-            is Frame.Term -> cs.termScreen.feed(frame.line)
+            is Frame.Term -> scope.launch(terminalDispatcher) { cs.termScreen.feed(frame.line) }
             is Frame.Thinking -> if (convStore.conversationOrNull(convId)?.kind == ConversationKind.LLM) chatService.updateThinking(frame.on)
             is Frame.A2ui -> {
                 val msg = A2uiCodec.parse(frame.message.toString()) ?: return

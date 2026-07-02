@@ -166,8 +166,10 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
         }
-        // Spawn a sibling session (new terminal / LLM) over the same connection.
-        if (cs.sourceTicket != null) {
+        // Spawn a sibling terminal session over the same connection. Only terminals:
+        // opening a second shell is useful, but a second chat/LLM/MCP conversation to
+        // the same peer isn't.
+        if (conv.kind == ConversationKind.TERMINAL && cs.sourceTicket != null) {
             IconButton(onClick = { state.newSessionFrom(conv.id) }) {
                 Text("+", color = AzulaColors.pinkLight, fontSize = 22.sp)
             }

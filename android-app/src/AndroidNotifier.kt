@@ -32,7 +32,9 @@ class AndroidNotifier(private val context: Context) : Notifier {
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(body)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            // Same azula monochrome status icon as the background "connected"
+            // notification (IrohService), so both read as azula in the status bar.
+            .setSmallIcon(R.drawable.ic_stat_azula)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pending)

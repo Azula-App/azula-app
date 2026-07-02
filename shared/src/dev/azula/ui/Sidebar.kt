@@ -75,6 +75,7 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
                     active = state.desktopActive == conv.id,
                     online = state.convOrNull(conv.id)?.online == true,
                     avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
+                    description = state.convOrNull(conv.id)?.peerDescription,
                     onClick = { state.selectDesktop(conv.id) },
                     onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
                     onDelete = { state.deleteConversation(conv.id) },
@@ -164,6 +165,7 @@ fun ConversationRow(
     active: Boolean,
     online: Boolean,
     avatar: ImageBitmap? = null,
+    description: String? = null,
     onClick: () -> Unit,
     onToggleEnabled: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -195,7 +197,11 @@ fun ConversationRow(
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (conv.enabled) conv.preview else "disabled",
+                when {
+                    !conv.enabled -> "disabled"
+                    !description.isNullOrBlank() -> description
+                    else -> conv.preview
+                },
                 color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )

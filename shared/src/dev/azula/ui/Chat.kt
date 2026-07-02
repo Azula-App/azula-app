@@ -165,6 +165,9 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 }
                 Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
+            cs.peerDescription?.takeIf { it.isNotBlank() }?.let { desc ->
+                Text(desc, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+            }
         }
         // Spawn a sibling terminal session over the same connection. Only terminals:
         // opening a second shell is useful, but a second chat/LLM/MCP conversation to
@@ -208,7 +211,7 @@ fun MessageThread(state: AzulaState, convId: String) {
                     frozen = frozen,
                 )
             } else {
-                MessageBubble(m)
+                MessageBubble(m, senderName = state.conversation(convId).name)
             }
         }
         if (thinking) item { ThinkingIndicator() }
@@ -217,7 +220,7 @@ fun MessageThread(state: AzulaState, convId: String) {
 }
 
 @Composable
-fun MessageBubble(m: Message) {
+fun MessageBubble(m: Message, senderName: String = "azula") {
     val me = m.role == Role.ME
     Row(
         Modifier.fillMaxWidth(),
@@ -234,7 +237,7 @@ fun MessageBubble(m: Message) {
             Modifier.widthIn(max = 460.dp).clip(shape).then(bg).padding(horizontal = 13.dp, vertical = 9.dp),
         ) {
             if (m.role == Role.AZULA) {
-                Text("✦ azula", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
+                Text("✦ $senderName", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
             }
             if (!m.text.isNullOrEmpty()) {
                 MarkdownText(m.text, color = if (me) Color(0xFFFBE6F1) else AzulaColors.text2, mine = me)

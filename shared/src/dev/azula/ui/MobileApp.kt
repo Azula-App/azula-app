@@ -98,6 +98,7 @@ private fun MobileHome(state: AzulaState) {
                     active = false,
                     online = state.convOrNull(conv.id)?.online == true,
                     avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
+                    description = state.convOrNull(conv.id)?.peerDescription,
                     onClick = { state.openChatMobile(conv.id) },
                     onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
                     onDelete = { state.deleteConversation(conv.id) },

@@ -25,12 +25,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,6 +44,7 @@ import dev.azula.state.AzulaState
 import dev.azula.state.toFrame
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
+import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -56,6 +60,8 @@ private fun avatarBitmap(b64: String?) =
 fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = Modifier) {
     var editing by remember { mutableStateOf<Persona?>(null) }
     var showEditor by remember { mutableStateOf(false) }
+    var showReveal by remember { mutableStateOf(false) }
+    var showRestore by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(AzulaColors.bg1)) {
         Row(
             Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp),
@@ -93,6 +99,15 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             ) {
                 Text("+ new persona", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             }
+
+            Spacer(Modifier.height(8.dp))
+            Text("BACKUP & RECOVERY", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(
+                "your identity is a single device key. save your recovery phrase to move it to a new device — or restore it after reinstalling.",
+                color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            BackupRow("Reveal recovery phrase", "24 words · store in a password manager") { showReveal = true }
+            BackupRow("Restore from a phrase", "replace this device's identity") { showRestore = true }
         }
     }
     if (showEditor) {
@@ -103,6 +118,106 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             onCancel = { showEditor = false },
         )
     }
+    if (showReveal) RevealPhraseDialog(state) { showReveal = false }
+    if (showRestore) RestorePhraseDialog(state) { showRestore = false }
+}
+
+@Composable
+private fun BackupRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
+            .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(subtitle, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        }
+        Text("›", color = AzulaColors.textDim, fontSize = 18.sp)
+    }
+}
+
+/** Reveal the 24-word recovery phrase, gated behind a secret-warning step. */
+@Composable
+private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
+    var revealed by remember { mutableStateOf(false) }
+    val phrase = remember { state.exportRecoveryPhrase() }
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(if (revealed) "Your recovery phrase" else "Reveal recovery phrase?") },
+        text = {
+            when {
+                !revealed -> Text(
+                    "These 24 words are your identity key. Anyone who has them can take over your identity — only store them in a password manager, and never share them.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                phrase == null -> Text(
+                    "Your key isn't ready yet. Connect once so the node comes online, then try again.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
+                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp)).padding(12.dp),
+                    ) {
+                        Text(phrase, color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 14.sp, lineHeight = 22.sp)
+                    }
+                    Text(
+                        if (state.copied) "✓ copied" else "copy to clipboard",
+                        color = if (state.copied) AzulaColors.onlineBright else AzulaColors.pinkLight,
+                        fontFamily = Fonts.mono, fontSize = 12.sp,
+                        modifier = Modifier.clickable { clipboard.setText(AnnotatedString(phrase)); state.markCopied() },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (!revealed && phrase != null) TextButton(onClick = { revealed = true }) { Text("Reveal") }
+            else TextButton(onClick = onClose) { Text("Done") }
+        },
+        dismissButton = { if (!revealed) TextButton(onClick = onClose) { Text("Cancel") } },
+    )
+}
+
+/** Paste a recovery phrase to replace this device's identity (destructive). */
+@Composable
+private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
+    var input by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Restore from recovery phrase") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Paste your 24-word recovery phrase. This replaces the identity on this device — back up the current one first if you still need it.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                EditorField("recovery phrase", input, "word word word …") { input = it; error = false }
+                if (error) Text("That isn't a valid recovery phrase.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = input.isNotBlank() && !working,
+                onClick = {
+                    working = true
+                    scope.launch {
+                        val ok = state.importRecoveryPhrase(input)
+                        working = false
+                        if (ok) onClose() else error = true
+                    }
+                },
+            ) { Text(if (working) "Restoring…" else "Restore") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
+    )
 }
 
 @Composable

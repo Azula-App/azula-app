@@ -35,6 +35,11 @@ class FakeTransport : IrohTransport {
 
     override suspend fun myTicket(): String = "azula-mock-${nodeId ?: "offline"}"
 
+    /** A stable fake 32-byte key so the mock build can render a recovery phrase. */
+    override fun secretKeyBytes(): ByteArray = ByteArray(32) { (it + 1).toByte() }
+
+    override suspend fun importSecretKey(bytes: ByteArray) { /* mock: no-op */ }
+
     override suspend fun connect(ticket: String, alpn: String): P2pStream = when (alpn) {
         Alpns.TERM -> FakeTerminalStream()
         else -> LoopbackStream() // CHAT + LLM loop back chat

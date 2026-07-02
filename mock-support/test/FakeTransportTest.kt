@@ -1,3 +1,4 @@
+import dev.azula.core.RecoveryPhrase
 import dev.azula.net.Alpns
 import dev.azula.mock.FakeTransport
 import dev.azula.net.Frame
@@ -5,6 +6,7 @@ import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -27,5 +29,17 @@ class FakeTransportTest {
         val echo = FrameCodec.decode(stream.receiveLine()!!)
         assertTrue(greeting is Frame.Chat, "first frame should be the loopback greeting")
         assertTrue(echo is Frame.Chat && echo.text.contains("echo"), "second frame should echo the message")
+    }
+
+    @Test fun secretKeyRoundTripsAsRecoveryPhrase() = runTest {
+        // The transport seam (secretKeyBytes) + the BIP-39 codec round-trip: the
+        // key a device exports as a phrase decodes back to the same 32 bytes.
+        val transport: IrohTransport = FakeTransport()
+        val key = transport.secretKeyBytes()!!
+        assertEquals(32, key.size)
+        val phrase = RecoveryPhrase.encode(key)
+        assertEquals(24, phrase.trim().split(" ").size)
+        assertTrue(key.contentEquals(RecoveryPhrase.decode(phrase)), "phrase should decode to the original key")
+        transport.importSecretKey(key) // mock no-op — must not throw
     }
 }

@@ -19,6 +19,7 @@ import platform.Foundation.NSUserDefaults
 class IosIrohTransport : IrohTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var endpoint: IrohEndpoint? = null
+    private var alpns: List<String> = emptyList()
 
     override var nodeId: String? = null
         private set
@@ -26,6 +27,7 @@ class IosIrohTransport : IrohTransport {
     override var onCameOnline: (() -> Unit)? = null
 
     override suspend fun bind(alpns: List<String>) {
+        this.alpns = alpns
         // Reuse the persisted secret key so the node id (and "your code") stays
         // stable across launches, mirroring AndroidSecretKeyStore.
         val ep = IrohEndpoint.bind(alpns, loadSecretKey())
@@ -36,6 +38,17 @@ class IosIrohTransport : IrohTransport {
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
+
+    override fun secretKeyBytes(): ByteArray? =
+        runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: loadSecretKey()
+
+    override suspend fun importSecretKey(bytes: ByteArray) {
+        require(bytes.size == 32) { "secret key must be 32 bytes" }
+        runCatching { saveSecretKey(bytes) }
+        runCatching { endpoint?.shutdown() }
+        endpoint = null
+        bind(alpns)
+    }
 
     override suspend fun connect(ticket: String, alpn: String): P2pStream {
         val ep = requireNotNull(endpoint) { "transport not bound" }

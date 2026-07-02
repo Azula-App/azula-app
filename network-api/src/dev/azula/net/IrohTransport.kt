@@ -52,6 +52,16 @@ interface IrohTransport {
     /** A shareable ticket string encoding our address (our "code"). */
     suspend fun myTicket(): String
 
+    /** The current 32-byte iroh secret key, for backup. Null if unavailable. */
+    fun secretKeyBytes(): ByteArray?
+
+    /**
+     * Replace this device's identity with [bytes] (a 32-byte secret key): persist
+     * it and re-bind the endpoint, so [nodeId] / [myTicket] reflect the restored
+     * identity. Used by the recovery-phrase restore flow.
+     */
+    suspend fun importSecretKey(bytes: ByteArray)
+
     /** Dial a peer by ticket on the given ALPN, opening a fresh stream. */
     suspend fun connect(ticket: String, alpn: String): P2pStream
 

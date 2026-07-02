@@ -67,6 +67,19 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
 
+    override fun secretKeyBytes(): ByteArray? =
+        runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: runCatching { keyStore.load() }.getOrNull()
+
+    override suspend fun importSecretKey(bytes: ByteArray) {
+        require(bytes.size == 32) { "secret key must be 32 bytes" }
+        runCatching { keyStore.save(bytes) }
+        // Re-bind with the restored identity: tear down the old endpoint and bind
+        // again, which reads the freshly-saved key from the store.
+        runCatching { endpoint?.shutdown() }
+        endpoint = null
+        bind(alpns)
+    }
+
     override suspend fun connect(ticket: String, alpn: String): P2pStream {
         val ep = requireNotNull(endpoint) { "transport not bound" }
         return IrohP2pStream(ep.connect(ticket, alpn))

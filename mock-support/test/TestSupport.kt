@@ -79,4 +79,11 @@ internal class PeerPipe {
     }
 
     suspend fun sendFrame(frame: Frame) = toClient.send(FrameCodec.encode(frame))
+
+    /** Simulates the peer hanging up: closes the inbound channel, so
+     *  [clientStream]'s `receiveLine()` throws a closed-channel exception rather
+     *  than returning null. [dev.azula.state.ConnectService.receiveLoop] treats
+     *  any thrown exception the same as a clean EOF (see its `catch (_: Throwable)`),
+     *  so this exercises the same "stream dropped" path as a real abrupt close. */
+    fun drop() = toClient.close()
 }

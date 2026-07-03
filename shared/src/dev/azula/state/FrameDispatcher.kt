@@ -47,6 +47,18 @@ class FrameDispatcher(
     /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
     val pendingShares = mutableStateListOf<PendingShareRequest>()
 
+    /**
+     * Forget the live surfaces referenced by [convId]'s messages. Surfaces are
+     * session-scoped, so this is called when a new stream is wired: cards stay
+     * rendered from their message snapshots but freeze (Chat's
+     * `surfaceId !in surfaces` check) until the peer re-creates them.
+     */
+    fun dropSurfaces(convId: String) {
+        convStore.convOrNull(convId)?.messages
+            ?.mapNotNull { it.a2ui?.surfaceId }
+            ?.forEach { surfaceStore.surfaces.remove(it) }
+    }
+
     fun applyFrame(convId: String, frame: Frame) {
         val cs = convStore.conv(convId)
         when (frame) {
@@ -127,6 +139,12 @@ class FrameDispatcher(
         runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull()
 
     fun enqueueShareRequest(convId: String) {
+        // Reconnects are routine now (auto-reconnect) — don't re-prompt a peer
+        // the user already answered this session, or one whose profile we
+        // already hold from an earlier exchange.
+        if (convId in respondedShares) return
+        val cs = convStore.convOrNull(convId)
+        if (cs != null && (cs.peerAvatarB64 != null || cs.peerDescription != null)) return
         if (pendingShares.any { it.convId == convId }) return
         pendingShares.add(PendingShareRequest(convId, convStore.mnemonicCode(convId)))
         if (!foreground()) {
@@ -134,7 +152,11 @@ class FrameDispatcher(
         }
     }
 
+    /** Conversations whose share prompt was answered (either way) this session. */
+    private val respondedShares = mutableSetOf<String>()
+
     fun respondShare(convId: String, frame: Frame.Profile?) {
+        respondedShares += convId
         pendingShares.removeAll { it.convId == convId }
         if (frame != null) {
             convStore.convOrNull(convId)?.stream?.let { s ->

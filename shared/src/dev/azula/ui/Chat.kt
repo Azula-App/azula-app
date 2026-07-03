@@ -269,6 +269,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                     !conv.enabled -> "disabled"
                     online && rtt != null -> "direct · ${rtt}ms · e2e"
                     online -> "connected"
+                    cs.reconnecting -> "reconnecting…"
                     else -> "offline"
                 }
                 Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)

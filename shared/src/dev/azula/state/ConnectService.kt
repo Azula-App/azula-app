@@ -22,12 +22,14 @@ import dev.azula.net.PeerStore
 import dev.azula.net.receiveFile
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The connect + transport core carved out of AzulaState: owns the (rebindable)
@@ -160,20 +162,13 @@ class ConnectService(
         connectStep = 0
         scope.launch {
             val anim = launch { while (connectStep < 2) { delay(650); connectStep++ } }
-            val results = Alpns.ALL.map { alpn ->
-                async {
-                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
-                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
-                }
-            }.awaitAll().filterNotNull()
+            val primary = dialAll(ticket)
             anim.cancel()
-            if (results.isEmpty()) {
+            if (primary == null) {
                 connectStage = ConnectStage.FAILED
                 return@launch
             }
             connectStep = 3
-            val primary = results.maxBy { convStore.kindPriority(kindForAlpn(it.first)) }
-            results.filter { it !== primary }.forEach { (_, s) -> scope.launch { runCatching { s.close() } } }
             val peerId = transport.peerIdForTicket(ticket) ?: ("t" + ticket.hashCode().toString(16))
             val convId = wireStream(primary.first, primary.second, peerId)
             if (share != null && primary.first == Alpns.CHAT) {
@@ -228,6 +223,27 @@ class ConnectService(
         stream.sendLine(FrameCodec.encode(Frame.Hello(transport.nodeId ?: "")))
     }
 
+    /**
+     * Race all ALPNs against [ticket] and return the highest-priority winner
+     * (losers are closed), or null if nothing connected.
+     */
+    private suspend fun dialAll(ticket: String): Pair<String, P2pStream>? {
+        val results = runCatching {
+            coroutineScope {
+                Alpns.ALL.map { alpn ->
+                    async {
+                        runCatching { transport.connect(ticket, alpn) }.getOrNull()
+                            ?.also { runCatching { ping(it) } }?.let { alpn to it }
+                    }
+                }.awaitAll().filterNotNull()
+            }
+        }.getOrDefault(emptyList())
+        if (results.isEmpty()) return null
+        val primary = results.maxBy { convStore.kindPriority(kindForAlpn(it.first)) }
+        results.filter { it !== primary }.forEach { (_, s) -> scope.launch { runCatching { s.close() } } }
+        return primary
+    }
+
     private fun persistPeer(ticket: String) {
         peerStore?.let { store -> store.save((store.load() + ticket).distinct().takeLast(10)) }
     }
@@ -241,25 +257,53 @@ class ConnectService(
             if (convStore.conversationOrNull(peerId)?.enabled == false) return@forEach
             scope.launch {
                 repeat(3) {
-                    val results = runCatching {
-                        coroutineScope {
-                            Alpns.ALL.map { alpn ->
-                                async {
-                                    runCatching { transport.connect(ticket, alpn) }.getOrNull()
-                                        ?.also { runCatching { ping(it) } }?.let { alpn to it }
-                                }
-                            }.awaitAll().filterNotNull()
-                        }
-                    }.getOrDefault(emptyList())
-                    if (results.isNotEmpty()) {
-                        val primary = results.maxBy { convStore.kindPriority(kindForAlpn(it.first)) }
-                        results.filter { it !== primary }.forEach { (_, s) -> runCatching { s.close() } }
+                    val primary = dialAll(ticket)
+                    if (primary != null) {
                         val id = wireStream(primary.first, primary.second, peerId, replace = false)
                         id?.let { convStore.convOrNull(it)?.sourceTicket = ticket }
                         return@launch
                     }
                     delay(700)
                 }
+            }
+        }
+    }
+
+    /**
+     * Redial [convId]'s saved ticket with backoff until the conversation is back
+     * online. Started when a live stream drops and when the user opens an offline
+     * conversation. Self-terminates once the conversation comes back online
+     * through any path (wireConv's `replace = false` guard dedupes races), is
+     * disabled, or the attempts run out. Only conversations we dialed are
+     * eligible — an inbound-accepted peer left no ticket to redial — and
+     * terminals are excluded: a terminal session ending is normal, and re-opening
+     * one is an explicit action ([reconnectTerminal]).
+     */
+    fun scheduleReconnect(convId: String) {
+        if (offline) return
+        if (convStore.conversationOrNull(convId)?.kind == ConversationKind.TERMINAL) return
+        val cs = convStore.convOrNull(convId) ?: return
+        val ticket = cs.sourceTicket ?: return
+        if (cs.online || cs.reconnecting) return
+        cs.reconnecting = true
+        scope.launch {
+            try {
+                var backoffMs = 1000L
+                repeat(8) {
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(15_000L)
+                    val now = convStore.convOrNull(convId) ?: return@launch
+                    if (now.online) return@launch
+                    if (convStore.conversationOrNull(convId)?.enabled == false) return@launch
+                    val primary = withTimeoutOrNull(10_000) { dialAll(ticket) }
+                    if (primary != null) {
+                        val id = wireStream(primary.first, primary.second, convId, replace = false)
+                        id?.let { convStore.convOrNull(it)?.sourceTicket = ticket }
+                        return@launch
+                    }
+                }
+            } finally {
+                convStore.convOrNull(convId)?.reconnecting = false
             }
         }
     }
@@ -286,6 +330,11 @@ class ConnectService(
             scope.launch { runCatching { stream.close() } }
             return
         }
+        // A2UI surfaces are session-scoped (never restored from persistence): a new
+        // stream means a new session, so drop this conversation's old surfaces. A
+        // same-run peer re-creates its surface (same id — the card revives in
+        // place); a restarted peer's stale card stays frozen for good.
+        frameDispatcher.dropSurfaces(convId)
         cs.stream = stream
         if (isTerminal) {
             // Device-status/attribute replies (DA/DSR) the emulator generates go back
@@ -345,10 +394,22 @@ class ConnectService(
                     if (frame is Frame.Profile) { frameDispatcher.applyProfile(convId, frame); continue }
                     frameDispatcher.applyFrame(convId, frame)
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // A dropped peer (abrupt close, idle timeout) surfaces as a thrown
+                // IrohException from recv(), not a clean EOF — degrade to the
+                // offline state below instead of killing the process.
             } finally {
-                convStore.conv(convId).online = false
-                convStore.conv(convId).stream = null
-                convStore.conv(convId).rttMs = null
+                // Identity guard: if a reconnect already wired a fresh stream, this
+                // loop's late-firing finally must not clobber it.
+                val cs = convStore.conv(convId)
+                if (cs.stream === stream) {
+                    cs.online = false
+                    cs.stream = null
+                    cs.rttMs = null
+                    scheduleReconnect(convId)
+                }
             }
         }
     }

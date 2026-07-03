@@ -92,6 +92,9 @@ class ConversationState(seed: List<Message>) {
     /** Live round-trip time to the peer (ms), polled off the stream while online;
      *  null when offline or not yet measured. */
     var rttMs by mutableStateOf<Int?>(null)
+    /** True while a background redial loop is trying to bring this conversation
+     *  back online (see ConnectService.scheduleReconnect). */
+    var reconnecting by mutableStateOf(false)
 }
 
 /**
@@ -213,10 +216,10 @@ class AzulaState(
 
     // ---- navigation ----
 
-    fun selectDesktop(id: String) { desktopActive = id }
+    fun selectDesktop(id: String) { desktopActive = id; connectService.scheduleReconnect(id) }
     fun openConnectDesktop() { desktopActive = "connect"; connectService.resetConnect() }
     fun openSettingsDesktop() { desktopActive = "settings" }
-    fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT }
+    fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT; connectService.scheduleReconnect(id) }
     fun openConnectMobile() { mScreen = MScreen.CONNECT; connectService.resetConnect() }
     fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }

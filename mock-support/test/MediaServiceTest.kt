@@ -355,8 +355,11 @@ private suspend fun pollForAttachment(
     azulaState: AzulaState,
     convId: String,
     attachmentId: String,
-    maxAttempts: Int = 200,
-    intervalMs: Long = 5,
+    // Generous ceiling (10s): returns as soon as the predicate matches, but a
+    // loaded machine (parallel suites + the iOS simulator) can starve the fetch
+    // job well past the second a quiet run needs.
+    maxAttempts: Int = 400,
+    intervalMs: Long = 25,
     predicate: (Attachment) -> Boolean,
 ): Attachment {
     repeat(maxAttempts) {

@@ -52,6 +52,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -422,7 +423,9 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
         if (att.state == TransferState.Complete) att.blobId?.let { state.blobBytes(it) }?.let { decodeImageBitmap(it) } else null
     }
     val shown = full ?: thumb
-    Column {
+    // Tagged only when Complete -- otherwise TransferChromeRow below is the sole
+    // tagged node for this attachment (never both, so onNodeWithTag stays unambiguous).
+    Column(Modifier.let { if (att.state == TransferState.Complete) it.testTag("attachment-complete") else it }) {
         Box(
             Modifier.padding(top = 6.dp)
                 .heightIn(max = 220.dp).widthIn(max = 260.dp)
@@ -449,7 +452,7 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
 @Composable
 private fun VideoAttachmentView(state: AzulaState, convId: String, att: Attachment) {
     val thumb = remember(att.id, att.thumbBytes) { att.thumbBytes?.let { decodeImageBitmap(it) } }
-    Column {
+    Column(Modifier.let { if (att.state == TransferState.Complete) it.testTag("attachment-complete") else it }) {
         Box(
             Modifier.padding(top = 6.dp)
                 .heightIn(max = 220.dp).widthIn(max = 260.dp)
@@ -496,7 +499,8 @@ private fun AudioAttachmentView(state: AzulaState, convId: String, att: Attachme
             .background(AzulaColors.inputBg)
             .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp)
-            .widthIn(min = 200.dp, max = 260.dp),
+            .widthIn(min = 200.dp, max = 260.dp)
+            .testTag("attachment-complete"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (player.supported) {
@@ -540,7 +544,8 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
             .clip(RoundedCornerShape(8.dp))
             .background(AzulaColors.inputBg)
             .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .testTag("attachment-complete"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("📎", fontSize = 14.sp)
@@ -569,7 +574,8 @@ private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment
             .background(AzulaColors.inputBg)
             .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
             .padding(horizontal = 10.dp, vertical = 7.dp)
-            .widthIn(max = 260.dp),
+            .widthIn(max = 260.dp)
+            .testTag(attachmentStateTestTag(att.state)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when (val s = att.state) {
@@ -605,6 +611,16 @@ private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment
             }
         }
     }
+}
+
+/** Test-only hook (see mock-support/test@jvm/DesktopAppE2eTest.kt): a stable tag
+ *  for polling an attachment's not-yet-complete render state -- "attachment-complete"
+ *  (the counterpart for [TransferState.Complete]) is tagged directly at each kind's
+ *  own complete-state composable instead, since there's no single shared one. */
+private fun attachmentStateTestTag(state: TransferState): String = when (state) {
+    is TransferState.Downloading -> "attachment-downloading"
+    is TransferState.Failed -> "attachment-failed"
+    else -> "attachment-offered"
 }
 
 private fun humanSize(bytes: Long): String = when {
@@ -685,7 +701,7 @@ fun ChatInput(
                 cursorBrush = SolidColor(AzulaColors.pink),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { sendAndDismiss() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("composer-input"),
                 decorationBox = { inner ->
                     if (value.isEmpty()) {
                         Text(placeholder, color = AzulaColors.textFaint, fontFamily = if (terminal) Fonts.mono else Fonts.ui, fontSize = 13.5.sp)
@@ -701,7 +717,8 @@ fun ChatInput(
 @Composable
 fun SendButton(onClick: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(PinkButtonBrush).clickable { onClick() },
+        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(PinkButtonBrush).clickable { onClick() }
+            .testTag("send-button"),
         contentAlignment = Alignment.Center,
     ) {
         Text("↑", color = Color.White, fontSize = 16.sp, textAlign = TextAlign.Center)

@@ -38,6 +38,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -132,7 +133,7 @@ private fun ConnectIdle(state: AzulaState) {
                     cursorBrush = SolidColor(AzulaColors.pink),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { beginConnect(state.connectInput) }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("connect-input"),
                     decorationBox = { inner ->
                         if (state.connectInput.isEmpty()) Text("paste a code…", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
                         inner()

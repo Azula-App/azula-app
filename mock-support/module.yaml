@@ -19,7 +19,26 @@ dependencies:
 test-dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
 
+# Desktop-only Compose UI test framework (runComposeUiTest / ExperimentalTestApi):
+# drives the real DesktopApp root composable, in-process, against buildMockState.
+# Scoped to jvm so these deps (and the JVM-only Compose UI test harness they pull
+# in) never reach android/iOS -- see test@jvm/ for the tests themselves.
+# $compose.uiTest alone is just the ComposeUiTest API surface -- runComposeUiTest
+# still loads Skia through Skiko at runtime, which needs the OS-specific native
+# binary jvm-app-mock gets from $compose.desktop.currentOs (its `dependencies`,
+# not `test-dependencies`); without it here too, runComposeUiTest throws
+# LibraryLoadException ("proper native dependency missing") the instant it tries
+# to create a Surface.
+test-dependencies@jvm:
+  - $compose.uiTest
+  - $compose.desktop.currentOs
+
 settings:
+  # No @Composable code in mock-support's main sources -- this only turns on the
+  # Compose compiler plugin so test@jvm/'s runComposeUiTest { setContent { ... } }
+  # calls (a @Composable lambda literal) compile.
+  compose:
+    enabled: true
   kotlin:
     # Test code builds Frame.A2ui/JsonObject payloads directly (see
     # ConnectServiceFrameDispatchTest.kt); mirrors every other module that

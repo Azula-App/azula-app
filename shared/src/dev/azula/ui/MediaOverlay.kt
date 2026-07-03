@@ -21,6 +21,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.azula.model.Attachment
 import dev.azula.model.MediaKind
@@ -48,7 +49,8 @@ fun FullscreenMediaOverlay(state: AzulaState) {
             .onPreviewKeyEvent {
                 if (it.key == Key.Escape) { state.dismissFullscreenMedia(); true } else false
             }
-            .clickable { state.dismissFullscreenMedia() },
+            .clickable { state.dismissFullscreenMedia() }
+            .testTag("fullscreen-media"),
         contentAlignment = Alignment.Center,
     ) {
         Box(

@@ -27,6 +27,11 @@ object AzulaColors {
     val pinkDark = Color(0xFFC4156E)
     val pinkDeep = Color(0xFF7A1850)
 
+    // A2UI catalog tokens not already covered above
+    val surfaceAlt = Color(0xFF0D0D15)
+    val muted = Color(0xFF7A7A8A)
+    val accent = Color(0xFF3FC8FF)
+
     // Status
     val online = Color(0xFF52C98A)
     val onlineBright = Color(0xFF00FF9C)

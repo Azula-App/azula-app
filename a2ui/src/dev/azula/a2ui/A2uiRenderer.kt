@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -44,8 +45,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -94,8 +93,9 @@ fun A2uiSurfaceView(
     val rootId = root["id"]?.jsonPrimitive?.contentOrNull ?: "root"
     Box(modifier) {
         // When frozen (restored from disk / connection inactive / interaction over)
-        // render the final state grayed-out and inert: no callbacks wired, and an
-        // overlay swallows all pointer input so nothing below is interactive.
+        // render the final state grayed-out and inert: no callbacks wired, plus an
+        // overlay that eats taps so the dead surface's controls can't be pressed or
+        // focused.
         Box(if (frozen) Modifier.alpha(0.5f) else Modifier) {
             RenderComponent(
                 rootId,
@@ -105,14 +105,15 @@ fun A2uiSurfaceView(
             )
         }
         if (frozen) {
+            // A no-ripple clickable swallows tap gestures but releases once the
+            // gesture becomes a drag, so a vertical scroll falls through to the
+            // enclosing message list. (A pointer-consuming overlay would also block
+            // scrolling — the bug this replaces.)
             Box(
-                Modifier.matchParentSize().pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-                        }
-                    }
-                }
+                Modifier.matchParentSize().clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {}
             )
         }
     }

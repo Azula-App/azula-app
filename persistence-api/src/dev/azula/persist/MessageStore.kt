@@ -40,6 +40,27 @@ data class AttachmentDto(
     val size: Long,
     val bytesB64: String? = null,
     val caption: String? = null,
+    /** Wire string for a `dev.azula.model.MediaKind` (image/audio/video/file); "file"
+     *  for legacy rows and non-media attachments. */
+    val kind: String = "file",
+    val width: Int? = null,
+    val height: Int? = null,
+    val durationMs: Long? = null,
+    /** Base64-encoded preview shown before/instead of the full body. */
+    val thumbB64: String? = null,
+    /** Id of this attachment's body in the BlobStore, if it's blob-backed (vs. the
+     *  legacy fully-inline [bytesB64]). */
+    val blobId: String? = null,
+    val fetchTicket: String? = null,
+    /**
+     * "complete" or "offered" -- the only two states worth persisting literally.
+     * A blob-backed attachment's real state (including an in-progress/failed
+     * download) is recomputed from on-disk truth on restore rather than trusted
+     * from here (see `PersistenceCoordinator.restoreAll`), so both "in progress"
+     * and "failed" round-trip through "offered": whichever bytes actually made it
+     * to disk are what matters after a restart.
+     */
+    val state: String = "complete",
 )
 
 /** A frozen snapshot of an A2UI surface: its component tree + data model (both already JSON). */

@@ -3,11 +3,9 @@
 import dev.azula.model.Role
 import dev.azula.net.Alpns
 import dev.azula.net.Frame
-import dev.azula.net.FrameCodec
 import dev.azula.net.IncomingConnection
 import dev.azula.net.IrohTransport
 import dev.azula.net.P2pStream
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runCurrent
@@ -114,25 +112,6 @@ class ConnectServiceFrameDispatchTest {
         assertEquals("Bob", azulaState.conversation("peer-profile").name)
         assertEquals("a friend", azulaState.conv("peer-profile").peerDescription)
     }
-}
-
-/**
- * A one-shot inbound stream the test drives as "the peer": frames sent via
- * [sendFrame] arrive at the real [ConnectService.receiveLoop] exactly like a real
- * peer's frames would. The client -> peer direction isn't needed by these tests.
- */
-private class PeerPipe {
-    private val toClient = Channel<String>(Channel.UNLIMITED)
-
-    val clientStream: P2pStream = object : P2pStream {
-        override suspend fun sendLine(line: String) = Unit
-        override suspend fun receiveLine(): String = toClient.receive()
-        override suspend fun sendBytes(bytes: ByteArray) = Unit
-        override suspend fun receiveBytes(n: Int): ByteArray? = null
-        override suspend fun close() = Unit
-    }
-
-    suspend fun sendFrame(frame: Frame) = toClient.send(FrameCodec.encode(frame))
 }
 
 /**

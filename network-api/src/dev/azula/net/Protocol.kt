@@ -105,6 +105,30 @@ sealed class Frame {
         val avatar: String? = null,
         val mime: String? = null,
     ) : Frame()
+
+    /**
+     * Peer → peer: metadata for a streamed media attachment (image/audio/video/
+     * file). The body is NOT sent inline — the receiver pulls it on demand over
+     * the `azula/media/0` ALPN (see `MediaFetchRequest` in MediaProtocol.kt) by
+     * dialing [fetchTicket], the sender's own ticket at offer time. [thumbB64] is
+     * a small (≤32 KiB) preview so the receiver can show something instantly.
+     * [kind] is the wire string for a `MediaKind` (e.g. "image").
+     */
+    @Serializable
+    @SerialName("media_offer")
+    data class MediaOffer(
+        val id: String,
+        val kind: String,
+        val name: String,
+        val mime: String,
+        val size: Long,
+        val caption: String? = null,
+        val width: Int? = null,
+        val height: Int? = null,
+        val durationMs: Long? = null,
+        val thumbB64: String? = null,
+        val fetchTicket: String,
+    ) : Frame()
 }
 
 object FrameCodec {

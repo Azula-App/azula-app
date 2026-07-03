@@ -23,9 +23,7 @@ actual fun rememberFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
                     runCatching {
                         val f = File(dir, file)
                         val bytes = f.readBytes()
-                        val mime = runCatching { Files.probeContentType(f.toPath()) }.getOrNull()
-                            ?: "application/octet-stream"
-                        onPicked(PickedFile(name = file, mime = mime, bytes = bytes))
+                        onPicked(PickedFile(name = file, mime = resolveMime(f), bytes = bytes))
                     }
                 }
             }
@@ -33,3 +31,21 @@ actual fun rememberFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
         }
     }
 }
+
+/**
+ * Extension-to-MIME fallbacks for formats [Files.probeContentType] often misses
+ * (it depends on the OS's registered file-type map, which is spotty for newer
+ * image/audio/video formats). Shared by [rememberFilePicker] and
+ * `rememberMediaPicker` (MediaPicker.jvm.kt).
+ */
+private val extensionMimeFallbacks = mapOf(
+    "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "png" to "image/png", "gif" to "image/gif",
+    "webp" to "image/webp", "heic" to "image/heic",
+    "mp4" to "video/mp4", "mov" to "video/quicktime", "webm" to "video/webm", "mkv" to "video/x-matroska",
+    "mp3" to "audio/mpeg", "m4a" to "audio/mp4", "wav" to "audio/wav", "ogg" to "audio/ogg", "flac" to "audio/flac",
+)
+
+internal fun resolveMime(file: File): String =
+    runCatching { Files.probeContentType(file.toPath()) }.getOrNull()
+        ?: extensionMimeFallbacks[file.extension.lowercase()]
+        ?: "application/octet-stream"

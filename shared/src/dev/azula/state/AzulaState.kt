@@ -30,6 +30,7 @@ import dev.azula.net.sendFile
 import dev.azula.core.AppScope
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
+import dev.azula.persist.BlobStore
 import dev.azula.persist.Persona
 import dev.azula.terminal.PredictionEngine
 import dev.azula.terminal.TerminalEmulator
@@ -104,15 +105,21 @@ class ConversationState(seed: List<Message>) {
 class AzulaState(
     private val scope: CoroutineScope,
     private val peerStore: PeerStore? = null,
+    private val blobStore: BlobStore? = null,
     private val personaService: PersonaService = PersonaService(null),
     private val convStore: ConversationStore = ConversationStore(),
-    private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope),
+    private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope, blobStore),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
     private val chatService: ChatService = ChatService(convStore, persistence, scope),
+    // The media-attachment core (send/offer/fetch over the BlobStore + the
+    // azula/media/0 ALPN). Needs the transport directly, which AzulaState doesn't
+    // hold itself, so -- like connectService below -- it has no usable default and
+    // must come from the real DI graph.
+    private val mediaService: MediaService,
     // The inbound-frame reaction core (applyFrame/applyProfile + the share
     // handshake). ConnectService hands it frames as they arrive off the wire.
-    private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, null),
+    private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, mediaService, null),
     // The connect + transport core (owns the swappable transport, dial/receive/
     // dispatch). AzulaState wires its navigation + foreground callbacks in init.
     private val connectService: ConnectService,
@@ -241,6 +248,42 @@ class AzulaState(
         caption: String? = null,
     ) = chatService.sendFile(convId, bytes, name, mime, encoding, caption)
 
+    // ---- media attachments (delegated to MediaService) ----
+
+    /**
+     * Send a media attachment (image/audio/video/file) via the BlobStore + offer
+     * protocol; see [MediaService.sendMedia]. Fire-and-forget from the UI's
+     * perspective: [MediaService.sendMedia] writes the blob synchronously on its
+     * caller's thread, so this dispatches it onto [scope] (background) rather than
+     * block the composition/UI thread. No result is surfaced back on failure
+     * (oversized, or no BlobStore bound) -- the caller just sees no message appear.
+     */
+    fun sendMedia(convId: String, bytes: ByteArray, name: String, mime: String, caption: String? = null) {
+        scope.launch(Dispatchers.Default) { mediaService.sendMedia(convId, bytes, name, mime, caption) }
+    }
+
+    /** Start (or resume) fetching an offered/failed attachment's body. */
+    fun startFetch(convId: String, attachmentId: String) = mediaService.startFetch(convId, attachmentId)
+
+    /** Cancel an in-flight fetch; bytes already on disk stay put for a later retry. */
+    fun cancelFetch(attachmentId: String) = mediaService.cancelFetch(attachmentId)
+
+    /** Read a completed blob's bytes for rendering (e.g. a full-size image); see
+     *  [MediaService.blobBytes]. */
+    fun blobBytes(id: String, maxBytes: Long = 32L * 1024 * 1024): ByteArray? = mediaService.blobBytes(id, maxBytes)
+
+    /** A native filesystem path to a completed blob, for a video/audio player or
+     *  "open externally"; see [MediaService.blobPath]. */
+    fun blobPath(id: String): String? = mediaService.blobPath(id)
+
+    /** The attachment currently shown fullscreen (image viewer / video overlay), or
+     *  null when no overlay is open. Set by [AttachmentView]-side taps; the root
+     *  composable (MobileApp/DesktopApp) renders the overlay when non-null. */
+    var fullscreenMedia by mutableStateOf<Attachment?>(null)
+        private set
+    fun showFullscreenMedia(att: Attachment) { fullscreenMedia = att }
+    fun dismissFullscreenMedia() { fullscreenMedia = null }
+
     fun markCopied() {
         copied = true
         scope.launch { delay(1400); copied = false }
@@ -342,6 +385,7 @@ class AzulaState(
                 cs.stream = null
                 cs.online = false
             }
+            mediaService.cancelAllForConversation(id)
         } else {
             scope.launch { reconnectSaved() }
         }
@@ -359,6 +403,7 @@ class AzulaState(
             cs.stream = null
             cs.online = false
         }
+        mediaService.cancelAllForConversation(id)
         // PeerStore has no per-item delete — save a filtered list. Match by the
         // ticket's resolved node id (covers inbound-only convs with no sourceTicket).
         peerStore?.let { store ->

@@ -42,6 +42,7 @@ fun DesktopApp(state: AzulaState) {
                 }
             }
         }
+        FullscreenMediaOverlay(state)
     }
 }
 

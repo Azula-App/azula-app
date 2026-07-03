@@ -11,9 +11,11 @@ import kotlinx.coroutines.launch
 
 /**
  * Build an [AzulaState] wired to the fakes for the `-mock` apps: a [FakeTransport]
- * (fake network + fake terminal + chat loopback) and null stores (no persistence).
- * The `-mock` platform apps call this and install it as the process-scoped state
- * before `AzulaApp()`, so the real transport is never created.
+ * (fake network + fake terminal + chat loopback) and null message/profile/peer
+ * stores (no persistence) — but a real [InMemoryBlobStore], so the `-mock` apps
+ * can actually send/receive media (MediaService refuses to send with no
+ * BlobStore bound). The `-mock` platform apps call this and install it as the
+ * process-scoped state before `AzulaApp()`, so the real transport is never created.
  */
 fun buildMockState(scope: CoroutineScope): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
@@ -23,6 +25,7 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         messageStore = null,
         profileStore = null,
         peerStore = null,
+        blobStore = InMemoryBlobStore(),
     ).azulaState
 
 /**

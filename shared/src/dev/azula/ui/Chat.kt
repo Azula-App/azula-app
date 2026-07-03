@@ -34,12 +34,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +64,10 @@ import dev.azula.a2ui.A2uiSurfaceView
 import dev.azula.markdown.MarkdownText
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
+import dev.azula.model.MediaKind
 import dev.azula.model.Message
 import dev.azula.model.Role
+import dev.azula.model.TransferState
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
@@ -89,9 +96,10 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         Box(contentMod) {
             if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId) else MessageThread(state, convId)
         }
-        val launchPicker = rememberFilePicker { picked ->
-            state.sendFile(convId, picked.bytes, picked.name, picked.mime)
-        }
+        // A picked-but-not-yet-sent media file, awaiting a caption (the draft text
+        // field doubles as the caption input while this is non-null). Keyed to the
+        // conversation so switching chats doesn't leak a pending pick into another.
+        var pendingMedia by remember(convId) { mutableStateOf<PendingMedia?>(null) }
         when {
             termLive ->
                 // Type directly in the terminal — no input bar, just the compact key row.
@@ -99,17 +107,114 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             // A terminal whose shell exited: show a closed/reconnect bar.
             conv.kind == ConversationKind.TERMINAL ->
                 TerminalEndedBar(state, convId)
-            else -> ChatInput(
-                value = cs.draft,
-                onValueChange = { state.updateDraft(convId, it) },
-                onSend = { state.send(convId) },
-                placeholder = "message ${conv.name}",
-                terminal = false,
-                onInterrupt = null,
-                onAttach = launchPicker,
-            )
+            else -> {
+                pendingMedia?.let { PendingMediaPreview(it, onCancel = { pendingMedia = null }) }
+                ChatInput(
+                    value = cs.draft,
+                    onValueChange = { state.updateDraft(convId, it) },
+                    onSend = {
+                        val pending = pendingMedia
+                        if (pending != null) {
+                            state.sendMedia(convId, pending.file.bytes, pending.file.name, pending.file.mime, cs.draft.trim().ifBlank { null })
+                            state.updateDraft(convId, "")
+                            pendingMedia = null
+                        } else {
+                            state.send(convId)
+                        }
+                    },
+                    placeholder = if (pendingMedia != null) "add a caption…" else "message ${conv.name}",
+                    terminal = false,
+                    onInterrupt = null,
+                    attachMenu = {
+                        AttachMenu(
+                            showMedia = conv.kind == ConversationKind.PEER,
+                            onFilePicked = { picked -> state.sendFile(convId, picked.bytes, picked.name, picked.mime) },
+                            onMediaPicked = { kind, picked -> pendingMedia = PendingMedia(kind, picked) },
+                        )
+                    },
+                )
+            }
         }
     }
+}
+
+/** A media file picked from [AttachMenu] but not yet sent. */
+private data class PendingMedia(val kind: MediaKind, val file: PickedFile)
+
+/**
+ * The composer's 📎 button: a dropdown offering Photo/Video/Audio (via
+ * [rememberMediaPicker], only when [showMedia] — PEER conversations only, see
+ * [ChatPane]) plus File (via the legacy [rememberFilePicker], every conversation
+ * kind). Pickers must be remembered unconditionally regardless of [showMedia] --
+ * Compose forbids conditionally-called composables -- they just never fire if
+ * their menu item is never shown.
+ */
+@Composable
+private fun AttachMenu(showMedia: Boolean, onFilePicked: (PickedFile) -> Unit, onMediaPicked: (MediaKind, PickedFile) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val launchFile = rememberFilePicker(onFilePicked)
+    val launchPhoto = rememberMediaPicker(MediaKind.IMAGE) { onMediaPicked(MediaKind.IMAGE, it) }
+    val launchVideo = rememberMediaPicker(MediaKind.VIDEO) { onMediaPicked(MediaKind.VIDEO, it) }
+    val launchAudio = rememberMediaPicker(MediaKind.AUDIO) { onMediaPicked(MediaKind.AUDIO, it) }
+    Box {
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(11.dp))
+                .border(1.dp, AzulaColors.border4, RoundedCornerShape(11.dp))
+                .clickable { open = true }
+                .padding(horizontal = 9.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("📎", fontSize = 16.sp)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (showMedia) {
+                DropdownMenuItem(text = { Text("Photo") }, onClick = { open = false; launchPhoto() })
+                DropdownMenuItem(text = { Text("Video") }, onClick = { open = false; launchVideo() })
+                DropdownMenuItem(text = { Text("Audio") }, onClick = { open = false; launchAudio() })
+            }
+            DropdownMenuItem(text = { Text("File") }, onClick = { open = false; launchFile() })
+        }
+    }
+}
+
+/** The composer preview strip for a [PendingMedia] pick: a thumbnail (images) or
+ *  name+size (everything else), and a ✕ to discard the pick. The draft text field
+ *  below doubles as the caption -- there's no separate caption input here. */
+@Composable
+private fun PendingMediaPreview(pending: PendingMedia, onCancel: () -> Unit) {
+    val bitmap = remember(pending.file) {
+        if (pending.kind == MediaKind.IMAGE) decodeImageBitmap(pending.file.bytes) else null
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, top = 10.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                .background(AzulaColors.inputBg).border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(bitmap, contentDescription = pending.file.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+            } else {
+                Text(iconFor(pending.kind), fontSize = 18.sp)
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(pending.file.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(humanSize(pending.file.bytes.size.toLong()), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        }
+        Text("✕", color = AzulaColors.textDim, fontSize = 16.sp, modifier = Modifier.clickable { onCancel() }.padding(8.dp))
+    }
+}
+
+private fun iconFor(kind: MediaKind): String = when (kind) {
+    MediaKind.IMAGE -> "🖼"
+    MediaKind.VIDEO -> "🎬"
+    MediaKind.AUDIO -> "🎵"
+    MediaKind.FILE -> "📎"
 }
 
 /** Footer shown when a live terminal's remote shell has exited: a clear "closed"
@@ -213,7 +318,7 @@ fun MessageThread(state: AzulaState, convId: String) {
                     frozen = frozen,
                 )
             } else {
-                MessageBubble(m, senderName = state.conversation(convId).name)
+                MessageBubble(state, convId, m, senderName = state.conversation(convId).name)
             }
         }
         if (thinking) item { ThinkingIndicator() }
@@ -222,7 +327,7 @@ fun MessageThread(state: AzulaState, convId: String) {
 }
 
 @Composable
-fun MessageBubble(m: Message, senderName: String = "azula") {
+fun MessageBubble(state: AzulaState, convId: String, m: Message, senderName: String = "azula") {
     val me = m.role == Role.ME
     Row(
         Modifier.fillMaxWidth(),
@@ -244,13 +349,34 @@ fun MessageBubble(m: Message, senderName: String = "azula") {
             if (!m.text.isNullOrEmpty()) {
                 MarkdownText(m.text, color = if (me) Color(0xFFFBE6F1) else AzulaColors.text2, mine = me)
             }
-            m.attachments.forEach { att -> AttachmentView(att) }
+            m.attachments.forEach { att -> AttachmentView(state, convId, att) }
         }
     }
 }
 
+/**
+ * Dispatches an attachment to the right renderer. Legacy attachments -- synced
+ * whole over the old base64 `file_begin` path, with no [Attachment.blobId] --
+ * render exactly as before this feature ([LegacyAttachmentView]); everything else
+ * came through the media-streaming pipeline and dispatches on [Attachment.kind],
+ * each kind handling its own [Attachment.state] chrome (see [TransferChromeRow]).
+ */
 @Composable
-private fun AttachmentView(att: Attachment) {
+private fun AttachmentView(state: AzulaState, convId: String, att: Attachment) {
+    if (att.blobId == null && att.bytes != null) {
+        LegacyAttachmentView(att)
+        return
+    }
+    when (att.kind) {
+        MediaKind.IMAGE -> ImageAttachmentView(state, convId, att)
+        MediaKind.VIDEO -> VideoAttachmentView(state, convId, att)
+        MediaKind.AUDIO -> AudioAttachmentView(state, convId, att)
+        MediaKind.FILE -> FileAttachmentView(state, convId, att)
+    }
+}
+
+@Composable
+private fun LegacyAttachmentView(att: Attachment) {
     val bitmap = remember(att.id) {
         att.bytes?.takeIf { att.mime.startsWith("image/") }?.let { decodeImageBitmap(it) }
     }
@@ -281,6 +407,202 @@ private fun AttachmentView(att: Attachment) {
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
             )
             Text(" · ${humanSize(att.size)}", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        }
+    }
+}
+
+/** A completed image: the thumbnail instantly, upgraded to the lazily-decoded
+ *  full body once [state.blobBytes] can serve it; tap opens the fullscreen
+ *  viewer. Anything short of [TransferState.Complete] shows [TransferChromeRow]
+ *  under the thumbnail (or a dim placeholder box, if there's no thumbnail yet). */
+@Composable
+private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachment) {
+    val thumb = remember(att.id, att.thumbBytes) { att.thumbBytes?.let { decodeImageBitmap(it) } }
+    val full = remember(att.id, att.state) {
+        if (att.state == TransferState.Complete) att.blobId?.let { state.blobBytes(it) }?.let { decodeImageBitmap(it) } else null
+    }
+    val shown = full ?: thumb
+    Column {
+        Box(
+            Modifier.padding(top = 6.dp)
+                .heightIn(max = 220.dp).widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(AzulaColors.inputBg)
+                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(att) } else it },
+        ) {
+            if (shown != null) {
+                Image(shown, contentDescription = att.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(Modifier.size(180.dp, 140.dp), contentAlignment = Alignment.Center) {
+                    Text("🖼", fontSize = 28.sp, color = AzulaColors.textFaint)
+                }
+            }
+        }
+        if (att.state != TransferState.Complete) TransferChromeRow(state, convId, att)
+    }
+}
+
+/** A poster (the [Attachment.thumbBytes], if any) with a play badge once
+ *  complete; tapping opens the fullscreen viewer, which hosts [VideoPlayer]
+ *  itself (on desktop, [VideoPlayer]'s own body is "poster + open externally" --
+ *  see its actual). Not-yet-complete shows [TransferChromeRow] instead of the badge. */
+@Composable
+private fun VideoAttachmentView(state: AzulaState, convId: String, att: Attachment) {
+    val thumb = remember(att.id, att.thumbBytes) { att.thumbBytes?.let { decodeImageBitmap(it) } }
+    Column {
+        Box(
+            Modifier.padding(top = 6.dp)
+                .heightIn(max = 220.dp).widthIn(max = 260.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(AzulaColors.codeBlock)
+                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(att) } else it },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (thumb != null) {
+                Image(thumb, contentDescription = att.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(Modifier.size(180.dp, 140.dp))
+            }
+            if (att.state == TransferState.Complete) {
+                Box(
+                    Modifier.size(46.dp).clip(CircleShape).background(Color(0x99000000)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("▶", color = Color.White, fontSize = 18.sp)
+                }
+            }
+        }
+        if (att.state != TransferState.Complete) TransferChromeRow(state, convId, att)
+    }
+}
+
+/** An inline play/pause + position bar for a completed audio clip (the
+ *  [rememberAudioPlayer] seam); not-yet-complete shows [TransferChromeRow] instead. */
+@Composable
+private fun AudioAttachmentView(state: AzulaState, convId: String, att: Attachment) {
+    if (att.state != TransferState.Complete) {
+        TransferChromeRow(state, convId, att)
+        return
+    }
+    val path = att.blobId?.let { state.blobPath(it) }
+    if (path == null) {
+        TransferChromeRow(state, convId, att.copy(state = TransferState.Failed("blob missing")))
+        return
+    }
+    val player = rememberAudioPlayer(path)
+    Row(
+        Modifier.padding(top = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(AzulaColors.inputBg)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .widthIn(min = 200.dp, max = 260.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (player.supported) {
+            Text(
+                if (player.isPlaying) "⏸" else "▶",
+                color = AzulaColors.pinkLight, fontSize = 16.sp,
+                modifier = Modifier.clickable { player.toggle() }.padding(end = 9.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val progress = if (player.durationMs > 0) player.positionMs.toFloat() / player.durationMs else 0f
+                Box(Modifier.fillMaxWidth().height(3.dp).padding(top = 4.dp).clip(RoundedCornerShape(2.dp)).background(AzulaColors.border5)) {
+                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).clip(RoundedCornerShape(2.dp)).background(AzulaColors.pink))
+                }
+            }
+        } else {
+            Text("🎵", fontSize = 14.sp)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Text("open ↗", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.clickable { player.openExternally() })
+        }
+    }
+}
+
+/** A generic file that came through the media pipeline (rare -- the composer's
+ *  File entry uses the legacy [Attachment.sendFile] path instead, see
+ *  [AttachMenu] -- but handled uniformly for anything MediaService offers with an
+ *  unrecognized MIME type). Name + size, with [TransferChromeRow] standing in for
+ *  the whole row when not yet complete. */
+@Composable
+private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachment) {
+    if (att.state != TransferState.Complete) {
+        TransferChromeRow(state, convId, att)
+        return
+    }
+    Row(
+        Modifier.padding(top = 6.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(AzulaColors.inputBg)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("📎", fontSize = 14.sp)
+        Spacer(Modifier.width(7.dp))
+        Text(
+            att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
+        )
+        Text(" · ${humanSize(att.size)}", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+    }
+}
+
+/**
+ * Shared chrome for a not-yet-[TransferState.Complete] attachment, regardless of
+ * kind: [TransferState.Offered] shows the size + a ⬇ to [AzulaState.startFetch];
+ * [TransferState.Downloading] shows a progress ring + a ✕ to
+ * [AzulaState.cancelFetch]; [TransferState.Failed] shows the reason + a ↻ to
+ * retry (also [AzulaState.startFetch] -- it resumes from whatever's already on
+ * disk).
+ */
+@Composable
+private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment) {
+    Row(
+        Modifier.padding(top = 6.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(AzulaColors.inputBg)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+            .widthIn(max = 260.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        when (val s = att.state) {
+            is TransferState.Downloading -> {
+                CircularProgressIndicator(
+                    progress = { if (s.bytesTotal > 0) (s.bytesDone.toFloat() / s.bytesTotal).coerceIn(0f, 1f) else 0f },
+                    color = AzulaColors.pinkLight,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "${humanSize(s.bytesDone)} / ${humanSize(s.bytesTotal)}", color = AzulaColors.text1,
+                    fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.weight(1f),
+                )
+                Text("✕", color = AzulaColors.textDim, fontSize = 14.sp, modifier = Modifier.clickable { state.cancelFetch(att.id) })
+            }
+            is TransferState.Failed -> {
+                Text(
+                    "⚠ ${s.reason}", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text("↻", color = AzulaColors.pinkLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
+            }
+            else -> { // Offered (or, defensively, Complete with no blob -- shouldn't happen)
+                Text(
+                    att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text(humanSize(att.size), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Spacer(Modifier.width(9.dp))
+                Text("⬇", color = AzulaColors.pinkLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
+            }
         }
     }
 }
@@ -320,7 +642,7 @@ fun ChatInput(
     placeholder: String,
     terminal: Boolean,
     onInterrupt: (() -> Unit)? = null,
-    onAttach: (() -> Unit)? = null,
+    attachMenu: (@Composable () -> Unit)? = null,
 ) {
     val focusManager = LocalFocusManager.current
     fun sendAndDismiss() { onSend(); focusManager.clearFocus() }
@@ -330,19 +652,8 @@ fun ChatInput(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        // Attach a file (image, etc.) — shown for non-terminal conversations.
-        if (onAttach != null) {
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(11.dp))
-                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(11.dp))
-                    .clickable { onAttach() }
-                    .padding(horizontal = 9.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("📎", fontSize = 16.sp)
-            }
-        }
+        // Attach a file/photo/video/audio — shown for non-terminal conversations.
+        attachMenu?.invoke()
         // ^C interrupt button — shown only when a live term stream is active.
         if (onInterrupt != null) {
             Box(

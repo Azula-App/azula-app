@@ -51,6 +51,7 @@ class ConnectService(
     private val convStore: ConversationStore,
     private val persistence: PersistenceCoordinator,
     private val frameDispatcher: FrameDispatcher,
+    private val mediaService: MediaService,
     private val peerStore: PeerStore?,
 ) {
     /** Set by AzulaState: open a conversation's chat view. */
@@ -120,7 +121,9 @@ class ConnectService(
     suspend fun start() {
         transport.onCameOnline = { nodeId = transport.nodeId; scope.launch { reconnectSaved() } }
         try {
-            transport.bind(Alpns.ALL)
+            // MEDIA is bind-only (an accept target for on-demand fetch dials), never
+            // part of the outbound ALL dial race -- see Alpns.MEDIA's doc.
+            transport.bind(Alpns.ALL + Alpns.MEDIA)
         } catch (e: Throwable) {
             // Binding unavailable (e.g. missing native lib) — stay offline.
             offline = true
@@ -130,6 +133,10 @@ class ConnectService(
         scope.launch {
             runCatching {
                 transport.incoming().collect { inc ->
+                    if (inc.alpn == Alpns.MEDIA) {
+                        scope.launch { runCatching { mediaService.serveIncoming(inc.stream) } }
+                        return@collect
+                    }
                     if (convStore.conversationOrNull(inc.remoteId)?.enabled == false) {
                         scope.launch { runCatching { inc.stream.close() } }
                         return@collect

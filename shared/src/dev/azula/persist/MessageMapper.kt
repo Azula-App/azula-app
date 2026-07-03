@@ -3,7 +3,9 @@ package dev.azula.persist
 import dev.azula.a2ui.A2uiSurface
 import dev.azula.a2ui.UpdateComponents
 import dev.azula.model.Attachment
+import dev.azula.model.MediaKind
 import dev.azula.model.Message
+import dev.azula.model.TransferState
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.io.encoding.Base64
@@ -19,7 +21,24 @@ fun Message.toDto(): MessageDto = MessageDto(
     text = text,
     a2ui = a2ui?.let { s -> SurfaceDto(s.surfaceId, s.catalogId, JsonObject(s.components), s.dataModel) },
     attachments = attachments.map { a ->
-        AttachmentDto(a.id, a.name, a.mime, a.size, a.bytes?.let { Base64.encode(it) }, a.caption)
+        AttachmentDto(
+            id = a.id,
+            name = a.name,
+            mime = a.mime,
+            size = a.size,
+            bytesB64 = a.bytes?.let { Base64.encode(it) },
+            caption = a.caption,
+            kind = a.kind.wire,
+            width = a.width,
+            height = a.height,
+            durationMs = a.durationMs,
+            thumbB64 = a.thumbBytes?.let { Base64.encode(it) },
+            blobId = a.blobId,
+            fetchTicket = a.fetchTicket,
+            // Only "complete" is worth persisting literally; Offered/Downloading/Failed
+            // all round-trip through "offered" -- see AttachmentDto.state's doc.
+            state = if (a.state == TransferState.Complete) "complete" else "offered",
+        )
     },
 )
 
@@ -28,6 +47,10 @@ fun Message.toDto(): MessageDto = MessageDto(
  * existing public API ([A2uiSurface.apply] + [A2uiSurface.setData]). Callers must
  * NOT register restored surfaces in the live `surfaces` registry — that keeps them
  * frozen (see the renderer's `frozen` flag).
+ *
+ * A blob-backed attachment's [TransferState] here is only a starting point --
+ * [dev.azula.state.PersistenceCoordinator.restoreAll] reconciles it against actual
+ * on-disk bytes right after this returns.
  */
 @OptIn(ExperimentalEncodingApi::class)
 fun MessageDto.toMessage(): Message = Message(
@@ -41,6 +64,21 @@ fun MessageDto.toMessage(): Message = Message(
         }
     },
     attachments = attachments.map { a ->
-        Attachment(a.id, a.name, a.mime, a.size, a.bytesB64?.let { Base64.decode(it) }, a.caption)
+        Attachment(
+            id = a.id,
+            name = a.name,
+            mime = a.mime,
+            size = a.size,
+            bytes = a.bytesB64?.let { Base64.decode(it) },
+            caption = a.caption,
+            kind = MediaKind.fromWire(a.kind),
+            width = a.width,
+            height = a.height,
+            durationMs = a.durationMs,
+            thumbBytes = a.thumbB64?.let { Base64.decode(it) },
+            blobId = a.blobId,
+            fetchTicket = a.fetchTicket,
+            state = if (a.state == "complete") TransferState.Complete else TransferState.Offered,
+        )
     },
 )

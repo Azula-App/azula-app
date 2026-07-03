@@ -33,6 +33,3 @@ class FileMessageStore(baseDir: File) : MessageStore {
         runCatching { file(conversationId).delete() }
     }
 }
-
-internal fun sanitize(s: String): String =
-    s.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")

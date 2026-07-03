@@ -9,6 +9,7 @@ import dev.azula.di.AppGraph
 import dev.azula.net.AndroidPeerStore
 import dev.azula.net.IrohConfig
 import dev.azula.net.createTransport
+import dev.azula.persist.AndroidBlobStore
 import dev.azula.persist.AndroidMessageStore
 import dev.azula.persist.AndroidProfileStore
 import dev.azula.state.AppStateHost
@@ -79,6 +80,7 @@ class AzulaApplication : Application() {
             messageStore = AndroidMessageStore(applicationContext),
             profileStore = AndroidProfileStore(applicationContext),
             peerStore = AndroidPeerStore(applicationContext),
+            blobStore = AndroidBlobStore(applicationContext),
         ).azulaState.also {
             AppStateHost.shared = it
             appScope.launch { it.start() }

@@ -38,6 +38,7 @@ class FrameDispatcher(
     private val surfaceStore: SurfaceStore,
     private val persistence: PersistenceCoordinator,
     private val chatService: ChatService,
+    private val mediaService: MediaService,
     private val notifier: Notifier?,
 ) {
     /** Set by AzulaState: whether the app is currently in the foreground. */
@@ -99,6 +100,7 @@ class FrameDispatcher(
             }
             is Frame.Input, is Frame.Resize -> Unit
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
+            is Frame.MediaOffer -> mediaService.onMediaOffer(convId, frame)
         }
         if (frame !is Frame.Token || frame.done) persistence.save(convId)
     }

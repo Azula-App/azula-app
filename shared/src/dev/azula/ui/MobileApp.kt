@@ -50,6 +50,7 @@ fun MobileApp(state: AzulaState) {
                 MScreen.SETTINGS -> SettingsScreen(state, onBack = { state.mobileBack() })
             }
         }
+        FullscreenMediaOverlay(state)
     }
 }
 

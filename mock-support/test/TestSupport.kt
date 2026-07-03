@@ -1,5 +1,9 @@
 import dev.azula.di.AppGraph
+import dev.azula.net.Frame
+import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
+import dev.azula.net.P2pStream
+import dev.azula.persist.BlobStore
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.MessageStore
 import dev.azula.state.AzulaState
@@ -18,6 +22,7 @@ internal fun testAzulaState(
     scope: CoroutineScope,
     transport: IrohTransport,
     messageStore: MessageStore? = null,
+    blobStore: BlobStore? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -26,6 +31,7 @@ internal fun testAzulaState(
         messageStore = messageStore,
         profileStore = null,
         peerStore = null,
+        blobStore = blobStore,
     ).azulaState
 
 /**
@@ -52,4 +58,25 @@ internal class InMemoryMessageStore(seed: Map<String, ConversationDto> = emptyMa
         data.remove(conversationId)
         deletes.trySend(conversationId)
     }
+}
+
+/**
+ * A one-shot inbound stream a test drives as "the peer": frames sent via
+ * [sendFrame] arrive at a real receive loop (e.g. [dev.azula.state.ConnectService.receiveLoop])
+ * exactly like a real peer's frames would. The client -> peer direction isn't
+ * needed by the tests that use this (see [clientStream]'s no-op `sendLine`).
+ * Extracted from ConnectServiceFrameDispatchTest.kt so other tests can reuse it.
+ */
+internal class PeerPipe {
+    private val toClient = Channel<String>(Channel.UNLIMITED)
+
+    val clientStream: P2pStream = object : P2pStream {
+        override suspend fun sendLine(line: String) = Unit
+        override suspend fun receiveLine(): String = toClient.receive()
+        override suspend fun sendBytes(bytes: ByteArray) = Unit
+        override suspend fun receiveBytes(n: Int): ByteArray? = null
+        override suspend fun close() = Unit
+    }
+
+    suspend fun sendFrame(frame: Frame) = toClient.send(FrameCodec.encode(frame))
 }

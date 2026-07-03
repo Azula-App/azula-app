@@ -1,8 +1,12 @@
 package dev.azula.state
 
 import dev.azula.core.AppScope
+import dev.azula.model.Attachment
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
+import dev.azula.model.Message
+import dev.azula.model.TransferState
+import dev.azula.persist.BlobStore
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.MessageStore
 import dev.azula.persist.toDto
@@ -19,7 +23,10 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 /**
  * Restores and persists conversation history via the injected [MessageStore],
  * carved out of AzulaState. Saves run on a single-threaded dispatcher so rapid
- * successive saves can't race. Operates on the shared [ConversationStore].
+ * successive saves can't race. Operates on the shared [ConversationStore]. The
+ * optional [blobStore] lets [restoreAll] reconcile a blob-backed attachment's
+ * [TransferState] against on-disk truth rather than trusting whatever was last
+ * persisted (see [reconcileBlobState]).
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -27,6 +34,7 @@ class PersistenceCoordinator(
     private val convStore: ConversationStore,
     private val messageStore: MessageStore?,
     private val scope: CoroutineScope,
+    private val blobStore: BlobStore? = null,
 ) {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val saveDispatcher = Dispatchers.Default.limitedParallelism(1)
@@ -47,7 +55,7 @@ class PersistenceCoordinator(
             cs.messages.clear()
             // Restored A2UI surfaces are intentionally NOT registered live so they
             // render frozen (see Chat's `frozen` predicate).
-            cs.messages.addAll(dto.messages.map { it.toMessage() })
+            cs.messages.addAll(dto.messages.map { it.toMessage().reconcileBlobState(blobStore) })
             cs.peerAvatarB64 = dto.avatarB64
             cs.peerAvatarMime = dto.avatarMime
             cs.peerDescription = dto.peerDescription
@@ -88,4 +96,32 @@ class PersistenceCoordinator(
     fun delete(convId: String) {
         scope.launch(saveDispatcher) { runCatching { messageStore?.delete(convId) } }
     }
+}
+
+/**
+ * Recompute each blob-backed attachment's [TransferState] from on-disk truth
+ * ([BlobStore.sizeOnDisk] vs. [Attachment.size]) rather than trusting the
+ * persisted state, which is only ever "complete" or "offered" (see
+ * [dev.azula.persist.AttachmentDto.state]'s doc). This is what turns a fetch that
+ * was interrupted by a crash/kill into "tap to resume" on restart, with no special
+ * crash-recovery code: full bytes on disk -> [TransferState.Complete], partial ->
+ * [TransferState.Downloading] (paused -- nothing is actually in flight until a
+ * [MediaService.startFetch] call), none -> [TransferState.Offered]. Attachments
+ * with no [Attachment.blobId] (legacy inline `bytesB64` rows) are left untouched,
+ * and this is a no-op entirely when [store] is null.
+ */
+private fun Message.reconcileBlobState(store: BlobStore?): Message {
+    if (store == null) return this
+    return copy(
+        attachments = attachments.map { a ->
+            val blobId = a.blobId ?: return@map a
+            val onDisk = store.sizeOnDisk(blobId)
+            val state = when {
+                onDisk >= a.size -> TransferState.Complete
+                onDisk > 0 -> TransferState.Downloading(onDisk, a.size)
+                else -> TransferState.Offered
+            }
+            a.copy(state = state)
+        },
+    )
 }

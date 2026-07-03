@@ -3,6 +3,7 @@ import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.IrohTransport
 import dev.azula.net.P2pStream
+import dev.azula.net.PeerStore
 import dev.azula.persist.BlobStore
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.MessageStore
@@ -23,6 +24,7 @@ internal fun testAzulaState(
     transport: IrohTransport,
     messageStore: MessageStore? = null,
     blobStore: BlobStore? = null,
+    peerStore: PeerStore? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -30,10 +32,17 @@ internal fun testAzulaState(
         notifier = null,
         messageStore = messageStore,
         profileStore = null,
-        peerStore = null,
+        peerStore = peerStore,
         blobStore = blobStore,
         invitationsStore = null,
     ).azulaState
+
+/** An in-memory [PeerStore], so a test can inspect exactly what ConnectService persisted. */
+internal class InMemoryPeerStore : PeerStore {
+    private var tickets: List<String> = emptyList()
+    override fun load(): List<String> = tickets
+    override fun save(tickets: List<String>) { this.tickets = tickets }
+}
 
 /**
  * An in-memory [MessageStore] fake. [PersistenceCoordinator.save]/[PersistenceCoordinator.delete]

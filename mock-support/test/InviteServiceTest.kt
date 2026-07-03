@@ -39,6 +39,17 @@ class InviteServiceTest {
     }
 
     @Test
+    fun expiredInviteFailsVerification() = runTest {
+        val transport = boundTransport()
+        val service = InviteService(null, transport, null, backgroundScope)
+        // expiresInSeconds is negative -- expiresAt lands in the past the instant
+        // it's minted, so this doesn't need to fast-forward any clock.
+        val encoded = service.createInvite(expiresInSeconds = -10)
+        assertNotNull(encoded)
+        assertNull(service.verifyInbound(encoded), "an invite whose expiresAt is already past must not verify")
+    }
+
+    @Test
     fun verifyInboundRejectsMissingOrMalformed() = runTest {
         val transport = boundTransport()
         val service = InviteService(null, transport, null, backgroundScope)

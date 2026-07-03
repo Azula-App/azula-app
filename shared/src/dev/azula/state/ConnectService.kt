@@ -364,12 +364,15 @@ class ConnectService(
     /**
      * A connecting peer is known if its node id matches an existing
      * conversation (restored from persistence on a known peer, or created
-     * earlier this session) or is in [InviteService]'s accepted-contacts list.
-     * Known peers connect exactly as before -- no gate (see
+     * earlier this session), a saved [peerStore] entry (a peer we've dialed
+     * out to before), or is in [InviteService]'s accepted-contacts list. Known
+     * peers connect exactly as before -- no gate (see
      * azula-docs/docs/invitations.md's verification model).
      */
     private fun isKnownPeer(nodeId: String): Boolean =
-        convStore.conversationOrNull(nodeId) != null || inviteService.isKnown(nodeId)
+        convStore.conversationOrNull(nodeId) != null ||
+            inviteService.isKnown(nodeId) ||
+            peerStore?.load().orEmpty().any { peerIdForEntry(it) == nodeId }
 
     /**
      * Reads the stranger's first frame (15 s timeout) and requires

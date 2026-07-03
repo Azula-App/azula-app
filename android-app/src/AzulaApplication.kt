@@ -15,6 +15,8 @@ import dev.azula.persist.AndroidProfileStore
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
+import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,7 +31,12 @@ import android.app.Application
  */
 class AzulaApplication : Application() {
     /** Process-lifetime scope that owns the node's coroutines (not the composition). */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            // Backstop: a failure in any node coroutine (e.g. a transport error
+            // surfacing off the hot path) must not take down the whole process.
+            CoroutineExceptionHandler { _, e -> Log.e("azula", "uncaught in appScope", e) }
+    )
 
     override fun onCreate() {
         super.onCreate()

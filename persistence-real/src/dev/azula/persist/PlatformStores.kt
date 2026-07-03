@@ -9,6 +9,11 @@ expect fun platformMessageStore(): MessageStore?
 
 expect fun platformProfileStore(): ProfileStore?
 
+/** Platform default invitations store. JVM writes a file; iOS uses NSUserDefaults;
+ *  Android returns null here and binds a Context-backed store into the Metro graph
+ *  via the app module, same as [platformProfileStore]/[platformMessageStore]. */
+expect fun platformInvitationsStore(): InvitationsStore?
+
 /**
  * Platform default blob store (media file bytes). JVM and Android both write
  * flat files (via [FileBlobStore]); iOS writes flat files too, under

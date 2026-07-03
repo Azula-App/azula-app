@@ -38,6 +38,7 @@ fun DesktopApp(state: AzulaState) {
                 when (val active = state.desktopActive) {
                     "connect" -> ConnectPane(state)
                     "settings" -> SettingsScreen(state, onBack = { state.openConnectDesktop() })
+                    "invites" -> InvitesScreen(state, onBack = { state.openConnectDesktop() })
                     else -> ChatPane(state, active)
                 }
             }

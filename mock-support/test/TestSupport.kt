@@ -32,6 +32,7 @@ internal fun testAzulaState(
         profileStore = null,
         peerStore = null,
         blobStore = blobStore,
+        invitationsStore = null,
     ).azulaState
 
 /**

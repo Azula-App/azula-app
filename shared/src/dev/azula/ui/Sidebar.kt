@@ -84,6 +84,8 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
             }
         }
         Spacer(Modifier.height(8.dp))
+        InvitesRow(active = state.desktopActive == "invites", pending = state.pendingInvites.size) { state.openInvitesDesktop() }
+        Spacer(Modifier.height(6.dp))
         SettingsRow(active = state.desktopActive == "settings") { state.openSettingsDesktop() }
         Spacer(Modifier.height(10.dp))
         YourCodeBox(state)
@@ -103,6 +105,25 @@ fun SettingsRow(active: Boolean, onClick: () -> Unit) {
     ) {
         Text("⚙", color = AzulaColors.textDim, fontSize = 14.sp)
         Text("profiles & settings", color = AzulaColors.text2, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    }
+}
+
+@Composable
+fun InvitesRow(active: Boolean, pending: Int, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+            .background(if (active) Color(0x14FFFFFF) else Color.Transparent)
+            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, RoundedCornerShape(11.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text("✉", color = if (pending > 0) AzulaColors.pinkLight else AzulaColors.textDim, fontSize = 14.sp)
+        Text(
+            if (pending > 0) "invites · $pending pending" else "invites",
+            color = AzulaColors.text2, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+        )
     }
 }
 

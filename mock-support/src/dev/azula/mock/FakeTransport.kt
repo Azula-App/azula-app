@@ -97,9 +97,16 @@ class FakeTransport : IrohTransport {
         loopbacks[ticket to alpn]?.injectIncoming(frame)
     }
 
-    /** A stable fake peer id derived from the ticket, so mock conversations key consistently. */
+    /**
+     * A stable fake peer id derived from the ticket, so mock conversations key
+     * consistently. Special-cases [myTicket]'s own `"azula-mock-<nodeId>"` shape
+     * so it resolves back to that exact [nodeId] -- the invariant a real
+     * transport's ticket always has (its node id is embedded in it), and which
+     * invite self-verification relies on (see InviteService.verifyInbound).
+     */
     override fun peerIdForTicket(ticket: String): String =
-        "mock" + (ticket.hashCode().toLong() and 0xffffffffL).toString(16)
+        ticket.removePrefix("azula-mock-").takeIf { it != ticket && it.isNotBlank() }
+            ?: ("mock" + (ticket.hashCode().toLong() and 0xffffffffL).toString(16))
 
     /** Surface one inbound terminal connection so the mock build has a live terminal. */
     override fun incoming(): Flow<IncomingConnection> = flow {

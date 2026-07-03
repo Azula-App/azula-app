@@ -1,6 +1,5 @@
 package dev.azula.state
 
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.azula.a2ui.A2uiCodec
 import dev.azula.a2ui.A2uiSurface
@@ -43,9 +42,6 @@ class FrameDispatcher(
 ) {
     /** Set by AzulaState: whether the app is currently in the foreground. */
     var foreground: () -> Boolean = { true }
-
-    /** Inbound connections awaiting a "share my profile?" decision (prompt each time). */
-    val pendingShares = mutableStateListOf<PendingShareRequest>()
 
     /**
      * Forget the live surfaces referenced by [convId]'s messages. Surfaces are
@@ -137,33 +133,6 @@ class FrameDispatcher(
     @OptIn(ExperimentalEncodingApi::class)
     private fun decodeAvatar(b64: String): ImageBitmap? =
         runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull()
-
-    fun enqueueShareRequest(convId: String) {
-        // Reconnects are routine now (auto-reconnect) — don't re-prompt a peer
-        // the user already answered this session, or one whose profile we
-        // already hold from an earlier exchange.
-        if (convId in respondedShares) return
-        val cs = convStore.convOrNull(convId)
-        if (cs != null && (cs.peerAvatarB64 != null || cs.peerDescription != null)) return
-        if (pendingShares.any { it.convId == convId }) return
-        pendingShares.add(PendingShareRequest(convId, convStore.mnemonicCode(convId)))
-        if (!foreground()) {
-            notifier?.postMessage(convId, "Connection request", "${convStore.mnemonicCode(convId)} connected")
-        }
-    }
-
-    /** Conversations whose share prompt was answered (either way) this session. */
-    private val respondedShares = mutableSetOf<String>()
-
-    fun respondShare(convId: String, frame: Frame.Profile?) {
-        respondedShares += convId
-        pendingShares.removeAll { it.convId == convId }
-        if (frame != null) {
-            convStore.convOrNull(convId)?.stream?.let { s ->
-                scope.launch { runCatching { s.sendLine(FrameCodec.encode(frame)) } }
-            }
-        }
-    }
 
     fun notify(convId: String, body: String) {
         if (foreground()) return

@@ -73,6 +73,7 @@ fun MobileApp(state: AzulaState) {
                     MScreen.CONNECT -> MobileConnect(state)
                     MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
                     MScreen.SETTINGS -> SettingsScreen(state, onBack = { state.mobileBack() })
+                    MScreen.INVITES -> InvitesScreen(state, onBack = { state.mobileBack() })
                 }
             }
         }
@@ -88,6 +89,12 @@ private fun MobileHome(state: AzulaState) {
                 Brand()
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("◉ online", color = AzulaColors.online, fontFamily = Fonts.mono, fontSize = 11.sp)
+                    Text(
+                        if (state.pendingInvites.isEmpty()) "✉" else "✉ ${state.pendingInvites.size}",
+                        color = if (state.pendingInvites.isEmpty()) AzulaColors.textDim else AzulaColors.pinkLight,
+                        fontFamily = Fonts.mono, fontSize = 14.sp,
+                        modifier = Modifier.clickable { state.openInvitesMobile() },
+                    )
                     Text(
                         "⚙", color = AzulaColors.textDim, fontSize = 17.sp,
                         modifier = Modifier.clickable { state.openSettingsMobile() },

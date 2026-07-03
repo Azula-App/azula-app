@@ -7,6 +7,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
 import dev.azula.net.createTransport
 import dev.azula.persist.platformBlobStore
+import dev.azula.persist.platformInvitationsStore
 import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
 import dev.azula.net.platformPeerStore
@@ -45,6 +46,7 @@ fun rememberAzulaState(): AzulaState {
             profileStore = platformProfileStore(),
             peerStore = platformPeerStore(),
             blobStore = platformBlobStore(),
+            invitationsStore = platformInvitationsStore(),
         ).azulaState
     }
     LaunchedEffect(Unit) { state.start() }

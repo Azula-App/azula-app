@@ -49,10 +49,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 
-enum class MScreen { HOME, CONNECT, CHAT, SETTINGS }
-
-/** An inbound connection awaiting the user's "share my profile?" decision. */
-data class PendingShareRequest(val convId: String, val peerCode: String)
+enum class MScreen { HOME, CONNECT, CHAT, SETTINGS, INVITES }
 
 /** Build a [Frame.Profile] from a persona, including only the toggled-on fields. */
 fun Persona.toFrame(shareName: Boolean, sharePic: Boolean, shareDesc: Boolean): Frame.Profile =
@@ -84,6 +81,10 @@ class ConversationState(seed: List<Message>) {
     val termScreen = TerminalEmulator().also { it.predictor = PredictionEngine(it) }
     /** The peer ticket this conversation was dialed from — used to spawn siblings. */
     var sourceTicket: String? = null
+    /** The full encoded invite string [sourceTicket] was dialed from, if any --
+     *  re-presented in Hello on every redial until the issuer accepts us (see
+     *  ConnectService.resolveTicket / azula-docs/docs/invitations.md). */
+    var sourceInvite: String? = null
     /** Last received peer profile (a "persona"): base64 avatar + mime + description. */
     var peerAvatarB64: String? = null
     var peerAvatarMime: String? = null
@@ -123,6 +124,10 @@ class AzulaState(
     // The inbound-frame reaction core (applyFrame/applyProfile + the share
     // handshake). ConnectService hands it frames as they arrive off the wire.
     private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, mediaService, null),
+    // Invitations: minting/revoking, verifying an inbound stranger's Hello.invite,
+    // and the pending accept/decline inbox. Needs the transport directly (for
+    // ticket/sign/verify), so -- like mediaService -- it has no usable default.
+    private val inviteService: InviteService,
     // The connect + transport core (owns the swappable transport, dial/receive/
     // dispatch). AzulaState wires its navigation + foreground callbacks in init.
     private val connectService: ConnectService,
@@ -175,9 +180,11 @@ class AzulaState(
 
     init {
         // Give the connect core its app-shell hook (navigation); FrameDispatcher
-        // gets the foreground hook since it's the only place that reads it.
+        // and InviteService get the foreground hook since they're the only
+        // places that read it.
         connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
         frameDispatcher.foreground = { inForeground }
+        inviteService.foreground = { inForeground }
     }
     private fun nextId(p: String): String = convStore.nextId(p)
 
@@ -210,6 +217,7 @@ class AzulaState(
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1)
         personaService.load()
+        inviteService.load()
         // Bind the transport and run the connect/receive core.
         connectService.start()
     }
@@ -408,14 +416,14 @@ class AzulaState(
         }
         mediaService.cancelAllForConversation(id)
         // PeerStore has no per-item delete — save a filtered list. Match by the
-        // ticket's resolved node id (covers inbound-only convs with no sourceTicket).
+        // entry's resolved node id (covers inbound-only convs with no sourceTicket,
+        // and invite-string entries alongside bare tickets).
         peerStore?.let { store ->
-            store.save(store.load().filter { (connectService.peerIdForTicket(it) ?: "") != id })
+            store.save(store.load().filter { (connectService.peerIdForEntry(it) ?: "") != id })
         }
         persistence.delete(id)
         convState.remove(id)
         conversations.removeAll { it.id == id }
-        pendingShares.removeAll { it.convId == id }
         if (desktopActive == id) desktopActive = conversations.firstOrNull()?.id ?: "connect"
         if (mActive == id) { mActive = ""; mScreen = MScreen.HOME }
     }
@@ -427,16 +435,31 @@ class AzulaState(
     val personas get() = personaService.personas
     val defaultPersonaId get() = personaService.defaultPersonaId
 
-    /** Inbound connections awaiting a "share my profile?" decision (owned by FrameDispatcher). */
-    val pendingShares get() = frameDispatcher.pendingShares
-
     fun newPersonaId(): String = personaService.newId()
     fun upsertPersona(persona: Persona) = personaService.upsert(persona)
     fun deletePersona(id: String) = personaService.delete(id)
     fun setDefaultPersona(id: String) = personaService.setDefault(id)
     fun personaById(id: String?): Persona? = personaService.byId(id)
 
-    /** Respond to a pending share prompt: send [frame] back (or nothing to decline). */
-    fun respondShare(convId: String, frame: Frame.Profile?) = connectService.respondShare(convId, frame)
+    // ---- invitations (delegated to InviteService) ----
+
+    /** Invites this device has minted. */
+    val issuedInvites get() = inviteService.issued
+
+    /** Inbound strangers awaiting accept/decline. */
+    val pendingInvites get() = inviteService.pending
+
+    /** Mint a new invite for this device's own ticket; see [InviteService.createInvite]. */
+    suspend fun createInvite(expiresInSeconds: Long? = null, sign: Boolean = false, singleUse: Boolean = false, label: String? = null): String? =
+        inviteService.createInvite(expiresInSeconds, sign, singleUse, label)
+
+    fun revokeInvite(id: String) = inviteService.revoke(id)
+    fun acceptInvite(req: PendingConnectionRequest) = inviteService.accept(req)
+    fun declineInvite(req: PendingConnectionRequest) = inviteService.decline(req)
+    fun acceptAllInvites() = inviteService.acceptAll()
+    fun declineAllInvites() = inviteService.declineAll()
+
+    fun openInvitesMobile() { mScreen = MScreen.INVITES }
+    fun openInvitesDesktop() { desktopActive = "invites" }
 
 }

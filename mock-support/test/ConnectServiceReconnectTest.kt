@@ -130,6 +130,13 @@ class ConnectServiceReconnectTest {
         azulaState.start()
         runCurrent()
 
+        // A stranger on the CHAT alpn is gated: present a (legacy, invite-less)
+        // Hello and accept the resulting pending request before it's wired.
+        pipe.sendFrame(Frame.Hello("peer-3"))
+        runCurrent()
+        azulaState.acceptInvite(azulaState.pendingInvites.single())
+        runCurrent()
+
         pipe.sendFrame(Frame.Chat("hi"))
         runCurrent()
         val convId = azulaState.conversations.single().id

@@ -36,6 +36,13 @@ class ConnectServiceFrameDispatchTest {
         azulaState.start()
         runCurrent()
 
+        // A stranger on the CHAT alpn is gated: present a (legacy, invite-less)
+        // Hello and accept the resulting pending request before it's wired.
+        pipe.sendFrame(Frame.Hello("peer-chat"))
+        runCurrent()
+        azulaState.acceptInvite(azulaState.pendingInvites.single())
+        runCurrent()
+
         pipe.sendFrame(Frame.Chat("hello there"))
         runCurrent()
 
@@ -83,6 +90,11 @@ class ConnectServiceFrameDispatchTest {
         azulaState.start()
         runCurrent()
 
+        pipe.sendFrame(Frame.Hello("peer-a2ui"))
+        runCurrent()
+        azulaState.acceptInvite(azulaState.pendingInvites.single())
+        runCurrent()
+
         val createSurface = buildJsonObject {
             put("version", "v0.9.1")
             putJsonObject("createSurface") { put("surfaceId", "s1") }
@@ -104,6 +116,11 @@ class ConnectServiceFrameDispatchTest {
         val transport = OneShotIncomingTransport("peer-profile", Alpns.CHAT, pipe)
         val azulaState = testAzulaState(backgroundScope, transport)
         azulaState.start()
+        runCurrent()
+
+        pipe.sendFrame(Frame.Hello("peer-profile"))
+        runCurrent()
+        azulaState.acceptInvite(azulaState.pendingInvites.single())
         runCurrent()
 
         pipe.sendFrame(Frame.Profile(name = "Bob", description = "a friend"))

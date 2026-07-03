@@ -1,6 +1,5 @@
 package dev.azula.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,13 +8,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,8 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -46,71 +42,105 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.link.AzulaLinks
-import dev.azula.link.Qr
 import dev.azula.model.ConnectStage
 import dev.azula.state.AzulaState
+import dev.azula.state.toFrame
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
 
+/**
+ * [useBottomSheetForCreateInvite] lets the desktop pane opt into an inline
+ * expand instead of a bottom sheet (a sheet reads oddly anchored inside a
+ * fixed desktop pane) — mobile keeps the sheet. See [DesktopApp]/[MobileApp].
+ */
 @Composable
-fun ConnectScreen(state: AzulaState, modifier: Modifier = Modifier) {
+fun ConnectScreen(state: AzulaState, modifier: Modifier = Modifier, useBottomSheetForCreateInvite: Boolean = true) {
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 20.dp)) {
         when (state.connectStage) {
             ConnectStage.DIALING, ConnectStage.CONNECTED -> HolepunchProgress(state)
-            else -> ConnectIdle(state)
+            else -> ConnectIdle(state, useBottomSheetForCreateInvite)
         }
     }
 }
 
 @Composable
-private fun ConnectIdle(state: AzulaState) {
+private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
     val clipboard = LocalClipboardManager.current
-    var showShare by remember { mutableStateOf(false) }
-    var pendingTicket by remember { mutableStateOf("") }
-    // Connecting opens the share-sheet (pre-filled from the default persona) so
-    // the user can choose what to present; if they have no personas, connect
-    // straight away with nothing shared.
+    var showCreateInvite by remember { mutableStateOf(false) }
+    var showLegacyCode by remember { mutableStateOf(false) }
+    var showShareOptions by remember { mutableStateOf(false) }
+    var selectedPersonaId by remember { mutableStateOf(state.defaultPersonaId ?: state.personas.firstOrNull()?.id) }
+    var shareName by remember { mutableStateOf(true) }
+    var sharePic by remember { mutableStateOf(true) }
+    var shareDesc by remember { mutableStateOf(true) }
+
+    // Guest connect is the default: paste + hit connect dials immediately.
+    // Sharing a persona is an inline opt-in, never a blocking gate.
     fun beginConnect(ticket: String) {
         if (ticket.isBlank()) return
-        if (state.personas.isEmpty()) state.connectPeer(ticket)
-        else { pendingTicket = ticket; showShare = true }
+        val persona = if (showShareOptions) state.personaById(selectedPersonaId) else null
+        state.connectPeer(ticket, persona?.toFrame(shareName, sharePic, shareDesc))
     }
-    if (showShare) {
-        ShareSheet(
-            state = state,
-            title = "Share a profile?",
-            subtitle = "Choose which persona — and which details — to show this peer.",
-            confirmLabel = "Share & connect",
-            dismissLabel = "Connect without sharing",
-            onResult = { frame -> showShare = false; state.connectPeer(pendingTicket, frame) },
-            onCancel = { showShare = false },
-        )
+
+    if (showCreateInvite && useBottomSheet) {
+        CreateInviteSheet(state, onDismiss = { showCreateInvite = false })
     }
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("YOUR CODE", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(state.shortCode, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
-                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
-                    .clickable { clipboard.setText(AnnotatedString(state.myCode)); state.markCopied() }
-                    .padding(horizontal = 11.dp, vertical = 7.dp),
-            ) {
-                Text(
-                    if (state.copied) "✓ copied" else "copy",
-                    color = if (state.copied) AzulaColors.onlineBright else AzulaColors.textDim,
-                    fontFamily = Fonts.mono, fontSize = 11.sp,
-                )
-            }
-        }
+        Text("INVITE A PEER", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
         Text(
-            "anyone with this code can open a direct, end-to-end-encrypted chat with you. no account, no server.",
+            "mint a link that lets someone connect to you — set an expiry, sign it, or make it single-use.",
             color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
         )
-        if (state.myCode.isNotEmpty()) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.webLink(state.myCode)) }
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+                .background(Brush.linearGradient(listOf(Color(0x33FF2D9B), Color(0x14FF2D9B))))
+                .border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(13.dp))
+                .clickable { showCreateInvite = !showCreateInvite }
+                .padding(12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("+ create invite", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         }
+        if (showCreateInvite && !useBottomSheet) {
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(AzulaColors.bg2).padding(14.dp)) {
+                CreateInviteContent(state)
+            }
+        }
+
+        Text(
+            "legacy code" + if (showLegacyCode) " ⌄" else " ›",
+            color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+            modifier = Modifier.clickable { showLegacyCode = !showLegacyCode },
+        )
+        if (showLegacyCode) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.shortCode, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        Modifier.clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
+                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                            .clickable { clipboard.setText(AnnotatedString(state.myCode)); state.markCopied() }
+                            .padding(horizontal = 11.dp, vertical = 7.dp),
+                    ) {
+                        Text(
+                            if (state.copied) "✓ copied" else "copy",
+                            color = if (state.copied) AzulaColors.onlineBright else AzulaColors.textDim,
+                            fontFamily = Fonts.mono, fontSize = 11.sp,
+                        )
+                    }
+                }
+                Text(
+                    "the raw ticket, unguarded and permanent — anyone who ever sees it can dial you forever. prefer an invite above.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
+                )
+                if (state.myCode.isNotEmpty()) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.webLink(state.myCode)) }
+                }
+            }
+        }
+
         if (state.connectStage == ConnectStage.FAILED) {
             Text("couldn't reach that peer — check the code and try again.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.5.sp)
         }
@@ -135,7 +165,7 @@ private fun ConnectIdle(state: AzulaState) {
                     keyboardActions = KeyboardActions(onGo = { beginConnect(state.connectInput) }),
                     modifier = Modifier.fillMaxWidth().testTag("connect-input"),
                     decorationBox = { inner ->
-                        if (state.connectInput.isEmpty()) Text("paste a code…", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
+                        if (state.connectInput.isEmpty()) Text("paste an invite or code…", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
                         inner()
                     },
                 )
@@ -147,6 +177,23 @@ private fun ConnectIdle(state: AzulaState) {
             ) {
                 Text("connect", color = Color.White, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             }
+        }
+        // Sharing a profile back is opt-in and never blocks a connect — collapsed
+        // by default so guest-connecting stays a single paste + tap.
+        Text(
+            if (showShareOptions) "sharing a profile ⌄" else "share a profile? (optional) ›",
+            color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+            modifier = Modifier.clickable { showShareOptions = !showShareOptions },
+        )
+        if (showShareOptions) {
+            PersonaPicker(
+                personas = state.personas,
+                selectedId = selectedPersonaId,
+                onSelect = { selectedPersonaId = it },
+                shareName = shareName, onShareNameChange = { shareName = it },
+                sharePic = sharePic, onSharePicChange = { sharePic = it },
+                shareDesc = shareDesc, onShareDescChange = { shareDesc = it },
+            )
         }
     }
 }
@@ -208,36 +255,4 @@ private fun ProgressStep(label: String, done: Boolean) {
         color = if (done) AzulaColors.online else AzulaColors.warn,
         fontFamily = Fonts.mono, fontSize = 12.sp,
     )
-}
-
-/**
- * A real, scannable QR of the connect [data] link — hand-rolled encoder (see [Qr]).
- * Dark modules on a light card (high luminance contrast is what camera scanners
- * need; the brand pink-on-dark would not reliably decode).
- */
-@Composable
-private fun QrCode(data: String) {
-    val modules = remember(data) { Qr.encode(data, Qr.Ecc.MEDIUM) }
-    val n = modules.size
-    val dark = Color(0xFF070709) // brand near-black
-    Box(
-        Modifier.size(168.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(12.dp)),
-    ) {
-        Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            // Reserve a quiet zone (~4 modules of white) so the finder patterns read cleanly.
-            val quiet = 4
-            val cell = size.width / (n + quiet * 2)
-            val origin = cell * quiet
-            for (y in 0 until n) for (x in 0 until n) {
-                if (modules[y][x]) {
-                    drawRect(
-                        color = dark,
-                        topLeft = Offset(origin + x * cell, origin + y * cell),
-                        size = Size(cell + 0.5f, cell + 0.5f), // slight overdraw kills seams
-                    )
-                }
-            }
-        }
-    }
 }

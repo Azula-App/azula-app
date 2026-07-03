@@ -187,6 +187,24 @@ class DesktopAppE2eTest {
         // ever gets to look.
         waitUntilExactlyOneExists(hasTestTag("attachment-complete"), timeoutMillis = 8_000)
     }
+
+    @Test
+    fun invitesFlowMintsAndListsAnInvite() = desktopE2eTest { _, _, _ ->
+        // Sidebar "invites" row -> InvitesPane, initially empty.
+        onNodeWithText("invites").performClick()
+        onNodeWithText("No invites yet — mint one from the connect screen to bring in a peer.").assertIsDisplayed()
+
+        // Back to connect: desktop mints inline (useBottomSheetForCreateInvite =
+        // false there -- see ConnectScreen), not through the mobile bottom sheet.
+        onNode(hasText("connect a peer") and hasClickAction()).performClick()
+        onNodeWithText("+ create invite").performClick()
+        onNodeWithText("create invite").performClick()
+        waitUntilAtLeastOneExists(hasText("copy invite link"), timeoutMillis = 5_000)
+
+        // The minted invite now shows up in "My invites".
+        onNodeWithText("invites").performClick()
+        waitUntilAtLeastOneExists(hasText("expires in", substring = true), timeoutMillis = 5_000)
+    }
 }
 
 /** A minimal, genuinely valid 1x1 transparent PNG -- decodes cleanly through

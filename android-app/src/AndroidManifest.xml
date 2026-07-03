@@ -22,18 +22,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- App Links: https://azula.app/s/<token> and /connect/<token>.
-                 autoVerify requires assetlinks.json at azula.app with the RELEASE
-                 signing SHA-256 — fill it once the app is signed (docs/deeplinks.md). -->
+            <!-- App Links: https://azula.app/s/<token>, /connect/<token> (legacy),
+                 and /i/<payload> (invites). autoVerify requires assetlinks.json at
+                 azula.app with the RELEASE signing SHA-256 — fill it once the app
+                 is signed (docs/deeplinks.md). -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="azula.app" android:pathPrefix="/s/" />
                 <data android:scheme="https" android:host="azula.app" android:pathPrefix="/connect/" />
+                <data android:scheme="https" android:host="azula.app" android:pathPrefix="/i/" />
             </intent-filter>
 
-            <!-- Custom scheme fallback: azula://connect?code=<token> -->
+            <!-- Custom scheme fallback: azula://connect?code=<token> (legacy) and
+                 azula://i?c=<payload> (invites). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

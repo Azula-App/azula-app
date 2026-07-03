@@ -102,6 +102,23 @@ private fun MobileHome(state: AzulaState) {
                 }
             }
             Spacer(Modifier.height(14.dp))
+            if (state.pendingInvites.isNotEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+                        .background(Color(0x1FFF2D9B)).border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(11.dp))
+                        .clickable { state.openInvitesMobile() }
+                        .padding(horizontal = 13.dp, vertical = 10.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (state.pendingInvites.size == 1) "1 connection request" else "${state.pendingInvites.size} connection requests",
+                            color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        )
+                        Text("review ›", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontSize = 12.sp)
+                    }
+                }
+                Spacer(Modifier.height(9.dp))
+            }
             YourCodeBox(state)
             Spacer(Modifier.height(9.dp))
             Box(

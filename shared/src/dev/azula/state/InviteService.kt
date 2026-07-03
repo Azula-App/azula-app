@@ -33,6 +33,7 @@ data class PendingConnectionRequest(
     val unverified: Boolean,
     val stream: P2pStream,
     val alpn: String,
+    val receivedAt: Long,
 )
 
 /**
@@ -78,7 +79,7 @@ class InviteService(
         invitationsStore?.save(
             InvitationsBook(
                 issued = issued.toList(),
-                pending = pending.map { PendingInvite(it.nodeId, it.inviteId, epochSeconds(), it.peerCode, it.unverified) },
+                pending = pending.map { PendingInvite(it.nodeId, it.inviteId, it.receivedAt, it.peerCode, it.unverified) },
                 contacts = contacts.toList(),
             ),
         )
@@ -156,7 +157,7 @@ class InviteService(
             scope.launch { runCatching { stream.close() } } // already have one from this peer
             return
         }
-        pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn))
+        pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn, epochSeconds()))
         persist()
         if (!foreground()) {
             val body = if (pending.size == 1) "$peerCode wants to connect" else "${pending.size} connection requests"

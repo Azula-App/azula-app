@@ -49,10 +49,13 @@ class MainActivity : ComponentActivity() {
         openConversationFromIntent(intent)
     }
 
-    /** Open the conversation referenced by a tapped message notification, if any. */
+    /** Open the conversation (or the invites inbox) referenced by a tapped
+     *  notification, if any. See [InviteService][dev.azula.state.InviteService]'s
+     *  "invites" sentinel conversation id for batched connection-request notifications. */
     private fun openConversationFromIntent(intent: Intent?) {
         val convId = intent?.getStringExtra(AndroidNotifier.EXTRA_CONVERSATION_ID) ?: return
-        AppStateHost.shared?.openChatMobile(convId)
+        if (convId == "invites") AppStateHost.shared?.openInvitesMobile()
+        else AppStateHost.shared?.openChatMobile(convId)
     }
 
     private fun requestNotificationPermission() {

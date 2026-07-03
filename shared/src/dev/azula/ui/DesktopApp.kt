@@ -38,7 +38,7 @@ fun DesktopApp(state: AzulaState) {
                 when (val active = state.desktopActive) {
                     "connect" -> ConnectPane(state)
                     "settings" -> SettingsScreen(state, onBack = { state.openConnectDesktop() })
-                    "invites" -> InvitesScreen(state, onBack = { state.openConnectDesktop() })
+                    "invites" -> InvitesPane(state)
                     else -> ChatPane(state, active)
                 }
             }
@@ -63,6 +63,6 @@ private fun ConnectPane(state: AzulaState) {
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
-        ConnectScreen(state, Modifier.weight(1f))
+        ConnectScreen(state, Modifier.weight(1f), useBottomSheetForCreateInvite = false)
     }
 }

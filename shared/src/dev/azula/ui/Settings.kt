@@ -332,63 +332,48 @@ private fun EditorField(label: String, value: String, placeholder: String, onCha
 }
 
 /**
- * A "which profile to share" sheet, reused for outbound (connect) and inbound
- * (a peer connected to us). The user picks a persona and toggles fields; the
- * confirm action yields a [Frame.Profile], the dismiss action yields null
- * (caller decides what null means: connect-without-sharing, or decline).
+ * The reusable "choose a persona, choose which fields" picker: persona chips
+ * plus three field toggles. Used inline (never as a blocking gate) by both the
+ * outbound share-a-profile step (Connect.kt) and the inbound accept-with-profile
+ * step (Invites.kt's `InviteReviewSheet`). Purely presentational — the caller
+ * owns the selection state and builds the resulting [Frame.Profile] itself via
+ * [dev.azula.state.toFrame] when it actually needs one.
  */
 @Composable
-fun ShareSheet(
-    state: AzulaState,
-    title: String,
-    subtitle: String,
-    confirmLabel: String,
-    dismissLabel: String,
-    onResult: (Frame.Profile?) -> Unit,
-    onCancel: () -> Unit,
+fun PersonaPicker(
+    personas: List<Persona>,
+    selectedId: String?,
+    onSelect: (String) -> Unit,
+    shareName: Boolean,
+    onShareNameChange: (Boolean) -> Unit,
+    sharePic: Boolean,
+    onSharePicChange: (Boolean) -> Unit,
+    shareDesc: Boolean,
+    onShareDescChange: (Boolean) -> Unit,
 ) {
-    var selectedId by remember { mutableStateOf(state.defaultPersonaId ?: state.personas.firstOrNull()?.id) }
-    var shareName by remember { mutableStateOf(true) }
-    var sharePic by remember { mutableStateOf(true) }
-    var shareDesc by remember { mutableStateOf(true) }
-    val selected = state.personas.firstOrNull { it.id == selectedId }
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(subtitle, color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp)
-                if (state.personas.isEmpty()) {
-                    Text("No personas yet — create one in Settings to share a profile.", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.5.sp)
-                } else {
-                    // Persona picker (clickable chips).
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        state.personas.forEach { p ->
-                            val on = p.id == selectedId
-                            Box(
-                                Modifier.clip(RoundedCornerShape(8.dp))
-                                    .background(if (on) Color(0x1FFF2D9B) else Color.Transparent)
-                                    .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, RoundedCornerShape(8.dp))
-                                    .clickable { selectedId = p.id }.padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) {
-                                Text(p.name, color = if (on) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 12.sp)
-                            }
-                        }
+    val selected = personas.firstOrNull { it.id == selectedId }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (personas.isEmpty()) {
+            Text("No personas yet — create one in Settings to share a profile.", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.5.sp)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                personas.forEach { p ->
+                    val on = p.id == selectedId
+                    Box(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .background(if (on) Color(0x1FFF2D9B) else Color.Transparent)
+                            .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, RoundedCornerShape(8.dp))
+                            .clickable { onSelect(p.id) }.padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Text(p.name, color = if (on) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 12.sp)
                     }
-                    ShareToggle("share name", shareName) { shareName = it }
-                    ShareToggle("share picture", sharePic && selected?.avatarB64 != null, enabled = selected?.avatarB64 != null) { sharePic = it }
-                    ShareToggle("share description", shareDesc && selected?.description != null, enabled = selected?.description != null) { shareDesc = it }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = selected != null,
-                onClick = { selected?.let { onResult(it.toFrame(shareName, sharePic, shareDesc)) } },
-            ) { Text(confirmLabel) }
-        },
-        dismissButton = { TextButton(onClick = { onResult(null) }) { Text(dismissLabel) } },
-    )
+            ShareToggle("share name", shareName, onChange = onShareNameChange)
+            ShareToggle("share picture", sharePic && selected?.avatarB64 != null, enabled = selected?.avatarB64 != null, onChange = onSharePicChange)
+            ShareToggle("share description", shareDesc && selected?.description != null, enabled = selected?.description != null, onChange = onShareDescChange)
+        }
+    }
 }
 
 @Composable

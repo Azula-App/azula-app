@@ -69,6 +69,7 @@ import dev.azula.model.MediaKind
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.model.TransferState
+import dev.azula.platformHasSoftKeyboard
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
@@ -103,9 +104,12 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         var pendingMedia by remember(convId) { mutableStateOf<PendingMedia?>(null) }
         when {
             termLive -> {
-                // Type directly in the terminal — no input bar, just the compact key row,
-                // and only while the soft keyboard is actually showing.
-                if (rememberImeVisible()) TerminalKeysBar(state, convId)
+                // Type directly in the terminal — no input bar, just the compact key row.
+                // Desktop has no soft keyboard (a live terminal there is captured via
+                // the hardware keyboard) so the bar stays always-on while live; on a
+                // platform with a soft keyboard it's tied to the keyboard's visibility.
+                val showKeys = if (platformHasSoftKeyboard) rememberImeVisible() else true
+                if (showKeys) TerminalKeysBar(state, convId)
             }
             // A terminal whose shell exited: show a closed/reconnect bar.
             conv.kind == ConversationKind.TERMINAL ->

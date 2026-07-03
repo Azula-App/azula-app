@@ -18,7 +18,7 @@ import dev.azula.terminal.keyEventToBytes
  *  so no IME concerns — every key (arrows, Esc, Tab, Ctrl-combos, printables)
  *  goes straight to the PTY. Auto-focuses; a tap re-focuses. */
 @Composable
-actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier) {
+actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier, reclaimFocusSignal: Int) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(convId) { runCatching { fr.requestFocus() } }
     Box(

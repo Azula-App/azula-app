@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,9 +19,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -90,9 +94,24 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
         }
     } else Modifier
 
-    Box(Modifier.fillMaxSize().background(AzulaColors.bg1).then(sizeMod)) {
+    // Bumped on every tap on the terminal surface, to tell RawTerminalInput to
+    // reclaim focus + re-summon the keyboard (mobile only; the jvm actual
+    // re-focuses itself and ignores this). Detected here, on this outer Box,
+    // rather than on RawTerminalInput's own modifier chain: confirmed on-device
+    // that a tap pointerInput attached to the (BasicTextField-backed) mobile
+    // field's own modifier chain never receives real touches at all -- not even
+    // its coroutine start, instrumented with logging -- while an identical one
+    // on this Box fires immediately. BasicTextField's internal implementation
+    // apparently doesn't route real hit-testing through the modifier chain
+    // passed into it the way it does e.g. focusRequester.
+    var reclaimFocusSignal by remember(convId) { mutableStateOf(0) }
+    val tapMod = if (live) {
+        Modifier.pointerInput(convId) { detectTapGestures { reclaimFocusSignal++ } }
+    } else Modifier
+
+    Box(Modifier.fillMaxSize().background(AzulaColors.bg1).then(sizeMod).then(tapMod)) {
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
-        if (live) RawTerminalInput(session, convId, Modifier.matchParentSize())
+        if (live) RawTerminalInput(session, convId, Modifier.matchParentSize(), reclaimFocusSignal)
 
         if (frame.altScreen) AltScreen(frame, cursorOn, rowHeight) else PrimaryScreen(frame, cursorOn, rowHeight)
     }

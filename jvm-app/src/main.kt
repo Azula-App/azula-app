@@ -13,7 +13,7 @@ fun main(args: Array<String>) = application {
     System.getenv("AZULA_CONNECT")?.takeIf { it.isNotBlank() }?.let { DeepLinkBus.deliver(it) }
     Window(
         onCloseRequest = ::exitApplication,
-        title = "azula — peer to peer",
+        title = "Azula — peer to peer",
         icon = appIconPainter(),
         state = rememberWindowState(width = 1180.dp, height = 760.dp),
     ) {

@@ -6,6 +6,7 @@ import dev.azula.net.P2pStream
 import dev.azula.net.PeerStore
 import dev.azula.persist.BlobStore
 import dev.azula.persist.ConversationDto
+import dev.azula.persist.InvitationsStore
 import dev.azula.persist.MessageStore
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
@@ -25,6 +26,7 @@ internal fun testAzulaState(
     messageStore: MessageStore? = null,
     blobStore: BlobStore? = null,
     peerStore: PeerStore? = null,
+    invitationsStore: InvitationsStore? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -34,7 +36,7 @@ internal fun testAzulaState(
         profileStore = null,
         peerStore = peerStore,
         blobStore = blobStore,
-        invitationsStore = null,
+        invitationsStore = invitationsStore,
     ).azulaState
 
 /** An in-memory [PeerStore], so a test can inspect exactly what ConnectService persisted. */

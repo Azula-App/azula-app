@@ -18,6 +18,7 @@ import androidx.compose.ui.test.waitUntilDoesNotExist
 import androidx.compose.ui.test.waitUntilExactlyOneExists
 import dev.azula.mock.FakeTransport
 import dev.azula.mock.InMemoryBlobStore
+import dev.azula.mock.MockInvitationsStore
 import dev.azula.model.ConversationKind
 import dev.azula.net.Frame
 import dev.azula.state.AzulaState
@@ -69,7 +70,7 @@ class DesktopAppE2eTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             runComposeUiTest {
-                val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore())
+                val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore(), invitationsStore = MockInvitationsStore())
                 scope.launch { state.start() }
                 setContent { AzulaTheme { DesktopApp(state) } }
                 block(state, transport, scope)

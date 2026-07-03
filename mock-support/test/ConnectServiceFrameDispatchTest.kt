@@ -59,7 +59,11 @@ class ConnectServiceFrameDispatchTest {
         // LLM alpn so the conversation's kind is LLM: that's what gates the
         // Thinking toggle and picks the AZULA role for streamed tokens.
         val transport = OneShotIncomingTransport("peer-llm", Alpns.LLM, pipe)
-        val azulaState = testAzulaState(backgroundScope, transport)
+        // The stranger gate closes an unknown peer's LLM/TERM stream outright --
+        // there's no accept path for either (see ConnectService's incoming loop).
+        // Seed a saved peer entry so "peer-llm" counts as known and wires as before.
+        val peerStore = InMemoryPeerStore().also { it.save(listOf("peer-llm")) }
+        val azulaState = testAzulaState(backgroundScope, transport, peerStore = peerStore)
         azulaState.start()
         runCurrent()
 
@@ -149,7 +153,11 @@ private class OneShotIncomingTransport(
     override fun secretKeyBytes(): ByteArray? = null
     override suspend fun importSecretKey(bytes: ByteArray) = Unit
     override suspend fun connect(ticket: String, alpn: String): P2pStream = error("not used: inbound-only test")
-    override fun peerIdForTicket(ticket: String): String? = null
+    // Identity, so a peerStore entry equal to the target remoteId (see the
+    // tokenStream test's seeded InMemoryPeerStore) resolves back to it --
+    // needed to make LLM/TERM's stranger, which the gate never lets through
+    // any accept path, a "known" peer instead.
+    override fun peerIdForTicket(ticket: String): String = ticket
     override fun incoming(): Flow<IncomingConnection> = flow { emit(IncomingConnection(remoteId, alpn, pipe.clientStream)) }
     override suspend fun shutdown() = Unit
 }

@@ -9,6 +9,8 @@ import dev.azula.net.MediaCodec
 import dev.azula.net.MediaFetchRequest
 import dev.azula.net.MediaFetchResponse
 import dev.azula.net.P2pStream
+import dev.azula.persist.InvitationsBook
+import dev.azula.persist.InvitationsStore
 
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -108,7 +110,11 @@ class FakeTransport : IrohTransport {
         ticket.removePrefix("azula-mock-").takeIf { it != ticket && it.isNotBlank() }
             ?: ("mock" + (ticket.hashCode().toLong() and 0xffffffffL).toString(16))
 
-    /** Surface one inbound terminal connection so the mock build has a live terminal. */
+    /** Surface one inbound terminal connection so the mock build has a live terminal.
+     *  Its remoteId ("mockterm") must be pre-seeded as a known contact via
+     *  [MockInvitationsStore] -- ConnectService's stranger gate (see
+     *  azula-docs/docs/invitations.md) closes an unknown peer's TERM/LLM stream
+     *  outright, with no accept path for either. */
     override fun incoming(): Flow<IncomingConnection> = flow {
         delay(300)
         emit(IncomingConnection(remoteId = "mockterm", alpn = Alpns.TERM, stream = FakeTerminalStream()))
@@ -129,6 +135,22 @@ class FakeTransport : IrohTransport {
     override fun ticketBytes(ticket: String): ByteArray = ticket.encodeToByteArray()
 
     override fun ticketFromBytes(bytes: ByteArray): String = bytes.decodeToString()
+}
+
+/**
+ * An [InvitationsStore] pre-seeded with [FakeTransport.incoming]'s own
+ * auto-surfaced demo peer ("mockterm") as an already-accepted contact, so
+ * ConnectService's stranger gate recognizes it as known and wires it
+ * immediately instead of closing it as an unrecognized stranger. Deliberately
+ * NOT a [PeerStore] entry: that would also make ConnectService.reconnectSaved
+ * actively re-dial "mockterm" as an outbound peer (FakeTransport.connect never
+ * fails), creating a second, spurious PEER conversation alongside the real
+ * demo terminal. A contact is known without being something to dial. Read-only:
+ * the mock build doesn't persist real invitations, so [save] is a no-op.
+ */
+class MockInvitationsStore : InvitationsStore {
+    override fun load(): InvitationsBook = InvitationsBook(contacts = listOf("mockterm"))
+    override fun save(book: InvitationsBook) = Unit
 }
 
 /** A fake echo shell: prints a prompt, echoes keystrokes back as terminal output,

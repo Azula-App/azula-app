@@ -156,11 +156,20 @@ class ConnectService(
                         scope.launch { runCatching { inc.stream.close() } }
                         return@collect
                     }
-                    // A stranger on the peer ALPN must present a valid invite (see
-                    // azula-docs/docs/invitations.md) before we wire it into a
-                    // conversation -- hold the stream pending instead.
-                    if (inc.alpn == Alpns.CHAT && !isKnownPeer(inc.remoteId)) {
-                        scope.launch { handleStrangerConnection(inc) }
+                    if (!isKnownPeer(inc.remoteId)) {
+                        // dialAll races CHAT+LLM+TERM, so a stranger's dial opens all
+                        // three. Only CHAT is invite-gateable (see
+                        // azula-docs/docs/invitations.md) -- hold it pending a valid
+                        // Hello.invite. LLM/TERM have no accept UX and no legitimate
+                        // reason to be opened by a stranger, so just close them; in
+                        // particular don't enqueue them as pending too, or whichever
+                        // of the three arrives first (not necessarily CHAT) would
+                        // become the wrong held "primary".
+                        if (inc.alpn == Alpns.CHAT) {
+                            scope.launch { handleStrangerConnection(inc) }
+                        } else {
+                            scope.launch { runCatching { inc.stream.close() } }
+                        }
                         return@collect
                     }
                     wireStream(inc.alpn, inc.stream, inc.remoteId)

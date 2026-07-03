@@ -39,4 +39,21 @@ class ProtocolTest {
         assertTrue(FrameCodec.decode("""{"type":"term","line":"ok"}""") is Frame.Term)
         assertTrue(FrameCodec.encode(Frame.Input("ls\n")).contains("\"type\":\"input\""))
     }
+
+    @Test
+    fun helloInviteRoundTrips() {
+        val encoded = FrameCodec.encode(Frame.Hello("nodeabc", invite = "azi123"))
+        assertTrue(encoded.contains("\"invite\":\"azi123\""), "missing invite: $encoded")
+        val decoded = FrameCodec.decode(encoded)
+        assertTrue(decoded is Frame.Hello)
+        assertEquals("azi123", (decoded as Frame.Hello).invite)
+    }
+
+    @Test
+    fun helloWithoutInviteDefaultsNull() {
+        // Old peers omit the field entirely — must stay wire-compatible.
+        val decoded = FrameCodec.decode("""{"type":"hello","name":"nodeabc"}""")
+        assertTrue(decoded is Frame.Hello)
+        assertEquals(null, (decoded as Frame.Hello).invite)
+    }
 }

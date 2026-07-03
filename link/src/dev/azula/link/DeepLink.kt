@@ -1,10 +1,15 @@
 package dev.azula.link
 
 /**
- * Parses azula deeplinks into a session token (an iroh ticket / code).
- * Accepts the universal/app links and the custom scheme:
- *   - https://azula.app/s/<token>      (and /connect/<token>)
- *   - azula://connect?code=<token>
+ * Parses azula deeplinks into a session token (an invite `azi…` string, or a
+ * legacy raw iroh ticket / code — callers can't tell which without decoding,
+ * see [dev.azula.link.InviteCodec.isInvite]). Accepts the universal/app links
+ * and the custom scheme:
+ *   - https://azula.app/i/<payload>    (invite; canonical share link)
+ *   - azula://i?c=<payload>            (invite; custom-scheme fallback)
+ *   - bare azi… string                 (invite; pasteable into the connect box)
+ *   - https://azula.app/s/<token>      (legacy; and /connect/<token>)
+ *   - azula://connect?code=<token>     (legacy)
  */
 object AzulaLinks {
     const val HOST = "azula.app"
@@ -13,10 +18,34 @@ object AzulaLinks {
     /** The canonical web link for a connect [token] — what the QR encodes and share sheets present. */
     fun webLink(token: String): String = "https://$HOST/s/$token"
 
+    /** The canonical web link for an encoded invite [payload] (an `azi…` string). */
+    fun inviteLink(payload: String): String = "https://$HOST/i/$payload"
+
     fun parse(raw: String): String? {
         val s = raw.trim()
 
-        // azula://connect?code=<token>
+        // Bare invite string, pasted directly.
+        if (isInvite(s)) return s
+
+        // .../i/<payload> (invite universal/app link)
+        run {
+            val i = s.indexOf("/i/")
+            if (i >= 0) {
+                var v = s.substring(i + "/i/".length)
+                v = v.substringBefore('?').substringBefore('#').substringBefore('/')
+                return v.ifEmpty { null }?.let(::percentDecode)
+            }
+        }
+
+        // azula://i?c=<payload> (invite custom-scheme fallback)
+        val cIdx = s.indexOf("c=")
+        if (s.startsWith("$SCHEME://i") && cIdx >= 0) {
+            var v = s.substring(cIdx + "c=".length)
+            v = v.substringBefore('&').substringBefore('#')
+            return v.ifEmpty { null }?.let(::percentDecode)
+        }
+
+        // azula://connect?code=<token> (legacy)
         val codeIdx = s.indexOf("code=")
         if (codeIdx >= 0) {
             var v = s.substring(codeIdx + "code=".length)
@@ -24,7 +53,7 @@ object AzulaLinks {
             return v.ifEmpty { null }?.let(::percentDecode)
         }
 
-        // .../s/<token> or .../connect/<token>
+        // .../s/<token> or .../connect/<token> (legacy)
         for (prefix in listOf("/s/", "/connect/")) {
             val i = s.indexOf(prefix)
             if (i >= 0) {

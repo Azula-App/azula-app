@@ -86,6 +86,27 @@ interface IrohTransport {
     suspend fun shutdown()
 
     /**
+     * Sign [data] with this device's iroh node key (Ed25519), for the
+     * `signed` invite flag (see azula-docs/docs/invitations.md). Null if the
+     * endpoint isn't bound or signing is unsupported. Defaults to null so
+     * every existing [IrohTransport] implementation stays source-compatible.
+     */
+    fun signWithNodeKey(data: ByteArray): ByteArray? = null
+
+    /**
+     * Verify [sig] over [data] against the node key encoded in [nodeIdHex].
+     * False (not an exception) on any failure — bad hex, wrong signature, or
+     * unsupported. Defaults to false.
+     */
+    fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean = false
+
+    /** The raw postcard bytes of [ticket], for embedding in an invite payload. Null on failure. */
+    fun ticketBytes(ticket: String): ByteArray? = null
+
+    /** The inverse of [ticketBytes]: rebuilds a dialable ticket string from raw bytes. Null on failure. */
+    fun ticketFromBytes(bytes: ByteArray): String? = null
+
+    /**
      * Invoked at the end of every successful [bind] — the initial bind and any
      * re-bind (e.g. Android foreground-resume). The app sets this to re-announce
      * presence to saved peers/bridges so a bridge flushes any queued mail right

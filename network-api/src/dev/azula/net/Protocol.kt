@@ -18,10 +18,14 @@ sealed class Frame {
      * presence "ping" that announces this device and (importantly) unblocks the
      * bridge's accept loop so it flushes any mail queued for us. [name] is a
      * display fallback; a paired bridge identifies us by node id regardless.
+     * [invite] is the full encoded invite string (`azi…`, see
+     * `dev.azula.link.InviteCodec`), sent by a redeemer dialing a stranger until
+     * the issuer has accepted it (see azula-docs/docs/invitations.md). Known
+     * peers omit it; old peers ignore it.
      */
     @Serializable
     @SerialName("hello")
-    data class Hello(val name: String) : Frame()
+    data class Hello(val name: String, val invite: String? = null) : Frame()
 
     /** Client → peer/server: a chat / LLM prompt. */
     @Serializable

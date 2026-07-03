@@ -42,4 +42,21 @@ class FakeTransportTest {
         assertTrue(key.contentEquals(RecoveryPhrase.decode(phrase)), "phrase should decode to the original key")
         transport.importSecretKey(key) // mock no-op — must not throw
     }
+
+    @Test fun signAndTicketStubsAreDeterministicAndRoundTrip() = runTest {
+        val transport: IrohTransport = FakeTransport()
+
+        val data = "hello".encodeToByteArray()
+        val sig1 = transport.signWithNodeKey(data)
+        val sig2 = transport.signWithNodeKey(data)
+        assertNotNull(sig1)
+        assertEquals(64, sig1.size)
+        assertTrue(sig1.contentEquals(sig2), "signing the same data twice should be deterministic")
+        assertTrue(transport.verifyNodeSignature("anynode", data, sig1), "mock always trusts")
+
+        val ticket = "azula-mock-ticket-abc123"
+        val bytes = transport.ticketBytes(ticket)
+        assertNotNull(bytes)
+        assertEquals(ticket, transport.ticketFromBytes(bytes))
+    }
 }

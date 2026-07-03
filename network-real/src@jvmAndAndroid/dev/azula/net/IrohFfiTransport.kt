@@ -3,6 +3,9 @@ package dev.azula.net
 import app.azula.iroh.IrohEndpoint
 import app.azula.iroh.IrohStream
 import app.azula.iroh.nodeIdFromTicket
+import app.azula.iroh.ticketBytes as irohTicketBytes
+import app.azula.iroh.ticketFromBytes as irohTicketFromBytes
+import app.azula.iroh.verifySignature as irohVerifySignature
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -116,6 +119,18 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
         runCatching { endpoint?.shutdown() }
         endpoint = null
     }
+
+    override fun signWithNodeKey(data: ByteArray): ByteArray? =
+        runCatching { endpoint?.sign(data) }.getOrNull()
+
+    override fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean =
+        runCatching { irohVerifySignature(nodeIdHex, data, sig) }.getOrDefault(false)
+
+    override fun ticketBytes(ticket: String): ByteArray? =
+        runCatching { irohTicketBytes(ticket) }.getOrNull()
+
+    override fun ticketFromBytes(bytes: ByteArray): String? =
+        runCatching { irohTicketFromBytes(bytes) }.getOrNull()
 
     /** Android: called when the app is backgrounded — close cleanly to free sockets. */
     fun pause() {

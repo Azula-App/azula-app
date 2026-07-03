@@ -108,6 +108,20 @@ class FakeTransport : IrohTransport {
     }
 
     override suspend fun shutdown() {}
+
+    /** A deterministic fake 64-byte "signature" (not real crypto) so the mock invite flow round-trips. */
+    override fun signWithNodeKey(data: ByteArray): ByteArray {
+        val sum = data.sum()
+        return ByteArray(64) { (sum + it).toByte() }
+    }
+
+    /** Mock always trusts -- there's no real key material to check. */
+    override fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean = true
+
+    /** Mock tickets are plain strings, so bytes/string round-trip via UTF-8. */
+    override fun ticketBytes(ticket: String): ByteArray = ticket.encodeToByteArray()
+
+    override fun ticketFromBytes(bytes: ByteArray): String = bytes.decodeToString()
 }
 
 /** A fake echo shell: prints a prompt, echoes keystrokes back as terminal output,

@@ -6,6 +6,7 @@ import app.azula.iroh.nodeIdFromTicket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
@@ -60,8 +61,22 @@ class IosIrohTransport : IrohTransport {
 
     override fun incoming(): Flow<IncomingConnection> = channelFlow {
         val ep = endpoint ?: return@channelFlow
+        var backoffMs = 100L
         while (isActive) {
-            val conn = runCatching { ep.acceptNext() }.getOrNull() ?: break
+            // Only a clean close (a null result) should end the loop — a failed
+            // inbound handshake surfaces as an exception and must not kill it, or
+            // one bad peer permanently stops us from accepting anyone else. Back
+            // off on repeated failures so a persistently-failing endpoint can't
+            // hot-loop.
+            val result = runCatching { ep.acceptNext() }
+            if (result.isFailure) {
+                println("IosIrohTransport.incoming: acceptNext failed, retrying in ${backoffMs}ms: ${result.exceptionOrNull()}")
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(1000L)
+                continue
+            }
+            val conn = result.getOrNull() ?: break
+            backoffMs = 100L
             send(IncomingConnection(conn.remoteId, conn.alpn, IrohP2pStream(conn.stream)))
         }
     }

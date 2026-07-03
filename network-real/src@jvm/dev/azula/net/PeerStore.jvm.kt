@@ -2,19 +2,15 @@ package dev.azula.net
 
 import java.io.File
 
-actual fun platformPeerStore(): PeerStore? = FilePeerStore()
-
-/** Stores paired tickets one-per-line in ~/.azula/peers.txt. */
-class FilePeerStore : PeerStore {
-    private val file = File(System.getProperty("user.home"), ".azula/peers.txt")
-
-    override fun load(): List<String> =
-        runCatching { file.readLines().filter { it.isNotBlank() } }.getOrDefault(emptyList())
-
-    override fun save(tickets: List<String>) {
+actual fun platformPeerStore(): PeerStore? = RawLinePeerStore(
+    readRaw = { runCatching { peerFile().takeIf { it.exists() }?.readText() }.getOrNull() },
+    writeRaw = { text ->
         runCatching {
-            file.parentFile?.mkdirs()
-            file.writeText(tickets.joinToString("\n"))
+            val f = peerFile()
+            f.parentFile?.mkdirs()
+            f.writeText(text)
         }
-    }
-}
+    },
+)
+
+private fun peerFile() = File(System.getProperty("user.home"), ".azula/peers.txt")

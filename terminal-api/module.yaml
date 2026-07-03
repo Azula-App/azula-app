@@ -1,8 +1,9 @@
 # terminal-api — the dependency-free terminal engine: the VT-100 screen model
-# (TermScreen/TermSpan) and key-to-bytes encoding (TermSeq/keyEventToBytes). Pure
+# (TerminalEmulator/Row), speculative local echo (PredictionEngine), key-to-bytes
+# encoding (TermSeq/keyEventToBytes), and the TerminalSession contract. Pure
 # logic over Compose snapshot state + key events; no app dependencies, so it's
-# unit-testable in isolation (see TermScreenTest). The terminal UI + the
-# TerminalSession contract live in terminal-real.
+# unit-testable in isolation (see TerminalEmulatorTest). The terminal UI + the
+# real session implementations live in terminal-real.
 product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]

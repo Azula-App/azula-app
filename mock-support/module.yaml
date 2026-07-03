@@ -21,6 +21,10 @@ test-dependencies:
 
 settings:
   kotlin:
+    # Test code builds Frame.A2ui/JsonObject payloads directly (see
+    # ConnectServiceFrameDispatchTest.kt); mirrors every other module that
+    # touches kotlinx.serialization types (a2ui, network-api, shared, ...).
+    serialization: json
     compilerPlugins:
       - id: dev.zacsweers.metro.compiler
         dependency: dev.zacsweers.metro:compiler:0.13.2

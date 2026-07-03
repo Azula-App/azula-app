@@ -45,10 +45,10 @@ data class IncomingConnection(
 )
 
 /**
- * Platform abstraction over an iroh endpoint. JVM/Android back this with the
- * `computer.iroh:iroh` binding; iOS delegates to an injected Swift `IrohLib`
- * implementation. The `-mock` apps back the UI with a FakeTransport (in the
- * mock-support module) instead, so no real networking is involved.
+ * Platform abstraction over an iroh endpoint. All platforms back this with the
+ * `app.azula.iroh:iroh-kmp` binding (see azula-docs/docs/iroh-kmp.md). The
+ * `-mock` apps back the UI with a FakeTransport (in the mock-support module)
+ * instead, so no real networking is involved.
  */
 interface IrohTransport {
     /** Hex node id, available after [bind]. */

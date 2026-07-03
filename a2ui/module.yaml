@@ -12,9 +12,6 @@ dependencies:
   - $compose.foundation: exported
   - $compose.material3: exported
 
-test-dependencies:
-  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
-
 settings:
   compose:
     enabled: true

@@ -96,8 +96,8 @@ class ConversationState(seed: List<Message>) {
 /**
  * The single source of truth for the whole app — a plain holder of Compose
  * snapshot state, observed identically on every platform. Owns the [transport]
- * and a long-lived [scope]. Conversations stay lively offline (canned azula,
- * local terminal) and go live the moment a real iroh stream is wired in.
+ * and a long-lived [scope]. Conversations persist offline and go live the
+ * moment a real iroh stream is wired in.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -110,6 +110,9 @@ class AzulaState(
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
     private val chatService: ChatService = ChatService(convStore, persistence, scope),
+    // The inbound-frame reaction core (applyFrame/applyProfile + the share
+    // handshake). ConnectService hands it frames as they arrive off the wire.
+    private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, null),
     // The connect + transport core (owns the swappable transport, dial/receive/
     // dispatch). AzulaState wires its navigation + foreground callbacks in init.
     private val connectService: ConnectService,
@@ -161,9 +164,10 @@ class AzulaState(
     val surfaces get() = surfaceStore.surfaces
 
     init {
-        // Give the connect core its app-shell hooks (navigation + foreground).
+        // Give the connect core its app-shell hook (navigation); FrameDispatcher
+        // gets the foreground hook since it's the only place that reads it.
         connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
-        connectService.foreground = { inForeground }
+        frameDispatcher.foreground = { inForeground }
     }
     private fun nextId(p: String): String = convStore.nextId(p)
 
@@ -375,8 +379,8 @@ class AzulaState(
     val personas get() = personaService.personas
     val defaultPersonaId get() = personaService.defaultPersonaId
 
-    /** Inbound connections awaiting a "share my profile?" decision (owned by ConnectService). */
-    val pendingShares get() = connectService.pendingShares
+    /** Inbound connections awaiting a "share my profile?" decision (owned by FrameDispatcher). */
+    val pendingShares get() = frameDispatcher.pendingShares
 
     fun newPersonaId(): String = personaService.newId()
     fun upsertPersona(persona: Persona) = personaService.upsert(persona)

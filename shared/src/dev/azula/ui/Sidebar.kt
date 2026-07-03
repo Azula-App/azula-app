@@ -45,7 +45,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import dev.azula.getWorld
+import dev.azula.platformName
 import dev.azula.model.Conversation
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
@@ -118,7 +118,7 @@ fun Brand() {
             Spacer(Modifier.width(5.dp))
             BlinkingCursor()
         }
-        Text("p2p over iroh · ${getWorld()}", color = AzulaColors.textFaint2, fontFamily = Fonts.mono, fontSize = 10.sp)
+        Text("p2p over iroh · ${platformName()}", color = AzulaColors.textFaint2, fontFamily = Fonts.mono, fontSize = 10.sp)
     }
 }
 

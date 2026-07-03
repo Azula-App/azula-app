@@ -1,9 +1,13 @@
 package dev.azula.mock
 
 import dev.azula.di.AppGraph
+import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Build an [AzulaState] wired to the fakes for the `-mock` apps: a [FakeTransport]
@@ -20,3 +24,15 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         profileStore = null,
         peerStore = null,
     ).azulaState
+
+/**
+ * Installs [buildMockState] as the process-scoped [AppStateHost.shared] (a no-op
+ * if one is already installed) and starts it. Shared by the three `-mock` entry
+ * points (android-app-mock, jvm-app-mock, ios-app-mock).
+ */
+fun installMockState() {
+    if (AppStateHost.shared == null) {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        AppStateHost.shared = buildMockState(scope).also { scope.launch { it.start() } }
+    }
+}

@@ -21,6 +21,7 @@ match the mock exactly.
 ## Surfaces implemented
 
 Desktop two-pane (sidebar + chat) and mobile single-pane (home → connect → chat);
-markdown message bubbles; the thinking indicator; the `decide` / `poll` / `dice`
-inline widgets; the terminal view; and the connect flow (code, QR, holepunch
-progress animation).
+markdown message bubbles; the thinking indicator; A2UI inline widget surfaces
+(the built-in `dice` example; `decide`/`poll` were removed with the demo seeds —
+agents render richer surfaces via the bridge's `render_ui`); the terminal view;
+and the connect flow (code, QR, holepunch progress animation).

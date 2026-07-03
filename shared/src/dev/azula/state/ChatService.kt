@@ -19,9 +19,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The chat feature carved out of AzulaState: sending text/file messages on a live
- * stream, and the canned local assistant used for an offline LLM conversation.
- * Sends go over the conversation's own [dev.azula.net.P2pStream] (not the transport
- * directly), so this service is independent of transport rebinding.
+ * stream. Sends go over the conversation's own [dev.azula.net.P2pStream] (not the
+ * transport directly), so this service is independent of transport rebinding.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -30,7 +29,7 @@ class ChatService(
     private val persistence: PersistenceCoordinator,
     private val scope: CoroutineScope,
 ) {
-    /** True while the (canned or remote) assistant is composing a reply. */
+    /** True while the remote assistant is composing a reply. */
     var thinking by mutableStateOf(false)
         private set
     fun updateThinking(on: Boolean) { thinking = on }

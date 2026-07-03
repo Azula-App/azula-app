@@ -5,12 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import dev.azula.AzulaApp
-import dev.azula.mock.buildMockState
-import dev.azula.state.AppStateHost
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import dev.azula.mock.installMockState
 
 /**
  * The whole `-mock` Android app: no process-scoped iroh node and no foreground
@@ -25,10 +20,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
 
-        if (AppStateHost.shared == null) {
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            AppStateHost.shared = buildMockState(scope).also { scope.launch { it.start() } }
-        }
+        installMockState()
 
         setContent { AzulaApp() }
     }

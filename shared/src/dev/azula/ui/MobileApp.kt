@@ -1,5 +1,13 @@
 package dev.azula.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.state.AzulaState
@@ -43,11 +52,28 @@ fun MobileApp(state: AzulaState) {
         // Keep the gradient full-bleed (edge to edge) but inset the content so it
         // clears the status bar / camera cutout / home indicator and the keyboard.
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            when (state.mScreen) {
-                MScreen.HOME -> MobileHome(state)
-                MScreen.CONNECT -> MobileConnect(state)
-                MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
-                MScreen.SETTINGS -> SettingsScreen(state, onBack = { state.mobileBack() })
+            AnimatedContent(
+                targetState = state.mScreen,
+                transitionSpec = {
+                    // HOME is the root: pushing a screen slides it in from the
+                    // right; popping back slides it out to the right again.
+                    val forward = initialState == MScreen.HOME
+                    val spec = tween<IntOffset>(280, easing = FastOutSlowInEasing)
+                    if (forward) {
+                        (slideInHorizontally(spec) { it } + fadeIn(tween(280))) togetherWith
+                            (slideOutHorizontally(spec) { -it / 4 } + fadeOut(tween(280)))
+                    } else {
+                        (slideInHorizontally(spec) { -it / 4 } + fadeIn(tween(280))) togetherWith
+                            (slideOutHorizontally(spec) { it } + fadeOut(tween(280)))
+                    }
+                },
+            ) { screen ->
+                when (screen) {
+                    MScreen.HOME -> MobileHome(state)
+                    MScreen.CONNECT -> MobileConnect(state)
+                    MScreen.CHAT -> ChatPane(state, state.mActive, onBack = { state.mobileBack() })
+                    MScreen.SETTINGS -> SettingsScreen(state, onBack = { state.mobileBack() })
+                }
             }
         }
         FullscreenMediaOverlay(state)

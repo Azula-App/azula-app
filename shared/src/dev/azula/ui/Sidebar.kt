@@ -59,30 +59,12 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
         ConnectRow(active = state.desktopActive == "connect") { state.openConnectDesktop() }
         Spacer(Modifier.height(6.dp))
         SectionLabel("CONVERSATIONS")
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (state.conversations.isEmpty()) {
-                item {
-                    Text(
-                        "No conversations yet — connect a peer to begin.",
-                        color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                    )
-                }
-            }
-            items(state.conversations, key = { it.id }) { conv ->
-                ConversationRow(
-                    conv = conv,
-                    active = state.desktopActive == conv.id,
-                    online = state.convOrNull(conv.id)?.online == true,
-                    avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
-                    description = state.convOrNull(conv.id)?.peerDescription,
-                    rttMs = state.convOrNull(conv.id)?.rttMs,
-                    onClick = { state.selectDesktop(conv.id) },
-                    onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
-                    onDelete = { state.deleteConversation(conv.id) },
-                )
-            }
-        }
+        ConversationList(
+            state = state,
+            activeId = state.desktopActive,
+            onSelect = state::selectDesktop,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
         Spacer(Modifier.height(8.dp))
         InvitesRow(active = state.desktopActive == "invites", pending = state.pendingInvites.size) { state.openInvitesDesktop() }
         Spacer(Modifier.height(6.dp))
@@ -180,6 +162,41 @@ fun ConnectRow(active: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * The conversation list body: empty-state message + the rows themselves. Shared
+ * by the desktop sidebar and the mobile home screen so the empty state, key-based
+ * item identity, and [ConversationRow] arg-mapping only exist once. [activeId]
+ * drives the desktop selection highlight ([ConversationRow.active]); mobile has
+ * no such highlight and passes `null`.
+ */
+@Composable
+fun ConversationList(state: AzulaState, activeId: String?, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (state.conversations.isEmpty()) {
+            item {
+                Text(
+                    "No conversations yet — connect a peer to begin.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                )
+            }
+        }
+        items(state.conversations, key = { it.id }) { conv ->
+            ConversationRow(
+                conv = conv,
+                active = activeId == conv.id,
+                online = state.convOrNull(conv.id)?.online == true,
+                avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
+                description = state.convOrNull(conv.id)?.peerDescription,
+                rttMs = state.convOrNull(conv.id)?.rttMs,
+                onClick = { onSelect(conv.id) },
+                onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
+                onDelete = { state.deleteConversation(conv.id) },
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationRow(
@@ -232,7 +249,7 @@ fun ConversationRow(
         if (online && conv.enabled && rttMs != null) {
             Text("${rttMs}ms", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
         }
-        StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
+        StatusDot(statusDotColor(online, conv.enabled, conv.kind))
         if (hasMenu) {
             ConvOverflowMenu(
                 enabled = conv.enabled,

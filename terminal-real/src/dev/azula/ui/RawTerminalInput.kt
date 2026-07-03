@@ -1,5 +1,6 @@
 package dev.azula.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,6 +16,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -77,6 +79,12 @@ internal fun MobileRawTerminalInput(session: TerminalSession, convId: String, mo
         },
         modifier = modifier
             .focusRequester(fr)
+            // Re-summon the keyboard on tap -- the field only auto-focuses on
+            // conversation switch (LaunchedEffect above), so a user who dismissed
+            // the soft keyboard and then tapped the terminal would otherwise be
+            // stuck with focus but no visible keyboard. detectTapGestures (not
+            // `clickable`) so this doesn't fight the keycaps bar's own taps.
+            .pointerInput(Unit) { detectTapGestures { runCatching { fr.requestFocus() }; keyboard?.show() } }
             .onPreviewKeyEvent { ev ->
                 val appKeys = session.terminalScreen(convId).applicationCursorKeys
                 keyEventToBytes(ev, includePrintable = false, appCursorKeys = appKeys)

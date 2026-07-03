@@ -102,9 +102,11 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         // conversation so switching chats doesn't leak a pending pick into another.
         var pendingMedia by remember(convId) { mutableStateOf<PendingMedia?>(null) }
         when {
-            termLive ->
-                // Type directly in the terminal — no input bar, just the compact key row.
-                TerminalKeysBar(state, convId)
+            termLive -> {
+                // Type directly in the terminal — no input bar, just the compact key row,
+                // and only while the soft keyboard is actually showing.
+                if (rememberImeVisible()) TerminalKeysBar(state, convId)
+            }
             // A terminal whose shell exited: show a closed/reconnect bar.
             conv.kind == ConversationKind.TERMINAL ->
                 TerminalEndedBar(state, convId)
@@ -261,7 +263,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
         Column(Modifier.weight(1f)) {
             Text(conv.name, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(if (online && conv.enabled) AzulaColors.online else dotColorFor(conv.kind))
+                StatusDot(statusDotColor(online, conv.enabled, conv.kind))
                 Spacer(Modifier.width(7.dp))
                 val rtt = cs.rttMs
                 // Status only — the mnemonic code belongs on the connect screen, not here.

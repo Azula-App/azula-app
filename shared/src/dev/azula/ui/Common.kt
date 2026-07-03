@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -43,9 +46,14 @@ fun glyphStyleFor(kind: ConversationKind): GlyphStyle = when (kind) {
     ConversationKind.PEER -> GlyphStyle.PEER
 }
 
-fun dotColorFor(kind: ConversationKind): Color = when (kind) {
-    ConversationKind.LLM -> AzulaColors.pink
-    else -> AzulaColors.online
+/** The conversation-list/header status dot color: green only when actually
+ *  connected; LLM keeps its brand resting color when idle; PEER/TERMINAL fall
+ *  back to a neutral gray instead of the online green (a disconnected
+ *  peer/terminal must not look connected). */
+fun statusDotColor(online: Boolean, enabled: Boolean, kind: ConversationKind): Color = when {
+    online && enabled -> AzulaColors.online
+    kind == ConversationKind.LLM -> AzulaColors.pink
+    else -> AzulaColors.muted
 }
 
 val PinkButtonBrush = Brush.linearGradient(listOf(AzulaColors.pink, AzulaColors.pinkDark))
@@ -86,6 +94,15 @@ fun AvatarBox(bitmap: ImageBitmap?, glyph: String, kind: ConversationKind, size:
 @Composable
 fun StatusDot(color: Color, size: Dp = 8.dp) {
     Box(Modifier.size(size).clip(CircleShape).background(color))
+}
+
+/** Whether the on-screen (soft) keyboard is currently showing, tracked via the
+ *  IME window inset. Used to tie terminal-only chrome (e.g. [TerminalKeysBar])
+ *  to the keyboard's actual visibility instead of just "is this a live terminal". */
+@Composable
+fun rememberImeVisible(): Boolean {
+    val density = LocalDensity.current
+    return WindowInsets.ime.getBottom(density) > 0
 }
 
 /**

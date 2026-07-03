@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -133,30 +131,12 @@ private fun MobileHome(state: AzulaState) {
             }
         }
         SectionLabel("CONVERSATIONS")
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (state.conversations.isEmpty()) {
-                item {
-                    Text(
-                        "No conversations yet — connect a peer to begin.",
-                        color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                    )
-                }
-            }
-            items(state.conversations, key = { it.id }) { conv ->
-                ConversationRow(
-                    conv = conv,
-                    active = false,
-                    online = state.convOrNull(conv.id)?.online == true,
-                    avatar = state.convOrNull(conv.id)?.peerAvatarBitmap,
-                    description = state.convOrNull(conv.id)?.peerDescription,
-                    rttMs = state.convOrNull(conv.id)?.rttMs,
-                    onClick = { state.openChatMobile(conv.id) },
-                    onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
-                    onDelete = { state.deleteConversation(conv.id) },
-                )
-            }
-        }
+        ConversationList(
+            state = state,
+            activeId = null,
+            onSelect = state::openChatMobile,
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+        )
     }
 }
 

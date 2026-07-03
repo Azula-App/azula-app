@@ -9,8 +9,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.terminal.ATTR_BOLD
@@ -64,11 +67,15 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
 
     // Measure a monospace cell so we can report the viewport size in character cells.
     val measurer = rememberTextMeasurer()
-    val lineHpx = with(LocalDensity.current) { LINE_HEIGHT.toPx() }
+    val density = LocalDensity.current
+    val lineHpx = with(density) { LINE_HEIGHT.toPx() }
+    // Rounded to a whole pixel so IME-driven resizes (which nudge the available
+    // density/height) don't sub-pixel remeasure every row and jitter them.
+    val rowHeight = with(density) { kotlin.math.round(lineHpx).toDp() }
     val cellW = remember(Fonts.mono) {
         measurer.measure("MMMMMMMMMM", TextStyle(fontFamily = Fonts.mono, fontSize = FONT_SIZE)).size.width / 10
     }
-    val padPx = with(LocalDensity.current) { PAD.toPx() }
+    val padPx = with(density) { PAD.toPx() }
 
     // A blinking cursor while live; hidden when the app hid it (DECTCEM ?25l).
     val cursorOn = if (live && frame.cursorVisible) rememberCursorBlink() else false
@@ -87,42 +94,52 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
         if (live) RawTerminalInput(session, convId, Modifier.matchParentSize())
 
-        if (frame.altScreen) AltScreen(frame, cursorOn) else PrimaryScreen(frame, cursorOn)
+        if (frame.altScreen) AltScreen(frame, cursorOn, rowHeight) else PrimaryScreen(frame, cursorOn, rowHeight)
     }
 }
 
 /** Full-screen TUI (vi/top/…): a fixed grid, no scrollback, no auto-scroll. */
 @Composable
-private fun AltScreen(frame: TermFrame, cursorOn: Boolean) {
+private fun AltScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp) {
     Column(Modifier.fillMaxSize().padding(PAD)) {
         val preds = predictionsByRow(frame)
-        frame.grid.forEachIndexed { r, row -> GridRow(row, r, frame, cursorOn, preds) }
+        frame.grid.forEachIndexed { r, row -> GridRow(row, r, frame, cursorOn, preds, rowHeight) }
     }
 }
 
 /** Interactive shell: scrollback + the live grid in a lazily-rendered scroller. */
 @Composable
-private fun PrimaryScreen(frame: TermFrame, cursorOn: Boolean) {
+private fun PrimaryScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp) {
     val listState = rememberLazyListState()
     val total = frame.scrollback.size + frame.grid.size
 
-    // Stick to the bottom when new output arrives *if* we're already near it (so the
-    // user can scroll up into scrollback without being yanked back down).
+    // Stick to the bottom when new output arrives *if* we're already pinned to it --
+    // never while the user is actively scrolling/dragging (that fight is the main
+    // source of jitter, including on every IME-driven resize).
     LaunchedEffect(frame) {
-        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-        if (total > 0 && (last < 0 || last >= total - 2)) listState.scrollToItem(total - 1)
+        if (!listState.isScrollInProgress && atBottom(listState, total)) listState.scrollToItem(total - 1)
     }
 
     val preds = predictionsByRow(frame)
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(PAD)) {
-        items(frame.scrollback.size) { i -> GridRow(frame.scrollback[i], -1, frame, cursorOn, preds) }
-        items(frame.grid.size) { r -> GridRow(frame.grid[r], r, frame, cursorOn, preds) }
+        items(frame.scrollback.size) { i -> GridRow(frame.scrollback[i], -1, frame, cursorOn, preds, rowHeight) }
+        items(frame.grid.size) { r -> GridRow(frame.grid[r], r, frame, cursorOn, preds, rowHeight) }
     }
 }
 
-/** One terminal row (grid row [gridIndex]; -1 for a scrollback row). */
+/** Whether [listState] is scrolled to (or past) the last item, i.e. pinned to the
+ *  tail -- also true before the first layout pass (no visible items yet), so the
+ *  initial open-to-bottom behavior is preserved. */
+private fun atBottom(listState: LazyListState, total: Int): Boolean {
+    val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return true
+    return total > 0 && last >= total - 1
+}
+
+/** One terminal row (grid row [gridIndex]; -1 for a scrollback row). [rowHeight] is
+ *  a whole-pixel-rounded height so IME-driven density/size changes don't sub-pixel
+ *  remeasure rows and nudge their positions. */
 @Composable
-private fun GridRow(row: Row, gridIndex: Int, frame: TermFrame, cursorOn: Boolean, preds: Map<Int, Map<Int, Int>>) {
+private fun GridRow(row: Row, gridIndex: Int, frame: TermFrame, cursorOn: Boolean, preds: Map<Int, Map<Int, Int>>, rowHeight: Dp) {
     val cursorHere = cursorOn && gridIndex == frame.cursorRow
     val rowPreds = if (gridIndex >= 0) preds[gridIndex] else null
     val text = remember(row.gen, cursorHere, frame.cursorCol, rowPreds) {
@@ -135,6 +152,7 @@ private fun GridRow(row: Row, gridIndex: Int, frame: TermFrame, cursorOn: Boolea
         lineHeight = LINE_HEIGHT,
         softWrap = false,
         maxLines = 1,
+        modifier = Modifier.height(rowHeight),
     )
 }
 

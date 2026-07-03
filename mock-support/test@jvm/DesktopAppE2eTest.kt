@@ -105,6 +105,19 @@ class DesktopAppE2eTest {
     }
 
     @Test
+    fun clickingTheTerminalRowInTheSharedListOpensItsChat() = desktopE2eTest { _, _, _ ->
+        // Exercises the desktop sidebar's ConversationList (Sidebar.kt) -- shared
+        // with the mobile home list -- end to end: the row renders the live
+        // terminal (green dot, via statusDotColor) and its onSelect wiring
+        // (Sidebar -> state.selectDesktop) actually opens the chat.
+        waitUntilAtLeastOneExists(hasText("mo · onyx · ivy"), timeoutMillis = 5_000)
+        onNodeWithText("mo · onyx · ivy").performClick()
+        // ChatHeader's sub-line ("connected", driven by the same online/statusDotColor
+        // state as the row) only appears once the chat pane is showing.
+        waitUntilAtLeastOneExists(hasText("connected"), timeoutMillis = 5_000)
+    }
+
+    @Test
     fun connectFlowShowsTheLoopbackGreeting() = desktopE2eTest { state, _, _ ->
         connectToMockPeer(state)
     }

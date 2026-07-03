@@ -118,7 +118,8 @@ class FrameDispatcher(
     fun applyProfile(convId: String, p: Frame.Profile) {
         if (p.name.isNotBlank()) {
             // The fallback kind matches ConnectService.kindForAlpn(Alpns.CHAT) --
-            // a Profile frame is only ever sent over the CHAT ALPN.
+            // Profile used to be sent only over the CHAT ALPN, but a terminal server
+            // (`azula serve`) now also sends it to self-identify (host name + pwd).
             convStore.ensureConv(convId, convStore.conversationOrNull(convId)?.kind ?: ConversationKind.PEER, p.name)
         }
         convStore.convOrNull(convId)?.let { cs ->

@@ -5,6 +5,7 @@ import dev.azula.core.AppScope
 import dev.azula.epochSeconds
 import dev.azula.link.InviteCodec
 import dev.azula.link.InvitePayload
+import dev.azula.net.Frame
 import dev.azula.net.IrohTransport
 import dev.azula.net.P2pStream
 import dev.azula.notify.Notifier
@@ -49,8 +50,10 @@ class InviteService(
     private val notifier: Notifier?,
     private val scope: CoroutineScope,
 ) {
-    /** Set by ConnectService: wire an accepted stranger's held stream into a live conversation. */
-    var onAccept: (PendingConnectionRequest) -> Unit = {}
+    /** Set by ConnectService: wire an accepted stranger's held stream into a live
+     *  conversation, optionally sharing [Frame.Profile] back over it (the "share
+     *  your name back" step -- see [accept]). */
+    var onAccept: (PendingConnectionRequest, Frame.Profile?) -> Unit = { _, _ -> }
 
     /** Set by AzulaState: whether the app is currently in the foreground. */
     var foreground: () -> Boolean = { true }
@@ -161,7 +164,11 @@ class InviteService(
         }
     }
 
-    fun accept(req: PendingConnectionRequest) {
+    /** Accept [req]: adds the peer to contacts, marks a single-use invite
+     *  consumed, and wires the held stream via [onAccept] -- optionally sharing
+     *  [profile] back over it (guest accept never requires one; this is purely
+     *  the "share your name back" opt-in). */
+    fun accept(req: PendingConnectionRequest, profile: Frame.Profile? = null) {
         if (!pending.remove(req)) return
         contacts.add(req.nodeId)
         req.inviteId?.let { id ->
@@ -169,7 +176,7 @@ class InviteService(
             if (idx >= 0 && (issued[idx].flags and 0x02) != 0) issued[idx] = issued[idx].copy(consumed = true)
         }
         persist()
-        onAccept(req)
+        onAccept(req, profile)
     }
 
     fun decline(req: PendingConnectionRequest) {

@@ -454,7 +454,8 @@ class AzulaState(
         inviteService.createInvite(expiresInSeconds, sign, singleUse, label)
 
     fun revokeInvite(id: String) = inviteService.revoke(id)
-    fun acceptInvite(req: PendingConnectionRequest) = inviteService.accept(req)
+    /** [profile] optionally shares a persona back on accept -- see [InviteService.accept]. */
+    fun acceptInvite(req: PendingConnectionRequest, profile: Frame.Profile? = null) = inviteService.accept(req, profile)
     fun declineInvite(req: PendingConnectionRequest) = inviteService.decline(req)
     fun acceptAllInvites() = inviteService.acceptAll()
     fun declineAllInvites() = inviteService.declineAll()

@@ -133,7 +133,17 @@ class ConnectService(
         // Wire an accepted stranger's held stream into a live conversation. No
         // sourceTicket is set -- an inbound-accepted peer left no ticket to
         // redial (matches every other inbound-accepted path; see scheduleReconnect).
-        inviteService.onAccept = { req -> wireStream(req.alpn, req.stream, req.nodeId) }
+        // If the user chose to share a persona back on accept, send it once the
+        // stream is live (only meaningful on CHAT -- the only alpn a stranger's
+        // held stream is ever on, see the incoming loop).
+        inviteService.onAccept = { req, profile ->
+            val convId = wireStream(req.alpn, req.stream, req.nodeId)
+            if (convId != null && profile != null && req.alpn == Alpns.CHAT) {
+                convStore.convOrNull(convId)?.stream?.let { s ->
+                    scope.launch { runCatching { s.sendLine(FrameCodec.encode(profile)) } }
+                }
+            }
+        }
         transport.onCameOnline = { nodeId = transport.nodeId; scope.launch { reconnectSaved() } }
         try {
             // MEDIA is bind-only (an accept target for on-demand fetch dials), never

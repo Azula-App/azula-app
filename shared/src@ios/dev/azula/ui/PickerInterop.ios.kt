@@ -18,10 +18,15 @@ import platform.UIKit.UIApplication
 import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIViewController
+import platform.UIKit.UIWindow
+import platform.UIKit.UIWindowScene
 import platform.UniformTypeIdentifiers.UTType
+import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.NSObject
+import platform.darwin.dispatch_after
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.darwin.dispatch_time
 import platform.posix.memcpy
 
 /**
@@ -40,8 +45,17 @@ import platform.posix.memcpy
 
 /** Walks up the presented-view-controller chain to find the frontmost VC to present from. */
 internal fun topViewController(): UIViewController? {
-    val root = UIApplication.sharedApplication.keyWindow?.rootViewController ?: return null
-    var top = root
+    val app = UIApplication.sharedApplication
+    // keyWindow is deprecated and returns nil on scene-based apps (verified on the
+    // iOS 26 simulator) -- prefer walking the connected scenes' windows, falling
+    // back to keyWindow for any pre-scene configuration.
+    val sceneWindows = app.connectedScenes
+        .mapNotNull { it as? UIWindowScene }
+        .flatMap { scene -> scene.windows.mapNotNull { w -> w as? UIWindow } }
+    val window = sceneWindows.firstOrNull { it.keyWindow }
+        ?: sceneWindows.firstOrNull()
+        ?: app.keyWindow
+    var top = window?.rootViewController ?: return null
     while (true) {
         val presented = top.presentedViewController ?: return top
         top = presented
@@ -82,15 +96,30 @@ internal val UTTypeAudioKind: UTType = UTType.typeWithIdentifier("public.audio")
  * delegate the caller must keep alive until [onResult] fires (or null if there's
  * no view controller to present from).
  */
+/**
+ * Pickers are launched from a Compose DropdownMenu item, and Compose hosts
+ * popups in a transient presented view controller (ComposeLayersViewController)
+ * that is torn down as the menu closes -- presenting from it (it's the frontmost
+ * VC at tap time) gets the picker dismissed along with it. Defer past the popup
+ * teardown and resolve the presenter fresh at present time.
+ */
+private fun presentAfterPopupTeardown(present: () -> Unit) {
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, 400L * 1_000_000L), // 400 ms
+        dispatch_get_main_queue(),
+    ) { present() }
+}
+
 internal fun presentPhPicker(imagesOnly: Boolean, onResult: (PickedFile) -> Unit): NSObject? {
-    val presenter = topViewController() ?: return null
     val config = PHPickerConfiguration()
     config.filter = if (imagesOnly) PHPickerFilter.imagesFilter() else PHPickerFilter.videosFilter()
     config.selectionLimit = 1L
     val picker = PHPickerViewController(configuration = config)
     val delegate = PhPickerDelegate(onResult)
     picker.delegate = delegate
-    presenter.presentViewController(picker, animated = true, completion = null)
+    presentAfterPopupTeardown {
+        topViewController()?.presentViewController(picker, animated = true, completion = null)
+    }
     return delegate
 }
 
@@ -100,12 +129,13 @@ internal fun presentPhPicker(imagesOnly: Boolean, onResult: (PickedFile) -> Unit
  * no view controller to present from).
  */
 internal fun presentDocumentPicker(contentTypes: List<UTType>, onResult: (PickedFile) -> Unit): NSObject? {
-    val presenter = topViewController() ?: return null
     val picker = UIDocumentPickerViewController(forOpeningContentTypes = contentTypes)
     picker.allowsMultipleSelection = false
     val delegate = DocumentPickerDelegate(onResult)
     picker.delegate = delegate
-    presenter.presentViewController(picker, animated = true, completion = null)
+    presentAfterPopupTeardown {
+        topViewController()?.presentViewController(picker, animated = true, completion = null)
+    }
     return delegate
 }
 

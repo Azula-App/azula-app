@@ -1,0 +1,59 @@
+appId: ios-app-mock
+---
+# Media send against the fake transport: connect a chat loopback, send a photo
+# from the simulator's photo library through the real PHPicker, and check the
+# bubble. Seed the library first (the flow taps the FIRST grid cell):
+#   xcrun simctl addmedia <device> <some>.png
+
+# ── Connect a peer chat (FakeTransport loopback) ─────────────────────────────
+- launchApp
+- assertVisible:
+    text: "azula"
+- tapOn:
+    text: "+ connect a peer"
+- tapOn:
+    text: "paste a code…"
+- inputText: "azula-mock-peer"
+- tapOn:
+    text: "connect"
+- extendedWaitUntil:
+    visible:
+      text: ".*linked over iroh.*"
+    timeout: 8000
+- takeScreenshot: e2e/screenshots/ios-media-chat
+
+# ── Attach menu → Photo → PHPicker ───────────────────────────────────────────
+- tapOn:
+    text: "📎"
+- assertVisible:
+    text: "Photo"
+- tapOn:
+    text: "Photo"
+# The picker presents ~400ms after the menu closes (deferred past the Compose
+# popup teardown — see PickerInterop.ios.kt) and lives out-of-process, so no
+# text assertions here: wait for the menu to be gone, let the sheet settle,
+# then point-tap the first cell of the photo grid.
+- extendedWaitUntil:
+    notVisible:
+      text: "Photo"
+    timeout: 5000
+- waitForAnimationToEnd:
+    timeout: 5000
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/ios-media-phpicker
+- tapOn:
+    point: "12%,25%"
+
+# ── Preview strip → send → bubble ────────────────────────────────────────────
+# Back in-process: the composer preview appears once the picked bytes land.
+- extendedWaitUntil:
+    visible:
+      text: ".*test-.*"
+    timeout: 15000
+- takeScreenshot: e2e/screenshots/ios-media-preview
+- tapOn:
+    text: "↑"
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/ios-media-sent

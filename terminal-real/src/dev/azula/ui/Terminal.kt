@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -271,16 +272,22 @@ private fun AltScreen(
     // sentThisGesture caps how many arrows one continuous drag can fire.
     var dragAccumPx by remember(convId) { mutableStateOf(0f) }
     var sentThisGesture by remember(convId) { mutableStateOf(0) }
+    // Read inside the long-lived gesture coroutines below via rememberUpdatedState:
+    // pointerInput(convId) only restarts on a convId change, so closing directly
+    // over the `selection` parameter would pin it to a stale value from whenever
+    // that coroutine last (re)started.
+    val currentSelection = rememberUpdatedState(selection)
 
-    // NOTE(gesture conflict, needs device iteration): this plain vertical-drag
-    // recognizer lives on the Column below, a descendant of LiveTerminalView's
-    // outer Box -- which also carries the long-press-then-drag selection-extend
-    // recognizer (`dragSelectMod`). Because a descendant's pointerInput sees the
-    // Main-pass events before its ancestors, a drag that follows a long-press
-    // selection on the alt screen may get read as scroll-arrows here before it
-    // reaches the selection's drag-extend handler. Same risk class the plan
-    // flagged for the LazyColumn/selection interaction on the primary screen;
-    // budget on-device testing to see whether the two need explicit gating.
+    // A selection is active -- this drag is extending it (LiveTerminalView's
+    // dragSelectMod on the ancestor Box), not paging the alt screen, so both
+    // recognizers below bail without sending scroll-arrows. This is the
+    // deterministic fix for a gesture race that would otherwise exist: a
+    // descendant's pointerInput (this Column's, below) sees Main-pass pointer
+    // events before its ancestors, so an unguarded drag here could win the race
+    // against the selection-extend recognizer on the outer Box and get read as
+    // scroll-arrows instead. Gating on "no active selection" sidesteps needing
+    // to reason about which recognizer wins that race at all -- arrows are never
+    // wanted mid-selection regardless.
     Column(
         Modifier.fillMaxSize().padding(PAD)
             .pointerInput(convId) {
@@ -289,23 +296,31 @@ private fun AltScreen(
                     onDragEnd = { dragAccumPx = 0f },
                     onDragCancel = { dragAccumPx = 0f },
                     onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        dragAccumPx += dragAmount
-                        // Finger moving UP (dragAmount < 0) reveals content ABOVE, like
-                        // pressing Up in `less` -- flip this mapping if device testing
-                        // disagrees, it's the one constant that encodes the choice.
-                        while (dragAccumPx <= -rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
-                            sendScrollArrow(session, convId, up = true)
-                            dragAccumPx += rowHeightPx; sentThisGesture++
+                        if (currentSelection.value == null) {
+                            change.consume()
+                            dragAccumPx += dragAmount
+                            // Finger moving UP (dragAmount < 0) reveals content ABOVE, like
+                            // pressing Up in `less` -- flip this mapping if device testing
+                            // disagrees, it's the one constant that encodes the choice.
+                            while (dragAccumPx <= -rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                                sendScrollArrow(session, convId, up = true)
+                                dragAccumPx += rowHeightPx; sentThisGesture++
+                            }
+                            while (dragAccumPx >= rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                                sendScrollArrow(session, convId, up = false)
+                                dragAccumPx -= rowHeightPx; sentThisGesture++
+                            }
                         }
-                        while (dragAccumPx >= rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
-                            sendScrollArrow(session, convId, up = false)
-                            dragAccumPx -= rowHeightPx; sentThisGesture++
-                        }
+                        // else: leave the change unconsumed so the outer Box's
+                        // selection-extend recognizer can use it instead.
                     },
                 )
             }
-            .altScreenWheelScroll { lines -> repeat(kotlin.math.abs(lines)) { sendScrollArrow(session, convId, up = lines > 0) } },
+            .altScreenWheelScroll { lines ->
+                if (currentSelection.value == null) {
+                    repeat(kotlin.math.abs(lines)) { sendScrollArrow(session, convId, up = lines > 0) }
+                }
+            },
     ) {
         val preds = predictionsByRow(frame)
         frame.grid.forEachIndexed { r, row ->

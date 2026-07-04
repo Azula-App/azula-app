@@ -101,6 +101,27 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             }
 
             Spacer(Modifier.height(8.dp))
+            Text("TERMINAL", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
+                    .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp)).padding(13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (state.terminalSmartInput) "Smart input" else "Raw input (legacy)",
+                        color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                    )
+                    Text(
+                        "swipe typing, autocorrect, and word suggestions in the terminal. turn off if your keyboard misbehaves.",
+                        color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                    )
+                }
+                Switch(checked = state.terminalSmartInput, onCheckedChange = { state.setTerminalSmartInput(it) })
+            }
+
+            Spacer(Modifier.height(8.dp))
             Text("BACKUP & RECOVERY", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
             Text(
                 "your identity is a single device key. save your recovery phrase to move it to a new device — or restore it after reinstalling.",

@@ -46,8 +46,13 @@ object TermSeq {
  * printable characters are captured by the text field instead — there we only
  * want the *special* keys (arrows, Esc, Tab, Enter, Backspace, Ctrl-combos) from
  * a hardware keyboard, so printable keys fall through and aren't double-sent.
+ *
+ * [includeBackspace] is likewise false on the mobile smart-input path: there
+ * Backspace must NOT be consumed here, so it falls through into the text
+ * field's own `onValueChange` and is captured by the stable-buffer diff (see
+ * `MobileRawTerminalInput`) instead of being double-sent.
  */
-fun keyEventToBytes(ev: KeyEvent, includePrintable: Boolean = true, appCursorKeys: Boolean = false): String? {
+fun keyEventToBytes(ev: KeyEvent, includePrintable: Boolean = true, includeBackspace: Boolean = true, appCursorKeys: Boolean = false): String? {
     if (ev.type != KeyEventType.KeyDown) return null
 
     when (ev.key) {
@@ -58,7 +63,7 @@ fun keyEventToBytes(ev: KeyEvent, includePrintable: Boolean = true, appCursorKey
         Key.Enter, Key.NumPadEnter -> return TermSeq.ENTER
         Key.Tab -> return TermSeq.TAB
         Key.Escape -> return TermSeq.ESC
-        Key.Backspace -> return TermSeq.BACKSPACE
+        Key.Backspace -> if (includeBackspace) return TermSeq.BACKSPACE else return null
         Key.Delete -> return TermSeq.DELETE
         Key.MoveHome -> return if (appCursorKeys) TermSeq.APP_HOME else TermSeq.HOME
         Key.MoveEnd -> return if (appCursorKeys) TermSeq.APP_END else TermSeq.END

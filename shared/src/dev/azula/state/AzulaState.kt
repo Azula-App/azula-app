@@ -435,6 +435,13 @@ class AzulaState(
     val personas get() = personaService.personas
     val defaultPersonaId get() = personaService.defaultPersonaId
 
+    // ---- terminal settings ----
+
+    /** Smart mobile terminal input (swipe typing/autocorrect/suggestions) vs.
+     *  the legacy raw fallback -- see [SettingsScreen]'s "Smart input" toggle. */
+    val terminalSmartInput get() = personaService.terminalSmartInput
+    fun setTerminalSmartInput(enabled: Boolean) = personaService.setSmartInput(enabled)
+
     fun newPersonaId(): String = personaService.newId()
     fun upsertPersona(persona: Persona) = personaService.upsert(persona)
     fun deletePersona(id: String) = personaService.delete(id)

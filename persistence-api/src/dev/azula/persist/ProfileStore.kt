@@ -19,11 +19,17 @@ data class Persona(
     val mime: String? = null,
 )
 
-/** All saved personas plus which one is the default (pre-selected when sharing). */
+/** All saved personas plus which one is the default (pre-selected when sharing).
+ *  Also doubles as the app's one small settings blob -- [terminalSmartInput]
+ *  isn't persona data, but there's no dedicated settings store yet and this
+ *  mirrors the existing single-small-blob pattern rather than adding a new one. */
 @Serializable
 data class ProfileBook(
     val personas: List<Persona> = emptyList(),
     val defaultId: String? = null,
+    /** Whether the terminal uses the rearchitected smart input (swipe typing,
+     *  autocorrect, suggestions) or the legacy raw sentinel-reset fallback. */
+    val terminalSmartInput: Boolean = true,
 )
 
 /**

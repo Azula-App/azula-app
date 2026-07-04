@@ -65,6 +65,50 @@ class TerminalEmulatorTest {
         assertEquals(0 to 9, e.cursor)
     }
 
+    // ---- discontinuityEpoch ----
+
+    @Test
+    fun discontinuityEpochUnchangedOnSameRowEcho() {
+        val e = TerminalEmulator(80, 24)
+        val epoch0 = e.frame.discontinuityEpoch
+        e.feed("hello")
+        assertEquals(epoch0, e.frame.discontinuityEpoch)
+    }
+
+    @Test
+    fun discontinuityEpochBumpsWhenCursorRowChanges() {
+        val e = TerminalEmulator(80, 24)
+        val epoch0 = e.frame.discontinuityEpoch
+        e.feed("a\r\nb")
+        assertTrue(e.frame.discontinuityEpoch != epoch0)
+    }
+
+    @Test
+    fun discontinuityEpochBumpsOnAltToggle() {
+        val e = TerminalEmulator(80, 24)
+        val epoch0 = e.frame.discontinuityEpoch
+        e.feed("$ESC[?1049h")
+        assertTrue(e.frame.discontinuityEpoch != epoch0)
+    }
+
+    @Test
+    fun discontinuityEpochBumpsOnFullScreenClear() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("hello")
+        val epoch0 = e.frame.discontinuityEpoch
+        e.feed("$ESC[2J")
+        assertTrue(e.frame.discontinuityEpoch != epoch0)
+    }
+
+    @Test
+    fun discontinuityEpochUnchangedOnPartialErase() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("hello")
+        val epoch0 = e.frame.discontinuityEpoch
+        e.feed("$ESC[K") // erase-to-end-of-line — not a full clear, same row
+        assertEquals(epoch0, e.frame.discontinuityEpoch)
+    }
+
     // ---- persistent parser: escape split across feeds ----
 
     @Test

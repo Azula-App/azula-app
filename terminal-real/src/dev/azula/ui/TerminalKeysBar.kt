@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.terminal.TerminalSession
@@ -33,6 +34,7 @@ import dev.azula.theme.Fonts
  */
 @Composable
 fun TerminalKeysBar(session: TerminalSession, convId: String) {
+    val clipboard = LocalClipboardManager.current
     Row(
         Modifier.fillMaxWidth()
             .background(AzulaColors.bg2)
@@ -46,6 +48,7 @@ fun TerminalKeysBar(session: TerminalSession, convId: String) {
         fun appKeys() = session.terminalScreen(convId).applicationCursorKeys
         Keycap("esc") { session.terminalRaw(convId, TermSeq.ESC) }
         Keycap("tab") { session.terminalRaw(convId, TermSeq.TAB) }
+        Keycap("paste") { clipboard.getText()?.text?.takeIf { it.isNotEmpty() }?.let { session.terminalPaste(convId, it) } }
         Keycap("^C") { session.terminalInterrupt(convId) }
         Keycap("^D") { session.terminalRaw(convId, ctrl('d')) }
         Keycap("^L") { session.terminalRaw(convId, ctrl('l')) }

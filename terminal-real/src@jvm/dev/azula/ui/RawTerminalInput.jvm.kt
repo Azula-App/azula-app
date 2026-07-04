@@ -16,9 +16,10 @@ import dev.azula.terminal.keyEventToBytes
 
 /** Desktop: a focusable Box capturing the full hardware keyboard. No text field,
  *  so no IME concerns — every key (arrows, Esc, Tab, Ctrl-combos, printables)
- *  goes straight to the PTY. Auto-focuses; a tap re-focuses. */
+ *  goes straight to the PTY. Auto-focuses; a tap re-focuses. [smartInput] is
+ *  unused here (desktop has no soft-keyboard fallback to switch between). */
 @Composable
-actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier, reclaimFocusSignal: Int) {
+actual fun RawTerminalInput(session: TerminalSession, convId: String, modifier: Modifier, reclaimFocusSignal: Int, smartInput: Boolean) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(convId) { runCatching { fr.requestFocus() } }
     Box(

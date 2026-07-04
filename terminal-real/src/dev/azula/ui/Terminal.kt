@@ -62,14 +62,14 @@ private val LINE_HEIGHT = 21.sp
 private val PAD = 12.dp
 
 @Composable
-fun TerminalView(session: TerminalSession, convId: String) {
+fun TerminalView(session: TerminalSession, convId: String, smartInput: Boolean = true) {
     // Online → live keystroke capture + cursor; offline (the shell exited) → the
     // last screen, frozen and read-only.
-    LiveTerminalView(session, convId, live = session.terminalOnline(convId))
+    LiveTerminalView(session, convId, live = session.terminalOnline(convId), smartInput = smartInput)
 }
 
 @Composable
-private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boolean) {
+private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boolean, smartInput: Boolean = true) {
     val emu = session.terminalScreen(convId)
     val frame = emu.frame   // subscribe: republished on every emulator change
 
@@ -115,7 +115,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
 
     Box(Modifier.fillMaxSize().background(AzulaColors.bg1).then(sizeMod).then(tapMod)) {
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
-        if (live) RawTerminalInput(session, convId, Modifier.matchParentSize(), reclaimFocusSignal)
+        if (live) RawTerminalInput(session, convId, Modifier.matchParentSize(), reclaimFocusSignal, smartInput)
 
         if (frame.altScreen) AltScreen(frame, cursorOn, rowHeight, cellW, measurer) else PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer)
     }

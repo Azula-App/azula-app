@@ -146,6 +146,12 @@ class TermFrame(
     val cursorVisible: Boolean,
     val altScreen: Boolean,
     val predictions: List<PredictedCell> = emptyList(),
+    /** Bumped whenever [TerminalEmulator.feed] applies a server-driven
+     *  discontinuity: the cursor row moved, the alt screen toggled, or the
+     *  screen was cleared (plain same-row echo does NOT bump it). The mobile
+     *  input layer resets its stable typing buffer whenever this changes --
+     *  see MobileRawTerminalInput's `LaunchedEffect(frame.discontinuityEpoch)`. */
+    val discontinuityEpoch: Int = 0,
 ) {
     companion object {
         fun empty(cols: Int, rows: Int) =
@@ -246,6 +252,12 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
     private val escInter = StringBuilder()
     private val oscBuf = StringBuilder()
 
+    // ---- discontinuity tracking (see TermFrame.discontinuityEpoch) ----
+    private var discontinuityEpoch = 0
+    /** Set by [eraseDisplay] when the WHOLE screen is cleared (modes 2/3);
+     *  checked and reset at the top/bottom of each [feed] call. */
+    private var screenClearedDuringFeed = false
+
     // ---- rendering accessors ----
     fun line(r: Int): Row = active.lines[r]
     val scrollback: List<Row> get() = scrollbackDeque
@@ -296,6 +308,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             cursorVisible = cursorVisible,
             altScreen = altScreen,
             predictions = predictor?.overlays().orEmpty(),
+            discontinuityEpoch = discontinuityEpoch,
         )
     }
 
@@ -313,6 +326,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         state = GROUND
         csiParam.setLength(0); csiInter.setLength(0); escInter.setLength(0); oscBuf.setLength(0)
         predictor?.reset()
+        discontinuityEpoch++
         publish()
     }
 
@@ -346,6 +360,9 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
 
     /** Feed a chunk of terminal output through the parser. */
     fun feed(text: String) {
+        val rowBefore = active.cursorRow
+        val altBefore = altScreen
+        screenClearedDuringFeed = false
         var i = 0
         val n = text.length
         while (i < n) {
@@ -377,6 +394,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             }
             i++
         }
+        if (altScreen != altBefore || active.cursorRow != rowBefore || screenClearedDuringFeed) discontinuityEpoch++
         predictor?.onServerOutput(text)
         publish()
     }
@@ -575,8 +593,8 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         when (mode) {
             0 -> { active.lines[cur].clearRange(active.cursorCol, cols - 1, curBg); for (r in cur + 1 until rows) active.lines[r].clearAll(curBg) }
             1 -> { for (r in 0 until cur) active.lines[r].clearAll(curBg); active.lines[cur].clearRange(0, active.cursorCol, curBg) }
-            2 -> for (r in 0 until rows) active.lines[r].clearAll(curBg)
-            3 -> { for (r in 0 until rows) active.lines[r].clearAll(curBg); scrollbackDeque.clear() }
+            2 -> { for (r in 0 until rows) active.lines[r].clearAll(curBg); screenClearedDuringFeed = true }
+            3 -> { for (r in 0 until rows) active.lines[r].clearAll(curBg); scrollbackDeque.clear(); screenClearedDuringFeed = true }
         }
     }
 

@@ -15,9 +15,14 @@ import kotlin.time.TimeSource
  * Predictions are deliberately conservative:
  *  - Only on the **primary** screen. Any input while a full-screen app is on the
  *    alternate screen flushes and predicts nothing (TUIs echo unpredictably).
- *  - Only printable characters, backspace, and left/right arrows are predicted.
- *    Enter, Tab, Ctrl-keys, Escape, and up/down flush the overlay and pause until
- *    the server catches up.
+ *  - Printable characters, backspace, and left/right arrows are predicted;
+ *    homogeneous multi-char strings (an autocorrect backspace-run, or a
+ *    swiped/pasted run of printables) are predicted char-by-char -- the input
+ *    layer only ever sends one homogeneous string per call (see
+ *    `InputDiff`/`MobileRawTerminalInput`'s two-call rule), so a mixed string
+ *    is unexpected and just pauses like any other unrecognized input. Enter,
+ *    Tab, Ctrl-keys, Escape, and up/down flush the overlay and pause until the
+ *    server catches up.
  *  - Reconciliation: server output that contains any non-SGR escape (cursor moves,
  *    erases, alt-screen) flushes everything; otherwise each pending glyph is
  *    confirmed when the real cell matches, flushed on a mismatch, and dropped after
@@ -48,10 +53,12 @@ class PredictionEngine(
                 code == 0x08 || code == 0x7f -> { if (!paused) predictBackspace() }
                 else -> pauseAndFlush()   // Enter (CR), Tab, Ctrl-*, NUL, …
             }
-        } else when (bytes) {
-            TermSeq.LEFT, TermSeq.APP_LEFT -> { if (!paused) predictArrow(-1) }
-            TermSeq.RIGHT, TermSeq.APP_RIGHT -> { if (!paused) predictArrow(+1) }
-            else -> pauseAndFlush()        // up/down/home/end, escape sequences, pastes
+        } else when {
+            bytes == TermSeq.LEFT || bytes == TermSeq.APP_LEFT -> { if (!paused) predictArrow(-1) }
+            bytes == TermSeq.RIGHT || bytes == TermSeq.APP_RIGHT -> { if (!paused) predictArrow(+1) }
+            isHomogeneousPrintable(bytes) -> { if (!paused) bytes.forEach { predictPrintable(it.code) } }
+            isHomogeneousBackspace(bytes) -> { if (!paused) repeat(bytes.length) { predictBackspace() } }
+            else -> pauseAndFlush()        // up/down/home/end, escape sequences, mixed/unexpected
         }
         emu.repaint()
     }
@@ -133,5 +140,14 @@ class PredictionEngine(
             }
             return false
         }
+
+        /** True if every char is an ordinary printable (no control/DEL codes) — the
+         *  shape `MobileRawTerminalInput` sends for a swiped word, a pasted-looking
+         *  suffix, or an autocorrect's replacement text. */
+        fun isHomogeneousPrintable(s: String): Boolean = s.isNotEmpty() && s.all { it.code >= 0x20 && it.code != 0x7f }
+
+        /** True if every char is a backspace (DEL or BS) — the shape sent for an
+         *  autocorrect fix-up's deletion run. */
+        fun isHomogeneousBackspace(s: String): Boolean = s.isNotEmpty() && s.all { it.code == 0x08 || it.code == 0x7f }
     }
 }

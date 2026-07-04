@@ -96,7 +96,7 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             if (termLive) it else it.pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
         }
         Box(contentMod) {
-            if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId) else MessageThread(state, convId)
+            if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId, state.terminalSmartInput) else MessageThread(state, convId)
         }
         // A picked-but-not-yet-sent media file, awaiting a caption (the draft text
         // field doubles as the caption input while this is non-null). Keyed to the

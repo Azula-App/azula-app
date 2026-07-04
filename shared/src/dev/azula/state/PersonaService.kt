@@ -24,15 +24,26 @@ class PersonaService(private val profileStore: ProfileStore?) {
     var defaultPersonaId by mutableStateOf<String?>(null)
         private set
 
+    /** Terminal input mode: smart (swipe/autocorrect/suggestions) vs. the
+     *  legacy raw fallback -- see [dev.azula.persist.ProfileBook.terminalSmartInput]. */
+    var terminalSmartInput by mutableStateOf(true)
+        private set
+
     fun load() {
         val book = profileStore?.load() ?: return
         personas.clear()
         personas.addAll(book.personas)
         defaultPersonaId = book.defaultId ?: book.personas.firstOrNull()?.id
+        terminalSmartInput = book.terminalSmartInput
     }
 
     private fun save() {
-        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId))
+        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId, terminalSmartInput))
+    }
+
+    fun setSmartInput(enabled: Boolean) {
+        terminalSmartInput = enabled
+        save()
     }
 
     fun newId(): String {

@@ -26,13 +26,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -110,8 +110,16 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // A blinking cursor while live; hidden when the app hid it (DECTCEM ?25l).
     val cursorOn = if (live && frame.cursorVisible) rememberCursorBlink() else false
 
+    // The Box's own pixel height, independent of the emulator's row count: an IME
+    // show/hide always changes this, but `TerminalEmulator.resize` is a no-op (no
+    // new `frame`) when the resulting row count happens not to change. PrimaryScreen
+    // keys its auto-scroll on this too so a keyboard cycle always re-evaluates the
+    // pin, not just when the grid itself changes shape.
+    var viewportHeightPx by remember(convId) { mutableStateOf(0) }
+
     val sizeMod = if (live) {
         Modifier.onSizeChanged { sz ->
+            viewportHeightPx = sz.height
             if (cellW > 0 && lineHpx > 0f) {
                 val cols = ((sz.width - 2 * padPx) / cellW).toInt().coerceAtLeast(1)
                 val rows = ((sz.height - 2 * padPx) / lineHpx).toInt().coerceAtLeast(1)
@@ -220,7 +228,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
         if (frame.altScreen) {
             AltScreen(session, convId, frame, cursorOn, rowHeight, cellW, measurer, selection)
         } else {
-            PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer, listState, selection)
+            PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer, listState, selection, convId, viewportHeightPx)
         }
 
         if (selection != null) {
@@ -340,17 +348,39 @@ private fun PrimaryScreen(
     measurer: TextMeasurer,
     listState: LazyListState,
     selection: TermSelection?,
+    convId: String,
+    viewportHeightPx: Int,
 ) {
     val total = frame.scrollback.size + frame.grid.size
 
-    // Stick to the bottom when new output arrives *if* we're already pinned to it --
-    // never while the user is actively scrolling/dragging (that fight is the main
-    // source of jitter, including on every IME-driven resize).
-    LaunchedEffect(frame) {
-        if (!listState.isScrollInProgress && atBottom(listState, total)) listState.scrollToItem(total - 1)
+    // Explicit pinned-to-tail intent, tracked independently of `atBottom`'s
+    // per-frame geometry check. Plain re-derivation (the old `derivedStateOf`
+    // here) broke after an IME show/hide: the resize shrinks/grows the viewport
+    // out from under the list, `atBottom` reads false for a beat even though the
+    // user never touched the scroller, and once false it never recovered --
+    // nothing ever flips it back to true. `pinned` instead only changes on
+    // genuine user scroll intent: false when a user drag ends away from the
+    // tail, true when the user (drag or programmatic) reaches the tail, or when
+    // they tap the jump-to-bottom chip.
+    var pinned by remember(convId) { mutableStateOf(true) }
+    val totalForBottomCheck = rememberUpdatedState(total)
+    LaunchedEffect(convId, listState) {
+        snapshotFlow { listState.isScrollInProgress to atBottom(listState, totalForBottomCheck.value) }
+            .collect { (inProgress, bottom) ->
+                if (bottom) pinned = true else if (inProgress) pinned = false
+            }
     }
-    // Whether we're detached from the tail -- drives the jump-to-bottom chip.
-    val pinned by remember { derivedStateOf { atBottom(listState, total) } }
+
+    // Stick to the bottom when new output arrives, or when the viewport itself
+    // resizes (IME show/hide), *if* we're pinned -- never while the user is
+    // actively scrolling/dragging (that fight is the main source of jitter).
+    // Keying on `viewportHeightPx` (not just `frame`) is what re-engages the pin
+    // after a keyboard cycle whose resulting row count happens not to change --
+    // `TerminalEmulator.resize` is then a no-op and never republishes `frame`,
+    // but the Box's pixel height still moved and the list still needs re-pinning.
+    LaunchedEffect(frame, viewportHeightPx) {
+        if (pinned && !listState.isScrollInProgress) listState.scrollToItem(total - 1)
+    }
     val scope = rememberCoroutineScope()
 
     val preds = predictionsByRow(frame)
@@ -367,7 +397,7 @@ private fun PrimaryScreen(
         }
         if (!pinned) {
             ScrollToBottomChip(
-                onTap = { scope.launch { listState.scrollToItem(total - 1) } },
+                onTap = { pinned = true; scope.launch { listState.scrollToItem(total - 1) } },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(PAD),
             )
         }

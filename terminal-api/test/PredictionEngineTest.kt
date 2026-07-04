@@ -167,4 +167,73 @@ class PredictionEngineTest {
         repeat(12) { e.onInput("a") }
         assertEquals(12, e.overlays().size)
     }
+
+    // ---- stranded-overlay regression (autocorrect's two-call backspace+suffix diff) ----
+
+    /**
+     * Reproduces the device-observed "phantom d past pwd" bug: after the real
+     * text is fully echoed (no overlays pending, so predCol is fully caught up
+     * to the live cursor), the mobile input's diff sends a same-length
+     * fix-up as TWO separate onInput calls -- an all-backspace call, then an
+     * all-printable call (see [dev.azula.terminal.InputDiff]) -- e.g.
+     * autocorrect replacing the last char with itself, or a homoglyph.
+     * `predictBackspace` correctly steps predCol back by one, but that step
+     * erases a REAL (already-confirmed) cell, not an overlay -- there's
+     * nothing left in `overlays`, so the immediately following
+     * `predictPrintable`'s `ensureSynced()` sees an empty overlay list and
+     * wrongly re-syncs predCol to the *live* cursor (which hasn't moved yet --
+     * the real backspace is still in flight to the server), placing the new
+     * prediction one cell past the real text instead of on top of the
+     * character being corrected.
+     */
+    @Test
+    fun backspaceThenSuffixAfterFullyConfirmedTextDoesNotStrandOverlayPastRealText() {
+        val emu = TerminalEmulator(80, 24)
+        val e = engine(emu, FakeClock())
+        // "pwd" is already for-real on screen (server echoed it already; no
+        // overlays pending) -- the live cursor sits at column 3.
+        emu.feed("pwd")
+        assertEquals(3, emu.cursorCol)
+
+        // The diff for an autocorrect fix-up of the last char: one backspace,
+        // then one printable, as two separate terminalRaw/onInput calls.
+        e.onInput(TermSeq.BACKSPACE)
+        e.onInput("d")
+
+        // The new prediction must land back on column 2 (over the char being
+        // replaced), not column 3 (one past "pwd", where it would sit forever
+        // since the server will never echo anything there for this edit).
+        assertEquals(1, e.overlays().size)
+        val p = e.overlays().single()
+        assertEquals(2, p.col)
+        assertEquals(0, p.row)
+    }
+
+    /** Same fix-up as above, but the real backspace+retype echo comes back
+     *  split across two server chunks -- the erase lands first, the retyped
+     *  char lands in a later chunk -- to confirm reconciliation still clears
+     *  the prediction fully once the server has caught up, rather than
+     *  stranding it because the first chunk's cell isn't there yet. */
+    @Test
+    fun backspaceThenSuffixReconciledAcrossSplitServerEcho() {
+        val emu = TerminalEmulator(80, 24)
+        val e = engine(emu, FakeClock())
+        emu.feed("pwd")
+
+        e.onInput(TermSeq.BACKSPACE)
+        e.onInput("d")
+        assertEquals(1, e.overlays().size)
+        assertEquals(2, e.overlays().single().col)
+
+        // Server echoes the erase (backspace + space + backspace) in one
+        // chunk, then the retyped char in a second, later chunk.
+        val erase = "\b \b"
+        emu.feed(erase)
+        e.onServerOutput(erase)
+        assertEquals(1, e.overlays().size) // 'd' cell not echoed yet -- still pending, not stranded
+
+        emu.feed("d")
+        e.onServerOutput("d")
+        assertEquals(0, e.overlays().size) // fully reconciled once the server catches up
+    }
 }

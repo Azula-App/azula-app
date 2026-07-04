@@ -49,6 +49,14 @@ class PredictionEngine(
     private var predCol = 0
     private var paused = false
 
+    // Backspaces that stepped predCol back over a REAL (already-confirmed) cell
+    // rather than an overlay -- i.e. a locally-predicted erase whose real echo
+    // hasn't landed yet. `overlays` alone can't represent this: it goes empty
+    // the moment the erased cell had no pending overlay, even though predCol
+    // has diverged from the live cursor and isn't safe to resync from until the
+    // server actually catches up (see `ensureSynced`).
+    private var pendingDeletes = 0
+
     // Alt-screen bookkeeping: when the last server output landed (gates the
     // quiet window) and which screen we were on last time output arrived (so a
     // primary<->alt flip -- detected the moment it shows up in onServerOutput --
@@ -109,12 +117,17 @@ class PredictionEngine(
         wasAltScreen = emu.liveAltScreen
         if (flipped) { flush(); paused = false; return }
         if (emu.liveAltScreen) {
-            if (overlays.isNotEmpty()) flush()   // alt screen: ANY output flushes, no reconciliation
+            // alt screen: ANY output flushes, no reconciliation.
+            if (overlays.isNotEmpty()) flush() else pendingDeletes = 0
             return
         }
 
         // ---- primary screen: unchanged from before alt-screen prediction ----
         paused = false
+        // Bytes we've sent so far are processed by the remote shell in order,
+        // so any new output means everything sent before it -- including
+        // pending backspaces -- has already been reflected in the live grid.
+        pendingDeletes = 0
         if (overlays.isEmpty()) return
         if (hasDisruptiveEscape(chunk)) { flush(); return }
 
@@ -140,7 +153,7 @@ class PredictionEngine(
 
     override fun cursor(): Pair<Int, Int>? = if (overlays.isEmpty()) null else predRow to predCol
 
-    override fun reset() { overlays.clear(); paused = false; syncCursor() }
+    override fun reset() { overlays.clear(); pendingDeletes = 0; paused = false; syncCursor() }
 
     // ---- prediction ----
 
@@ -155,7 +168,8 @@ class PredictionEngine(
         ensureSynced()
         if (predCol > 0) {
             predCol--
-            overlays.removeAll { it.row == predRow && it.col == predCol }
+            val hadOverlay = overlays.removeAll { it.row == predRow && it.col == predCol }
+            if (!hadOverlay) pendingDeletes++  // erased a real cell -- predCol is now ahead of the live cursor
         }
     }
 
@@ -166,10 +180,17 @@ class PredictionEngine(
         if (target in 0..bound) predCol = target
     }
 
-    private fun ensureSynced() { if (overlays.isEmpty()) syncCursor() }
+    // Only safe to snap predCol/predRow to the live cursor when nothing we've
+    // locally predicted is still ahead of what the server has confirmed --
+    // that means no pending overlays AND no pending erases (see
+    // `pendingDeletes`), otherwise a same-length backspace+retype fix-up
+    // (two separate onInput calls) would have its retyped char resynced back
+    // to the pre-backspace cursor column, stranding it one cell past the real
+    // text instead of over the character being replaced.
+    private fun ensureSynced() { if (overlays.isEmpty() && pendingDeletes == 0) syncCursor() }
     private fun syncCursor() { predRow = emu.liveCursorRow; predCol = emu.liveCursorCol }
     private fun pauseAndFlush() { flush(); paused = true }
-    private fun flush() { overlays.clear(); syncCursor() }
+    private fun flush() { overlays.clear(); pendingDeletes = 0; syncCursor() }
 
     private companion object {
         const val SPACE = 0x20

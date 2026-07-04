@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -470,8 +471,25 @@ private fun GridRow(
             if (seg.bg != null) {
                 drawRect(seg.bg, topLeft = Offset(x, 0f), size = Size(seg.cellSpan * cellW.toFloat(), rowHeightPx))
             }
-            val y = (rowHeightPx - seg.layout.size.height) / 2f
-            drawText(seg.layout, topLeft = Offset(x, y))
+            if (seg.fillCell && seg.layout.size.height > 0) {
+                // Box-drawing/Block-Element glyphs are drawn by the font to fill their
+                // own natural line box edge-to-edge (that's the point of these code
+                // points -- they're meant to tile against the same glyph in the row
+                // above/below). LINE_HEIGHT gives ordinary prose room to breathe, so
+                // it's taller than that natural box; centering these glyphs the same
+                // way as regular text (the `else` branch) would leave a background gap
+                // above and below every such row -- the visible seam between
+                // contiguous block/border rows (claude's crab banner, box-drawn
+                // panels). Stretching the glyph's own box up to the full cell height
+                // keeps its ink flush top-to-bottom, and hence flush against its
+                // neighbor row's copy of the same treatment.
+                scale(scaleX = 1f, scaleY = rowHeightPx / seg.layout.size.height, pivot = Offset(x, 0f)) {
+                    drawText(seg.layout, topLeft = Offset(x, 0f))
+                }
+            } else {
+                val y = (rowHeightPx - seg.layout.size.height) / 2f
+                drawText(seg.layout, topLeft = Offset(x, y))
+            }
         }
         // Selection highlight -- drawn AFTER the glyphs so it reads as a translucent
         // wash over the text, not a solid block hiding it.
@@ -617,8 +635,10 @@ private fun ChipLabel(label: String, active: Boolean, onTap: () -> Unit) {
 
 /** A resolved, already-measured run of one or more cells sharing a style, ready
  *  to paint at [startCol] * cellW. [cellSpan] is how many grid columns the
- *  background rect (and the next segment's start) should account for. */
-private class RowSegment(val startCol: Int, val layout: TextLayoutResult, val bg: Color?, val cellSpan: Int)
+ *  background rect (and the next segment's start) should account for.
+ *  [fillCell] (see [isFullCellGlyph]) picks [GridRow]'s vertical-stretch paint
+ *  path instead of the default vertically-centered one. */
+private class RowSegment(val startCol: Int, val layout: TextLayoutResult, val bg: Color?, val cellSpan: Int, val fillCell: Boolean = false)
 
 /** Resolved per-cell paint attributes (fg/bg after reverse/dim/hidden, plus the
  *  text attributes that affect glyph shape). Two cells with equal [CellAttrs]
@@ -660,17 +680,33 @@ private val CURSOR_STYLE = TextStyle(color = TERM_BG, fontFamily = Fonts.mono, f
  *  smear its neighbors within the same run. */
 private fun isMonoSafe(cp: Int): Boolean = cp in 0x20..0x24F || cp in 0x2500..0x257F
 
+/** DEC box-drawing (`0x2500-257F`) and Unicode Block Elements (`0x2580-259F` --
+ *  half/quadrant/eighth blocks, e.g. claude's crab banner's `▐▛███▜▌`) are
+ *  designed to tile edge-to-edge with the same glyph in the row above/below.
+ *  The two ranges are contiguous, hence one check. [GridRow] stretches these
+ *  glyphs to fill the row's full cell height (see [RowSegment.fillCell])
+ *  instead of vertically centering them like ordinary text -- `LINE_HEIGHT`
+ *  is deliberately taller than a glyph's natural line box (roomy prose
+ *  spacing), and centering a full-cell glyph in that extra room leaves a
+ *  background-colored gap top and bottom of every such row: a visible seam
+ *  between contiguous block/border rows. */
+private fun isFullCellGlyph(cp: Int): Boolean = cp in 0x2500..0x259F
+
 /**
  * Build a row's paint plan: coalesce consecutive same-style, mono-safe,
  * single-width cells into one measured run per [isMonoSafe]; isolate wide,
  * non-mono-safe, predicted, and cursor cells as their own single-cell segments.
  * The cursor is drawn as a filled rect (from the caller's rect pass) with the
  * glyph on top in [TERM_BG], replacing the old span-based cursor overlay.
+ * A coalesced run never mixes full-cell glyphs (see [isFullCellGlyph]) with
+ * ordinary text, even when both are otherwise mono-safe and same-style, since
+ * the two need different vertical paint treatment in [GridRow].
  */
 private fun buildRowSegments(row: Row, cursorCol: Int, rowPreds: Map<Int, Int>?, measurer: TextMeasurer): List<RowSegment> {
     val segments = ArrayList<RowSegment>()
     var runStart = -1
     var runAttrs: CellAttrs? = null
+    var runFillCell = false
     val runText = StringBuilder()
 
     fun flushRun() {
@@ -678,10 +714,10 @@ private fun buildRowSegments(row: Row, cursorCol: Int, rowPreds: Map<Int, Int>?,
             val allBlank = runAttrs?.bg == null && runText.all { it == ' ' }
             if (!allBlank) {
                 val layout = measurer.measure(AnnotatedString(runText.toString()), textStyleFor(runAttrs!!), softWrap = false, maxLines = 1)
-                segments.add(RowSegment(runStart, layout, runAttrs!!.bg, runText.length))
+                segments.add(RowSegment(runStart, layout, runAttrs!!.bg, runText.length, runFillCell))
             }
         }
-        runStart = -1; runAttrs = null; runText.setLength(0)
+        runStart = -1; runAttrs = null; runFillCell = false; runText.setLength(0)
     }
 
     var c = 0
@@ -694,11 +730,12 @@ private fun buildRowSegments(row: Row, cursorCol: Int, rowPreds: Map<Int, Int>?,
         val pred = rowPreds?.get(c)
         val cp = pred ?: row.cp[c]
         val glyph = if (cp <= 0) " " else codePointToString(cp)
+        val fillCell = isFullCellGlyph(cp)
 
         if (isCursor) {
             flushRun()
             val layout = measurer.measure(AnnotatedString(glyph), CURSOR_STYLE, softWrap = false, maxLines = 1)
-            segments.add(RowSegment(c, layout, CURSOR, cellSpan))
+            segments.add(RowSegment(c, layout, CURSOR, cellSpan, fillCell))
             c += cellSpan
             continue
         }
@@ -706,20 +743,20 @@ private fun buildRowSegments(row: Row, cursorCol: Int, rowPreds: Map<Int, Int>?,
         if (pred != null) {
             flushRun()
             val layout = measurer.measure(AnnotatedString(glyph), PRED_STYLE, softWrap = false, maxLines = 1)
-            segments.add(RowSegment(c, layout, null, cellSpan))
+            segments.add(RowSegment(c, layout, null, cellSpan, fillCell))
             c += cellSpan
             continue
         }
 
         val attrs = cellAttrs(row, c)
         if (isMonoSafe(cp) && !isWideLead) {
-            if (runStart >= 0 && attrs != runAttrs) flushRun()
-            if (runStart < 0) { runStart = c; runAttrs = attrs }
+            if (runStart >= 0 && (attrs != runAttrs || fillCell != runFillCell)) flushRun()
+            if (runStart < 0) { runStart = c; runAttrs = attrs; runFillCell = fillCell }
             runText.append(glyph)
         } else {
             flushRun()
             val layout = measurer.measure(AnnotatedString(glyph), textStyleFor(attrs), softWrap = false, maxLines = 1)
-            segments.add(RowSegment(c, layout, attrs.bg, cellSpan))
+            segments.add(RowSegment(c, layout, attrs.bg, cellSpan, fillCell))
         }
         c += cellSpan
     }

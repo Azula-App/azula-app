@@ -1,4 +1,5 @@
 import dev.azula.terminal.ATTR_BOLD
+import dev.azula.terminal.ATTR_DIM
 import dev.azula.terminal.ATTR_ITALIC
 import dev.azula.terminal.ATTR_REVERSE
 import dev.azula.terminal.ATTR_UNDERLINE
@@ -168,6 +169,17 @@ class TerminalEmulatorTest {
     // recognizes head 38/48) and silently no-op otherwise -- so `4:3` never set
     // underline, and worse, `4:0` never cleared it, leaving underline stuck on
     // from a prior plain `ESC[4m` until a hard reset.
+
+    @Test
+    fun xtmodkeysCsiPrivateMIsNotAppliedAsSgr() {
+        // `CSI > 4 ; 2 m` is XTMODKEYS (modifyOtherKeys), NOT SGR. claude emits it
+        // alongside its keyboard-protocol setup. It must not set underline(4)/dim(2).
+        val e = TerminalEmulator(80, 24)
+        e.feed("${ESC}[>4;2mX")
+        val row = e.line(0)
+        assertEquals(0, row.flags[0] and ATTR_UNDERLINE)
+        assertEquals(0, row.flags[0] and ATTR_DIM)
+    }
 
     @Test
     fun sgrColonUnderlineStyleSetsUnderlineOnceNotItalic() {

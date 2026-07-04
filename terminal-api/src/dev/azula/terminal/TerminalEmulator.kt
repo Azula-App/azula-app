@@ -524,7 +524,12 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             'u' -> if (marker == ' ') restoreCursor()
             'h' -> setModes(parts, private, true)
             'l' -> setModes(parts, private, false)
-            'm' -> applySgr(if (s.isEmpty()) "0" else s)
+            // Only a bare `CSI ... m` is SGR. `CSI > Ps ; Ps m` is XTMODKEYS
+            // (modifyOtherKeys — claude sends `CSI > 4 ; 2 m` alongside the Kitty
+            // keyboard sequences), and `CSI ? ... m` etc. are private; none are SGR.
+            // Applying `> 4 ; 2 m` as SGR set underline(4)+dim(2) globally with no
+            // matching reset, so all subsequent text rendered dim+underlined.
+            'm' -> if (marker == ' ') applySgr(if (s.isEmpty()) "0" else s)
             'g' -> tabClear(p(0, 0))
             'c' -> if (marker == '>') onResponse?.invoke("$ESC[>0;0;0c") else onResponse?.invoke("$ESC[?62;1;6c")
             'n' -> when (p(0, 0)) {

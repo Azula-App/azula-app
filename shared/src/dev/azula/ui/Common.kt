@@ -118,6 +118,8 @@ fun ConvOverflowMenu(
     enabled: Boolean,
     onToggleEnabled: (() -> Unit)?,
     onDelete: (() -> Unit)?,
+    onCopyScreen: (() -> Unit)? = null,
+    onCopyAll: (() -> Unit)? = null,
     glyphSize: Int = 16,
     expanded: Boolean = false,
     onExpandedChange: ((Boolean) -> Unit)? = null,
@@ -134,6 +136,18 @@ fun ConvOverflowMenu(
             Text("⋮", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = glyphSize.sp)
         }
         DropdownMenu(expanded = open, onDismissRequest = { setOpen(false) }) {
+            if (onCopyScreen != null) {
+                DropdownMenuItem(
+                    text = { Text("Copy screen") },
+                    onClick = { setOpen(false); onCopyScreen() },
+                )
+            }
+            if (onCopyAll != null) {
+                DropdownMenuItem(
+                    text = { Text("Copy all") },
+                    onClick = { setOpen(false); onCopyAll() },
+                )
+            }
             if (onToggleEnabled != null) {
                 DropdownMenuItem(
                     text = { Text(if (enabled) "Disable" else "Enable") },

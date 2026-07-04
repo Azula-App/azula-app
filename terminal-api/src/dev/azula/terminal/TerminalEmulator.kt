@@ -95,9 +95,17 @@ class Row(cols: Int) {
     }
 
     /** Plain text of the row (skips wide-trail spacers), trailing blanks trimmed. */
-    fun text(): String {
+    fun text(): String = text(0, cols)
+
+    /** Plain text of columns [fromCol, toColExcl) (skips wide-trail spacers, so a
+     *  range starting mid-wide-glyph never emits a bare trailing half), trailing
+     *  blanks trimmed. Used for selection extraction, where the caller supplies
+     *  the exact column bounds (see `TermSelection.textInSelection`). */
+    fun text(fromCol: Int, toColExcl: Int): String {
         val sb = StringBuilder()
-        for (c in 0 until cols) {
+        val start = fromCol.coerceIn(0, cols)
+        val end = toColExcl.coerceIn(0, cols)
+        for (c in start until end) {
             if (flags[c] and ATTR_WIDE_TRAIL != 0) continue
             sb.append(codePointToString(if (cp[c] <= 0) SP else cp[c]))
         }
@@ -152,6 +160,12 @@ class TermFrame(
      *  input layer resets its stable typing buffer whenever this changes --
      *  see MobileRawTerminalInput's `LaunchedEffect(frame.discontinuityEpoch)`. */
     val discontinuityEpoch: Int = 0,
+    /** Monotonic count of rows ever pushed into scrollback (primary screen
+     *  only) -- NOT decremented when the deque evicts old rows past its cap.
+     *  Gives every row a stable absolute index that survives scrolling:
+     *  `scrollback[i]` is `totalScrolled - scrollback.size + i`, `grid[r]` is
+     *  `totalScrolled + r`. See `TermSelection`/`rowAt`. */
+    val totalScrolled: Long = 0L,
 ) {
     companion object {
         fun empty(cols: Int, rows: Int) =
@@ -213,6 +227,10 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
     private var active = primary
 
     private val scrollbackDeque = ArrayDeque<Row>()
+    /** Monotonic count of rows ever pushed into [scrollbackDeque]; see
+     *  [TermFrame.totalScrolled]. Only ever increases; a cap eviction removes
+     *  the oldest retained row but doesn't touch this count. */
+    private var totalScrolled = 0L
 
     // ---- modes (read by the renderer + key encoder) ----
     var altScreen = false
@@ -309,6 +327,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             altScreen = altScreen,
             predictions = predictor?.overlays().orEmpty(),
             discontinuityEpoch = discontinuityEpoch,
+            totalScrolled = totalScrolled,
         )
     }
 
@@ -316,6 +335,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
     fun clear() {
         resetBuffer(primary); resetBuffer(alt)
         scrollbackDeque.clear()
+        totalScrolled = 0
         active = primary
         altScreen = false
         curFg = 0L; curBg = 0L; curFlags = 0
@@ -551,6 +571,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             val removed = active.lines.removeAt(top)
             if (active === primary && top == 0) {
                 scrollbackDeque.addLast(removed)
+                totalScrolled++
                 if (scrollbackDeque.size > SCROLLBACK_CAP) scrollbackDeque.removeFirst()
             }
             active.lines.add(bot, blankRow())

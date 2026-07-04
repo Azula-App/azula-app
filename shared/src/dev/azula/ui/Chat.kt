@@ -51,10 +51,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -71,6 +73,8 @@ import dev.azula.model.Role
 import dev.azula.model.TransferState
 import dev.azula.platformHasSoftKeyboard
 import dev.azula.state.AzulaState
+import dev.azula.terminal.allText
+import dev.azula.terminal.screenText
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
 
@@ -252,6 +256,7 @@ private fun TerminalEndedBar(state: AzulaState, convId: String) {
 fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = null) {
     val cs = state.conv(conv.id)
     val online = cs.online
+    val clipboard = LocalClipboardManager.current
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 14.dp),
@@ -292,10 +297,23 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 Text("+", color = AzulaColors.pinkLight, fontSize = 22.sp)
             }
         }
+        val isTerminal = conv.kind == ConversationKind.TERMINAL
         ConvOverflowMenu(
             enabled = conv.enabled,
             onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
             onDelete = { state.deleteConversation(conv.id) },
+            onCopyScreen = if (isTerminal) {
+                {
+                    clipboard.setText(AnnotatedString(state.terminalScreen(conv.id).frame.screenText()))
+                    state.markCopied()
+                }
+            } else null,
+            onCopyAll = if (isTerminal) {
+                {
+                    clipboard.setText(AnnotatedString(state.terminalScreen(conv.id).frame.allText()))
+                    state.markCopied()
+                }
+            } else null,
         )
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))

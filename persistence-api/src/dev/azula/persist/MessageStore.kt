@@ -101,6 +101,11 @@ data class ConversationDto(
     val avatarB64: String? = null,
     val avatarMime: String? = null,
     val peerDescription: String? = null,
+    /** The persistent terminal session id this conversation was last bound to
+     *  (see `dev.azula.state.ConversationState.termSessionId`), so a re-attach
+     *  survives a full app restart. Absent/null for non-terminal conversations
+     *  and for pre-persistence blobs -- both load as "no session to attach". */
+    val termSessionId: String? = null,
 )
 
 // ---------------------------------------------------------------------------

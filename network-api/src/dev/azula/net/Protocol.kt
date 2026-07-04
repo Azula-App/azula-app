@@ -58,6 +58,38 @@ sealed class Frame {
     @SerialName("term")
     data class Term(val line: String) : Frame()
 
+    /**
+     * Client → server: the first frame on a new TERM stream, opting into a
+     * persistent (tmux-like) shell session. [session] null/absent asks the
+     * server to start a fresh persistent session; a previously-received
+     * [TermSession.session] id asks it to re-attach to that one (replaying
+     * its scrollback) instead of spawning a new shell. Old servers don't
+     * know this frame and ignore it (`Frame::Unknown` on the Rust side),
+     * so sending it is always safe -- the legacy ephemeral-shell behavior
+     * just continues exactly as before when no [TermSession] ever arrives.
+     */
+    @Serializable
+    @SerialName("term_attach")
+    data class TermAttach(val session: String? = null) : Frame()
+
+    /**
+     * Server → client: the session id now bound to this TERM stream, in
+     * reply to [TermAttach] (or on a fresh ephemeral-turned-persistent
+     * connect). [resumed] true means this re-attached an existing session --
+     * a scrollback replay follows immediately as ordinary [Term] frames,
+     * then live output resumes. A stream that never sent [TermAttach] never
+     * receives this frame.
+     */
+    @Serializable
+    @SerialName("term_session")
+    data class TermSession(val session: String, val resumed: Boolean = false) : Frame()
+
+    /** Server → client: the shell backing [session] exited (e.g. the user
+     *  typed `exit`); [code] is its exit status if the server knows it. */
+    @Serializable
+    @SerialName("term_exit")
+    data class TermExit(val session: String, val code: Int? = null) : Frame()
+
     /** Server → client: an A2UI message (create/update/delete surface). */
     @Serializable
     @SerialName("a2ui")

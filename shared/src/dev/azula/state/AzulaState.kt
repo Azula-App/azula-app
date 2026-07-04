@@ -96,6 +96,18 @@ class ConversationState(seed: List<Message>) {
     /** True while a background redial loop is trying to bring this conversation
      *  back online (see ConnectService.scheduleReconnect). */
     var reconnecting by mutableStateOf(false)
+    /** The persistent server-side terminal session id this conversation is bound
+     *  to (see Frame.TermSession), or null if it's never attached one -- either
+     *  because it's not a terminal, or the server is a pre-persistence CLI that
+     *  never replies to Frame.TermAttach ("legacy mode"). Survives disconnect so
+     *  [ConnectService.wireConv] can re-attach and replay scrollback on redial;
+     *  cleared once the session ends (see [termExited]). */
+    var termSessionId: String? by mutableStateOf(null)
+    /** True once the server has reported (via Frame.TermExit) that the shell
+     *  backing [termSessionId] exited -- there's nothing left to re-attach to,
+     *  so scheduleReconnect must not treat this terminal as eligible; the UI
+     *  offers an explicit "New shell" instead. */
+    var termExited by mutableStateOf(false)
 }
 
 /**

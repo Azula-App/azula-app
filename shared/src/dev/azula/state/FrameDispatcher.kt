@@ -64,6 +64,8 @@ class FrameDispatcher(
                 notify(convId, frame.text)
             }
             is Frame.Term -> scope.launch(terminalDispatcher) { cs.termScreen.feed(frame.line) }
+            is Frame.TermSession -> { cs.termSessionId = frame.session; cs.termExited = false }
+            is Frame.TermExit -> { cs.termExited = true; cs.termSessionId = null }
             is Frame.Thinking -> if (convStore.conversationOrNull(convId)?.kind == ConversationKind.LLM) chatService.updateThinking(frame.on)
             is Frame.A2ui -> {
                 val msg = A2uiCodec.parse(frame.message.toString()) ?: return
@@ -106,7 +108,7 @@ class FrameDispatcher(
                     finished?.text?.takeIf { it.isNotBlank() }?.let { notify(convId, it) }
                 }
             }
-            is Frame.Input, is Frame.Resize -> Unit
+            is Frame.Input, is Frame.Resize, is Frame.TermAttach -> Unit
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
             is Frame.MediaOffer -> mediaService.onMediaOffer(convId, frame)
         }

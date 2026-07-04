@@ -60,6 +60,7 @@ class PersistenceCoordinator(
             cs.peerAvatarMime = dto.avatarMime
             cs.peerDescription = dto.peerDescription
             cs.peerAvatarBitmap = dto.avatarB64?.let { b64 -> runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull() }
+            cs.termSessionId = dto.termSessionId
             if (convStore.conversationOrNull(id) == null) {
                 convStore.conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview, dto.enabled))
             }
@@ -88,6 +89,7 @@ class PersistenceCoordinator(
             avatarB64 = cs.peerAvatarB64,
             avatarMime = cs.peerAvatarMime,
             peerDescription = cs.peerDescription,
+            termSessionId = cs.termSessionId,
         )
         scope.launch(saveDispatcher) { runCatching { store.save(convId, dto) } }
     }

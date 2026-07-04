@@ -228,25 +228,69 @@ private fun iconFor(kind: MediaKind): String = when (kind) {
     MediaKind.FILE -> "📎"
 }
 
-/** Footer shown when a live terminal's remote shell has exited: a clear "closed"
- *  state with a reconnect action (when we still hold the ticket to redial). */
+/**
+ * Footer shown for an offline terminal conversation. Three cases, driven by
+ * [ConversationState.termSessionId] / [ConversationState.termExited] (see
+ * `Frame.TermSession`/`Frame.TermExit`):
+ *  - the shell exited (`termExited`): "session ended" + an explicit "New shell"
+ *    action, which clears the stale session id/exited flag before redialing so
+ *    the server starts a genuinely fresh persistent session, not a re-attach.
+ *  - a persistent session is still live server-side (`termSessionId` set, not
+ *    exited) but our connection dropped: "disconnected — reconnecting…",
+ *    driven by [ConversationState.reconnecting] (see
+ *    [ConnectService.scheduleReconnect]'s eligibility for this case) -- no
+ *    manual action, keystrokes are already disabled (the terminal only
+ *    accepts input while `termLive`, i.e. online).
+ *  - legacy mode (no [ConversationState.termSessionId] ever attached -- either
+ *    a pre-persistence server, or this conversation hasn't wired yet): the
+ *    original "session closed" + manual reconnect, unchanged.
+ */
 @Composable
 private fun TerminalEndedBar(state: AzulaState, convId: String) {
-    val canReconnect = state.conv(convId).sourceTicket != null
+    val cs = state.conv(convId)
+    val canReconnect = cs.sourceTicket != null
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("● session closed", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
-        Spacer(Modifier.weight(1f))
-        if (canReconnect) {
-            Box(
-                Modifier.clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
-                    .clickable { state.reconnectTerminal(convId) }
-                    .padding(horizontal = 16.dp, vertical = 9.dp),
-            ) {
-                Text("reconnect", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        when {
+            cs.termExited -> {
+                Text("● session ended", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                if (canReconnect) {
+                    Box(
+                        Modifier.clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                            .clickable {
+                                cs.termSessionId = null
+                                cs.termExited = false
+                                state.reconnectTerminal(convId)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                    ) {
+                        Text("New shell", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                }
+            }
+            cs.termSessionId != null -> {
+                Text(
+                    if (cs.reconnecting) "● disconnected — reconnecting…" else "● disconnected",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp,
+                )
+            }
+            else -> {
+                Text("● session closed", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                if (canReconnect) {
+                    Box(
+                        Modifier.clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                            .clickable { state.reconnectTerminal(convId) }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                    ) {
+                        Text("reconnect", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                }
             }
         }
     }

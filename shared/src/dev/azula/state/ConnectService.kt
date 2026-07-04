@@ -344,14 +344,23 @@ class ConnectService(
      * conversation. Self-terminates once the conversation comes back online
      * through any path (wireConv's `replace = false` guard dedupes races), is
      * disabled, or the attempts run out. Only conversations we dialed are
-     * eligible — an inbound-accepted peer left no ticket to redial — and
-     * terminals are excluded: a terminal session ending is normal, and re-opening
-     * one is an explicit action ([reconnectTerminal]).
+     * eligible — an inbound-accepted peer left no ticket to redial.
+     *
+     * A terminal is eligible only when it holds a re-attachable persistent
+     * session ([ConversationState.termSessionId] set, [ConversationState.termExited]
+     * false) — wireConv's TermAttach will resume it with its scrollback, so
+     * auto-reconnect is exactly as safe as for any other conversation kind. A
+     * terminal whose shell already exited, or that never attached one (a
+     * pre-persistence "legacy" server, or one that hasn't wired yet), stays
+     * manual-only: its ending is normal, and re-opening one is an explicit
+     * action ([reconnectTerminal]).
      */
     fun scheduleReconnect(convId: String) {
         if (offline) return
-        if (convStore.conversationOrNull(convId)?.kind == ConversationKind.TERMINAL) return
         val cs = convStore.convOrNull(convId) ?: return
+        if (convStore.conversationOrNull(convId)?.kind == ConversationKind.TERMINAL &&
+            (cs.termSessionId == null || cs.termExited)
+        ) return
         val ticket = cs.sourceTicket ?: return
         val invite = cs.sourceInvite
         if (cs.online || cs.reconnecting) return
@@ -451,6 +460,13 @@ class ConnectService(
                 }
             }
             scope.launch(terminalDispatcher) { cs.termScreen.clear() }
+            // Opt into a persistent session (or re-attach the one we last held) as
+            // the very first frame on the stream, before any keystroke can flow --
+            // the server only honors TermAttach as the first frame (a 500ms window).
+            // Old servers don't know this frame and ignore it (Frame::Unknown on the
+            // Rust side), so this is always safe: no TermSession ever arrives, and
+            // everything behaves exactly as the legacy ephemeral-shell path did.
+            scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.TermAttach(cs.termSessionId))) } }
         }
         cs.online = true
         receiveLoop(convId, stream)

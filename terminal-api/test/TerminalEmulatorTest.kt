@@ -1,4 +1,5 @@
 import dev.azula.terminal.ATTR_BOLD
+import dev.azula.terminal.ATTR_ITALIC
 import dev.azula.terminal.ATTR_REVERSE
 import dev.azula.terminal.ATTR_UNDERLINE
 import dev.azula.terminal.ATTR_WIDE_LEAD
@@ -157,6 +158,66 @@ class TerminalEmulatorTest {
         val e = TerminalEmulator(80, 24)
         e.feed("${ESC}[38:2::10:20:30mB")
         assertEquals(0xFF0A141E, e.line(0).fg[0])
+    }
+
+    // ---- SGR underline-style colon form (`4:x`) ----
+    // Modern apps (claude included) send curly/single underline as a colon
+    // sub-parameter of `4` (`4:3`, `4:1`, …) and clear it the same way (`4:0`),
+    // alongside the classic bare `24`. `applySgr` used to route ANY colon-form
+    // group to the extended-color parser (`applyColonColor`, which only
+    // recognizes head 38/48) and silently no-op otherwise -- so `4:3` never set
+    // underline, and worse, `4:0` never cleared it, leaving underline stuck on
+    // from a prior plain `ESC[4m` until a hard reset.
+
+    @Test
+    fun sgrColonUnderlineStyleSetsUnderlineOnceNotItalic() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("${ESC}[4:3mX")
+        val row = e.line(0)
+        assertTrue(row.flags[0] and ATTR_UNDERLINE != 0)
+        assertEquals(0, row.flags[0] and ATTR_ITALIC) // colon sub-param must not leak into SGR 3
+    }
+
+    @Test
+    fun sgrColonUnderlineOffClearsIt() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("${ESC}[4mA${ESC}[4:0mB")
+        val row = e.line(0)
+        assertTrue(row.flags[0] and ATTR_UNDERLINE != 0)   // A: plain underline on
+        assertEquals(0, row.flags[1] and ATTR_UNDERLINE)   // B: colon-form off actually clears it
+    }
+
+    @Test
+    fun sgrPlainUnderlineOffStillWorks() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("${ESC}[4mA${ESC}[24mB")
+        val row = e.line(0)
+        assertTrue(row.flags[0] and ATTR_UNDERLINE != 0)
+        assertEquals(0, row.flags[1] and ATTR_UNDERLINE)
+    }
+
+    @Test
+    fun sgrUnderlineColorDoesNotStrandUnderlineOrCorruptFollowingAttrs() {
+        val e = TerminalEmulator(80, 24)
+        // Set a curly underline + explicit underline color, clear the color (59),
+        // then plain-clear the underline (24) and print a green-fg char after --
+        // none of the colon-form groups above may leak digits into later codes.
+        e.feed("${ESC}[4:3;58:2::255:0:0mA${ESC}[59;24m${ESC}[32mB")
+        val row = e.line(0)
+        assertTrue(row.flags[0] and ATTR_UNDERLINE != 0)
+        assertEquals(0, row.flags[1] and ATTR_UNDERLINE)
+        assertEquals(0xFF98C379, row.fg[1]) // ANSI 32 green, unaffected by the preceding colon groups
+    }
+
+    @Test
+    fun sgrColonFormDoesNotBleedIntoAdjacentSemicolonCode() {
+        val e = TerminalEmulator(80, 24)
+        // `4:0` (colon group) followed by `;1` (bold) -- the `1` must be parsed as
+        // its own top-level SGR code, not swallowed into the preceding colon group.
+        e.feed("${ESC}[4:0;1mX")
+        val row = e.line(0)
+        assertEquals(0, row.flags[0] and ATTR_UNDERLINE)
+        assertTrue(row.flags[0] and ATTR_BOLD != 0)
     }
 
     // ---- cursor addressing + erase ----

@@ -744,7 +744,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         var i = 0
         while (i < groups.size) {
             val g = groups[i]
-            if (g.contains(':')) { applyColonColor(g.split(':')); i++; continue }
+            if (g.contains(':')) { applyColonGroup(g.split(':')); i++; continue }
             when (val code = g.toIntOrNull() ?: 0) {
                 0 -> { curFg = 0L; curBg = 0L; curFlags = 0 }
                 1 -> curFlags = curFlags or ATTR_BOLD
@@ -789,11 +789,34 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         }
     }
 
+    /** Dispatch a colon-subparametrized SGR group (one semicolon-delimited token
+     *  that itself contains `:` -- e.g. `4:3`, `38:2:255:0:0`, `58:5:196`). The
+     *  colon groups a single logical parameter; sub-parts must never be treated
+     *  as their own top-level SGR codes (that would e.g. read `4:3` as "underline
+     *  on" followed by a stray "italic"). */
+    private fun applyColonGroup(sub: List<String>) {
+        when (sub.getOrNull(0)?.toIntOrNull()) {
+            4 -> applyUnderlineStyle(sub.getOrNull(1)?.toIntOrNull())
+            38 -> applyColonColor(sub, fg = true)
+            48 -> applyColonColor(sub, fg = false)
+            // 58:… (set underline color) / 59 (default underline color, though 59
+            // never actually carries a colon) -- underline color isn't modeled by
+            // a distinct render attribute, so consumed as a no-op rather than
+            // falling through to anything that would mutate fg/bg/flags.
+        }
+    }
+
+    /** Colon-form underline style `4:0` (off) / `4:1` (single) / `4:2` (double) /
+     *  `4:3` (curly) / `4:4` (dotted) / `4:5` (dashed). Only a single underline
+     *  attribute is rendered, so every non-zero style just sets [ATTR_UNDERLINE];
+     *  `4:0` (and only `4:0`) clears it -- distinct from `0`/`22` etc, which are
+     *  plain (non-colon) top-level codes handled in [applySgr]'s main `when`. */
+    private fun applyUnderlineStyle(style: Int?) {
+        curFlags = if (style == null || style == 0) curFlags and ATTR_UNDERLINE.inv() else curFlags or ATTR_UNDERLINE
+    }
+
     /** Colon-form `38:5:n` / `38:2:[cs]:r:g:b` (a single SGR token). */
-    private fun applyColonColor(sub: List<String>) {
-        val head = sub.getOrNull(0)?.toIntOrNull() ?: return
-        val fg = head == 38
-        if (head != 38 && head != 48) return
+    private fun applyColonColor(sub: List<String>, fg: Boolean) {
         when (sub.getOrNull(1)?.toIntOrNull()) {
             5 -> setColor(fg, xterm256(sub.getOrNull(2)?.toIntOrNull() ?: 0))
             2 -> {

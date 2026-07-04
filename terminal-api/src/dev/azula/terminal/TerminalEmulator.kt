@@ -513,7 +513,15 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             'T' -> scrollDown(p(0, 1))
             'r' -> setScrollRegion(p(0, 1), p(1, rows))
             's' -> saveCursor()
-            'u' -> restoreCursor()
+            // Bare `CSI u` is the classic ANSI.SYS-style restore-cursor. But `CSI < u` /
+            // `CSI > Ps u` / `CSI = Ps ; Pu u` / `CSI ? u` are the Kitty keyboard protocol
+            // (push/pop/set/query keyboard flags) -- same final byte, different marker.
+            // Dispatching those to restoreCursor() snapped the cursor back to whatever
+            // DECSC last saved (often row 0), silently corrupting the row anchor for every
+            // subsequent relative-cursor redraw (e.g. claude's arrow-key redraw of the
+            // trust-dialog option list). Kitty protocol isn't modeled here; ignored like
+            // mouse modes are elsewhere in this dispatcher.
+            'u' -> if (marker == ' ') restoreCursor()
             'h' -> setModes(parts, private, true)
             'l' -> setModes(parts, private, false)
             'm' -> applySgr(if (s.isEmpty()) "0" else s)

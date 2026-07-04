@@ -221,6 +221,38 @@ class TerminalEmulatorTest {
         assertEquals("C", e2.rowText(1))
     }
 
+    // ---- save/restore cursor (DECSC/DECRC) ----
+
+    @Test
+    fun bareCsiURestoresCursor() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("${ESC}7")          // DECSC: save cursor at (0,0)
+        e.feed("${ESC}[4;3H")      // move to row 4, col 3 (1-based)
+        e.feed("${ESC}[u")         // bare CSI u: ANSI.SYS-style restore-cursor
+        assertEquals(0 to 0, e.cursor)
+    }
+
+    @Test
+    fun kittyKeyboardProtocolCsiUDoesNotMoveCursor() {
+        // `CSI < u` / `CSI > Ps u` / `CSI = Ps ; Pu u` / `CSI ? u` are the Kitty keyboard
+        // protocol (pop/push/set/query keyboard flags) -- same final byte 'u' as the bare
+        // ANSI.SYS restore-cursor, but with a marker prefix. They must NOT restore the
+        // cursor: a prior bug dispatched all of them to restoreCursor(), so a keyboard-flags
+        // toggle mid-redraw (as claude's CLI emits once after painting the trust dialog)
+        // silently snapped the cursor back to wherever DECSC last saved -- corrupting the
+        // row anchor for every subsequent relative-cursor redraw (arrow-key menu redraws
+        // landing option text near the top of the screen instead of at the menu rows).
+        val e = TerminalEmulator(20, 6)
+        e.feed("${ESC}7")          // DECSC: save cursor at (0,0)
+        e.feed("${ESC}[4;3H")      // move to row 4, col 3 (1-based)
+        e.feed("${ESC}[<u")        // kitty: pop keyboard flags
+        assertEquals(3 to 2, e.cursor)
+        e.feed("${ESC}[>1u")       // kitty: push keyboard flags
+        assertEquals(3 to 2, e.cursor)
+        e.feed("${ESC}[?u")        // kitty: query keyboard flags
+        assertEquals(3 to 2, e.cursor)
+    }
+
     // ---- scroll region ----
 
     @Test

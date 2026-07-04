@@ -13,25 +13,32 @@ import kotlin.time.TimeSource
  * case is a tentative glyph that briefly shows, then snaps to the server's truth.
  *
  * Predictions are deliberately conservative:
- *  - Only on the **primary** screen. Any input while a full-screen app is on the
- *    alternate screen flushes and predicts nothing (TUIs echo unpredictably).
- *  - Printable characters, backspace, and left/right arrows are predicted;
- *    homogeneous multi-char strings (an autocorrect backspace-run, or a
- *    swiped/pasted run of printables) are predicted char-by-char -- the input
- *    layer only ever sends one homogeneous string per call (see
- *    `InputDiff`/`MobileRawTerminalInput`'s two-call rule), so a mixed string
- *    is unexpected and just pauses like any other unrecognized input. Enter,
- *    Tab, Ctrl-keys, Escape, and up/down flush the overlay and pause until the
- *    server catches up.
+ *  - On the **primary** screen: printable characters, backspace, and left/right
+ *    arrows are predicted; homogeneous multi-char strings (an autocorrect
+ *    backspace-run, or a swiped/pasted run of printables) are predicted
+ *    char-by-char -- the input layer only ever sends one homogeneous string
+ *    per call (see `InputDiff`/`MobileRawTerminalInput`'s two-call rule), so a
+ *    mixed string is unexpected and just pauses like any other unrecognized
+ *    input. Enter, Tab, Ctrl-keys, Escape, and up/down flush the overlay and
+ *    pause until the server catches up.
  *  - Reconciliation: server output that contains any non-SGR escape (cursor moves,
  *    erases, alt-screen) flushes everything; otherwise each pending glyph is
  *    confirmed when the real cell matches, flushed on a mismatch, and dropped after
  *    a [timeoutMs] timeout if never echoed.
+ *  - On the **alternate** screen (full-screen TUIs, which echo unpredictably):
+ *    predictions are far more conservative -- only printables/backspace (never
+ *    arrows), only once [altQuietMs] have passed since the last server output
+ *    (so a burst of app-driven repaint doesn't get raced), capped at
+ *    [ALT_MAX_PENDING] pending glyphs, flushed instantly on ANY server output
+ *    while on the alt screen, and dropped after [altTimeoutMs] if never
+ *    reconciled. A primary<->alt flip flushes everything.
  */
 class PredictionEngine(
     private val emu: TerminalEmulator,
     var enabled: Boolean = true,
     private val timeoutMs: Long = 1000,
+    private val altQuietMs: Long = 200,
+    private val altTimeoutMs: Long = 400,
     private val now: () -> Long = { defaultClock.elapsedNow().inWholeMilliseconds },
 ) : TerminalPredictor {
 
@@ -42,9 +49,16 @@ class PredictionEngine(
     private var predCol = 0
     private var paused = false
 
+    // Alt-screen bookkeeping: when the last server output landed (gates the
+    // quiet window) and which screen we were on last time output arrived (so a
+    // primary<->alt flip -- detected the moment it shows up in onServerOutput --
+    // flushes rather than being reconciled against the wrong screen).
+    private var lastOutputAt: Long = Long.MIN_VALUE / 2
+    private var wasAltScreen = false
+
     override fun onInput(bytes: String) {
         if (!enabled) return
-        if (emu.liveAltScreen) { flush(); return }
+        if (emu.liveAltScreen) { onAltInput(bytes); emu.repaint(); return }
 
         if (bytes.length == 1) {
             val code = bytes[0].code
@@ -63,7 +77,43 @@ class PredictionEngine(
         emu.repaint()
     }
 
+    /** Conservative alt-screen prediction: printables/backspace only, gated by
+     *  the quiet window and the pending cap; see the class doc. */
+    private fun onAltInput(bytes: String) {
+        val t = now()
+        if (overlays.isNotEmpty() && t - overlays.first().createdAt > altTimeoutMs) flush()
+        if (t - lastOutputAt <= altQuietMs) return
+
+        if (bytes.length == 1) {
+            val code = bytes[0].code
+            when {
+                code >= 0x20 && code != 0x7f -> predictAltPrintable(code)
+                code == 0x08 || code == 0x7f -> predictBackspace()
+            }
+        } else when {
+            isHomogeneousPrintable(bytes) -> bytes.forEach { predictAltPrintable(it.code) }
+            isHomogeneousBackspace(bytes) -> repeat(bytes.length) { predictBackspace() }
+            // arrows/other escape sequences: never predicted on the alt screen.
+        }
+    }
+
+    private fun predictAltPrintable(code: Int) {
+        if (overlays.size >= ALT_MAX_PENDING) return
+        predictPrintable(code)
+    }
+
     override fun onServerOutput(chunk: String) {
+        val t = now()
+        lastOutputAt = t
+        val flipped = emu.liveAltScreen != wasAltScreen
+        wasAltScreen = emu.liveAltScreen
+        if (flipped) { flush(); paused = false; return }
+        if (emu.liveAltScreen) {
+            if (overlays.isNotEmpty()) flush()   // alt screen: ANY output flushes, no reconciliation
+            return
+        }
+
+        // ---- primary screen: unchanged from before alt-screen prediction ----
         paused = false
         if (overlays.isEmpty()) return
         if (hasDisruptiveEscape(chunk)) { flush(); return }
@@ -82,7 +132,6 @@ class PredictionEngine(
         if (mismatch) { flush(); return }
         overlays.clear(); overlays.addAll(kept)
 
-        val t = now()
         if (overlays.any { t - it.createdAt > timeoutMs }) { flush(); return }
         if (overlays.isEmpty()) syncCursor()
     }
@@ -124,6 +173,7 @@ class PredictionEngine(
 
     private companion object {
         const val SPACE = 0x20
+        const val ALT_MAX_PENDING = 8
         val defaultClock = TimeSource.Monotonic.markNow()
 
         /** True if [s] carries any escape that isn't a pure `ESC[…m` SGR — i.e. cursor

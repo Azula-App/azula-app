@@ -238,6 +238,38 @@ class TerminalEmulatorTest {
         assertTrue(e.scrollbackText().isEmpty())   // region top != screen top -> no scrollback
     }
 
+    @Test
+    fun scrollRegionRedrawWithPromptChevronStaysOnExpectedRow() {
+        // Regression for the real bug: pressing up/down arrows in claude (history
+        // recall / the slash-command menu) re-echoes a `❯ <text>` prompt line
+        // padded with spaces to the full terminal width, inside a temporarily
+        // narrowed DECSTBM scroll region used to make room above a fixed footer
+        // (captured verbatim from a real `claude` session: `CSI top;bot r` +
+        // `CSI n S` + `CSI r` to scroll, then absolute-cursor-addressed redraws).
+        // If `❯` (U+276F) is ever miscounted as double-width, the padded line
+        // overflows one column early in a real 80-col terminal, deferred autowrap
+        // fires a character too soon, a phantom row is inserted, and every
+        // subsequent relatively-addressed line in the redraw lands one row lower
+        // than a real terminal shows -- which is exactly what made claude's
+        // arrow-key-triggered redraws "render in unexpected places."
+        val cols = 80
+        val e = TerminalEmulator(cols, 24)
+        // Narrow the scroll region (rows 2..19 1-based), scroll up 2, reset full --
+        // the exact pattern claude emits to make room for new transcript lines.
+        e.feed("${ESC}[2;19r${ESC}[2S${ESC}[r")
+        // Absolute reset lands the cursor at (0,0); move down to row 10 and print
+        // a `❯ say ok2`-shaped line padded to the full column width, exactly as
+        // claude re-echoes a recalled/highlighted prompt line.
+        e.feed("${ESC}[H")
+        val prompt = "❯ say ok2"           // ❯ say ok2
+        e.feed("\r${ESC}[10B$prompt${" ".repeat(cols - prompt.length)}")
+        // Then CR + down 2 rows and print a marker -- on a real terminal this
+        // always lands on row 12 (10 + 2), regardless of the chevron's width.
+        e.feed("\r${ESC}[2BMARKER")
+        assertEquals("MARKER", e.rowText(12))
+        assertEquals("", e.rowText(13))
+    }
+
     // ---- scrollback ----
 
     @Test
@@ -324,23 +356,41 @@ class TerminalEmulatorTest {
     }
 
     @Test
-    fun dingbatSpinnerGlyphIsDoubleWidth() {
+    fun dingbatSpinnerGlyphIsSingleWidth() {
+        // Regression: real terminals (verified against tmux/wcwidth) advance the
+        // cursor only one column for claude's spinner glyphs in 0x2600-27BF —
+        // treating them as double-width desyncs column accounting from what
+        // claude assumes (see charWidth's doc comment).
         val e = TerminalEmulator(20, 6)
         e.feed("✻")   // ✻ — claude's spinner glyph
-        assertEquals(0 to 2, e.cursor)
+        assertEquals(0 to 1, e.cursor)
     }
 
     @Test
-    fun geometricBulletIsDoubleWidth() {
+    fun promptChevronIsSingleWidth() {
+        // Regression: `❯` (claude's prompt marker, U+276F) is in the same
+        // Misc Symbols & Dingbats block and must stay single-width too — this is
+        // the specific glyph that triggered the arrow-key/scroll-region redraw
+        // corruption (see ScrollRegionArrowKeyRedraw below).
+        val e = TerminalEmulator(20, 6)
+        e.feed("❯")
+        assertEquals(0 to 1, e.cursor)
+    }
+
+    @Test
+    fun geometricBulletIsSingleWidth() {
+        // Regression: same as dingbats above — Geometric Shapes (0x25A0-25FF)
+        // are single-width on real terminals despite visually looking "big."
         val e = TerminalEmulator(20, 6)
         e.feed("●")   // ● black circle
-        assertEquals(0 to 2, e.cursor)
+        assertEquals(0 to 1, e.cursor)
     }
 
     @Test
     fun boxDrawingStaysSingleWidth() {
-        // Regression: the Geometric Shapes wide-range must not bleed into box-drawing
-        // (a different block, 0x2500-257F) — those stay 1-cell in JetBrains Mono.
+        // Box-drawing (0x2500-257F) is a different block from Geometric Shapes
+        // (0x25A0-25FF) and always stayed 1-cell in JetBrains Mono; keep the
+        // regression now that Geometric Shapes is single-width too.
         val e = TerminalEmulator(20, 6)
         e.feed("─")   // ─
         assertEquals(0 to 1, e.cursor)

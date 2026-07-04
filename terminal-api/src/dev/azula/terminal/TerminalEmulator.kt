@@ -876,6 +876,26 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
          * East-Asian-wide/fullwidth/emoji-ish symbols, else 1. Kept as a compact,
          * commented table (not a full Unicode wcwidth dump) targeting the blocks
          * real TUIs (claude included) actually emit.
+         *
+         * Geometric Shapes (0x25A0-25FF) and Misc Symbols & Dingbats (0x2600-27BF)
+         * are deliberately NOT wide, despite a prior attempt (see git history) to
+         * mark them 2-column to fix a visual glyph-rendering mismatch: real
+         * terminals (verified against tmux, which uses the system's wcwidth)
+         * advance the cursor only ONE column for claude's spinner/status/prompt
+         * glyphs in these blocks (✻✢✳✓➜●○■▲ and critically `❯`, claude's prompt
+         * chevron). Reserving a second column desyncs the emulator's column
+         * accounting from what claude assumes, so any line claude pads to the
+         * full terminal width (e.g. a re-echoed `❯ <cmd>` prompt row after a
+         * DECSTBM scroll) fills one column short in real terminals but exactly
+         * hits the last column here — firing deferred autowrap a character
+         * early, inserting a phantom row, and cascading into every subsequent
+         * absolute-cursor-addressed line in that redraw. That phantom-row drift
+         * is what made arrow-key-triggered redraws (history recall, menus —
+         * anything that reprints a padded `❯ …` line inside a scroll region)
+         * "render in unexpected places." The *visual* glyph-width mismatch this
+         * was originally trying to fix belongs in the renderer, which already
+         * handles it (see terminal.md's "Glyph width" section on coalesced runs
+         * pre-measured and painted at `col * cellW`) — not here.
          */
         fun charWidth(cp: Int): Int {
             if (isZeroWidth(cp)) return 0
@@ -892,8 +912,6 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
                 cp in 0xFF00..0xFF60 ||          // Fullwidth forms
                 cp in 0xFFE0..0xFFE6 ||
                 cp in 0x1F1E6..0x1F1FF ||        // regional-indicator flag letters
-                cp in 0x25A0..0x25FF ||          // Geometric Shapes (●○■▲… used as bullets/spinners) — NOT box-drawing (0x2500-257F, a different block, stays 1)
-                cp in 0x2600..0x27BF ||          // Misc Symbols & Dingbats (☀✓✗✻➜… claude's spinner/status glyphs)
                 cp in 0x1F300..0x1FAFF ||        // emoji / symbols
                 cp in 0x20000..0x3FFFD           // CJK Ext B+
             return if (wide) 2 else 1

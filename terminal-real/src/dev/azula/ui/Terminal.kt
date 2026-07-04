@@ -7,29 +7,43 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -52,10 +66,16 @@ import dev.azula.terminal.ATTR_WIDE_LEAD
 import dev.azula.terminal.ATTR_WIDE_TRAIL
 import dev.azula.terminal.Row
 import dev.azula.terminal.TermFrame
+import dev.azula.terminal.TermSelection
+import dev.azula.terminal.TermSeq
 import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.codePointToString
+import dev.azula.terminal.rowAt
+import dev.azula.terminal.textInSelection
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val FONT_SIZE = 12.5.sp
 private val LINE_HEIGHT = 21.sp
@@ -80,6 +100,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // Rounded to a whole pixel so IME-driven resizes (which nudge the available
     // density/height) don't sub-pixel remeasure every row and jitter them.
     val rowHeight = with(density) { kotlin.math.round(lineHpx).toDp() }
+    val rowHeightPx = with(density) { rowHeight.toPx() }
     val cellW = remember(Fonts.mono) {
         measurer.measure("MMMMMMMMMM", TextStyle(fontFamily = Fonts.mono, fontSize = FONT_SIZE)).size.width / 10
     }
@@ -109,31 +130,202 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // apparently doesn't route real hit-testing through the modifier chain
     // passed into it the way it does e.g. focusRequester.
     var reclaimFocusSignal by remember(convId) { mutableStateOf(0) }
+
+    // The LazyColumn's own scroll state, hoisted up here (instead of created
+    // inside PrimaryScreen) so the selection gesture's hit-testing -- which
+    // needs firstVisibleItemIndex/ScrollOffset to translate a tap's y into an
+    // absolute row -- can share it. Harmless to create even on the alt screen,
+    // where it just isn't attached to any LazyColumn.
+    val listState = rememberLazyListState()
+
+    // ---- selection (Feature 3: region selection + copy) ----
+    var selection by remember(convId) { mutableStateOf<TermSelection?>(null) }
+    var justCopied by remember(convId) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    // Invalidate the selection when the coordinate space it anchors to shifts
+    // from underneath it: an alt-screen toggle repurposes the same abs range for
+    // unrelated content; `totalScrolled` going backwards only happens on a full
+    // clear() (otherwise monotonic), which also resets the retained window; and
+    // an endpoint scrolled off past the scrollback cap is no longer resolvable.
+    // Conv switch is handled for free by the remember(convId) above.
+    var lastAltForSel by remember(convId) { mutableStateOf(frame.altScreen) }
+    var lastTotalScrolledForSel by remember(convId) { mutableStateOf(frame.totalScrolled) }
+    LaunchedEffect(frame) {
+        val sel = selection
+        if (sel != null) {
+            val altToggled = frame.altScreen != lastAltForSel
+            val cleared = frame.totalScrolled < lastTotalScrolledForSel
+            val evicted = frame.rowAt(sel.startAbs) == null || frame.rowAt(sel.endAbs) == null
+            if (altToggled || cleared || evicted) selection = null
+        }
+        lastAltForSel = frame.altScreen
+        lastTotalScrolledForSel = frame.totalScrolled
+    }
+
+    // Tap-to-focus and long-press-to-select share one pointerInput (keyed only on
+    // convId, like the tap-to-focus gesture already was): a plain tap either
+    // clears an active selection (and, in that case, skips the focus-reclaim
+    // bump -- the tap was "for" dismissing the selection, not refocusing) or
+    // bumps reclaimFocusSignal as before; a long-press hit-tests the press
+    // position, selects the word under it, and gives haptic feedback. `emu.frame`
+    // (not the outer `frame` val) is read here deliberately: this gesture
+    // detector coroutine outlives any single recomposition (it's only torn down
+    // when convId changes), so closing over the plain `frame` local would pin it
+    // to a stale snapshot from whenever the coroutine last (re)started -- reading
+    // the live State property instead always sees the current frame.
     val tapMod = if (live) {
-        Modifier.pointerInput(convId) { detectTapGestures { reclaimFocusSignal++ } }
+        Modifier.pointerInput(convId) {
+            detectTapGestures(
+                onTap = {
+                    if (selection != null) selection = null else reclaimFocusSignal++
+                },
+                onLongPress = { pos ->
+                    val hit = hitTest(pos, emu.frame, listState, rowHeightPx, cellW, padPx)
+                    val row = emu.frame.rowAt(hit.abs)
+                    if (row != null) {
+                        val (s, e) = wordBoundsAt(row, hit.col)
+                        selection = TermSelection(hit.abs, s, hit.abs, e)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                },
+            )
+        }
     } else Modifier
 
-    Box(Modifier.fillMaxSize().background(AzulaColors.bg1).then(sizeMod).then(tapMod)) {
+    // Extends the live end of the selection while dragging after the long-press
+    // that started it (a separate pointerInput so it doesn't compete with -- or
+    // get eaten by -- the LazyColumn's own drag-to-scroll).
+    val dragSelectMod = if (live) {
+        Modifier.pointerInput(convId) {
+            detectDragGesturesAfterLongPress(
+                onDrag = { change, _ ->
+                    change.consume()
+                    if (selection != null) {
+                        val hit = hitTest(change.position, emu.frame, listState, rowHeightPx, cellW, padPx)
+                        selection = selection?.copy(endAbs = hit.abs, endCol = hit.col)
+                    }
+                },
+            )
+        }
+    } else Modifier
+
+    Box(Modifier.fillMaxSize().background(AzulaColors.bg1).then(sizeMod).then(tapMod).then(dragSelectMod)) {
         // Invisible keystroke-capture surface behind the text; a tap focuses it.
         if (live) RawTerminalInput(session, convId, Modifier.matchParentSize(), reclaimFocusSignal, smartInput)
 
-        if (frame.altScreen) AltScreen(frame, cursorOn, rowHeight, cellW, measurer) else PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer)
+        if (frame.altScreen) {
+            AltScreen(session, convId, frame, cursorOn, rowHeight, cellW, measurer, selection)
+        } else {
+            PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer, listState, selection)
+        }
+
+        if (selection != null) {
+            SelectionActionChip(
+                copied = justCopied,
+                onCopy = {
+                    val text = emu.frame.textInSelection(selection!!)
+                    clipboard.setText(AnnotatedString(text))
+                    justCopied = true
+                    scope.launch {
+                        delay(1400)
+                        justCopied = false
+                        selection = null
+                    }
+                },
+                onCancel = { selection = null },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            )
+        }
     }
 }
 
-/** Full-screen TUI (vi/top/…): a fixed grid, no scrollback, no auto-scroll. */
+/** Rate cap on scrollback-navigation arrows sent per gesture (drag or wheel
+ *  event) — a runaway fling shouldn't queue an unbounded burst of keystrokes.
+ *  Referenced from the jvm actual of [altScreenWheelScroll] too, hence internal. */
+internal const val ALT_SCROLL_RATE_CAP = 60
+
+/** Desktop mouse-wheel: lines sent to the PTY per notch (see [altScreenWheelScroll]). */
+internal const val WHEEL_LINES_PER_NOTCH = 3
+
+/** Full-screen TUI (vi/top/…): a fixed grid, no scrollback, no auto-scroll.
+ *  Swipe (mobile) / wheel (desktop) scrolling is translated into arrow-key
+ *  presses sent to the PTY -- there's no local scrollback to page through on
+ *  the alt screen, so the app itself (less/vi/claude/…) has to move. */
 @Composable
-private fun AltScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp, cellW: Int, measurer: TextMeasurer) {
-    Column(Modifier.fillMaxSize().padding(PAD)) {
+private fun AltScreen(
+    session: TerminalSession,
+    convId: String,
+    frame: TermFrame,
+    cursorOn: Boolean,
+    rowHeight: Dp,
+    cellW: Int,
+    measurer: TextMeasurer,
+    selection: TermSelection?,
+) {
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { rowHeight.toPx() }
+    // Accumulated sub-row drag distance carried between onVerticalDrag calls;
+    // sentThisGesture caps how many arrows one continuous drag can fire.
+    var dragAccumPx by remember(convId) { mutableStateOf(0f) }
+    var sentThisGesture by remember(convId) { mutableStateOf(0) }
+
+    // NOTE(gesture conflict, needs device iteration): this plain vertical-drag
+    // recognizer lives on the Column below, a descendant of LiveTerminalView's
+    // outer Box -- which also carries the long-press-then-drag selection-extend
+    // recognizer (`dragSelectMod`). Because a descendant's pointerInput sees the
+    // Main-pass events before its ancestors, a drag that follows a long-press
+    // selection on the alt screen may get read as scroll-arrows here before it
+    // reaches the selection's drag-extend handler. Same risk class the plan
+    // flagged for the LazyColumn/selection interaction on the primary screen;
+    // budget on-device testing to see whether the two need explicit gating.
+    Column(
+        Modifier.fillMaxSize().padding(PAD)
+            .pointerInput(convId) {
+                detectVerticalDragGestures(
+                    onDragStart = { dragAccumPx = 0f; sentThisGesture = 0 },
+                    onDragEnd = { dragAccumPx = 0f },
+                    onDragCancel = { dragAccumPx = 0f },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragAccumPx += dragAmount
+                        // Finger moving UP (dragAmount < 0) reveals content ABOVE, like
+                        // pressing Up in `less` -- flip this mapping if device testing
+                        // disagrees, it's the one constant that encodes the choice.
+                        while (dragAccumPx <= -rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                            sendScrollArrow(session, convId, up = true)
+                            dragAccumPx += rowHeightPx; sentThisGesture++
+                        }
+                        while (dragAccumPx >= rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                            sendScrollArrow(session, convId, up = false)
+                            dragAccumPx -= rowHeightPx; sentThisGesture++
+                        }
+                    },
+                )
+            }
+            .altScreenWheelScroll { lines -> repeat(kotlin.math.abs(lines)) { sendScrollArrow(session, convId, up = lines > 0) } },
+    ) {
         val preds = predictionsByRow(frame)
-        frame.grid.forEachIndexed { r, row -> GridRow(row, r, frame, cursorOn, preds, rowHeight, cellW, measurer) }
+        frame.grid.forEachIndexed { r, row ->
+            val abs = frame.totalScrolled + r
+            GridRow(row, r, frame, cursorOn, preds, rowHeight, cellW, measurer, selectionSpanForRow(selection, abs, frame.cols))
+        }
     }
 }
 
 /** Interactive shell: scrollback + the live grid in a lazily-rendered scroller. */
 @Composable
-private fun PrimaryScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp, cellW: Int, measurer: TextMeasurer) {
-    val listState = rememberLazyListState()
+private fun PrimaryScreen(
+    frame: TermFrame,
+    cursorOn: Boolean,
+    rowHeight: Dp,
+    cellW: Int,
+    measurer: TextMeasurer,
+    listState: LazyListState,
+    selection: TermSelection?,
+) {
     val total = frame.scrollback.size + frame.grid.size
 
     // Stick to the bottom when new output arrives *if* we're already pinned to it --
@@ -142,11 +334,28 @@ private fun PrimaryScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp, ce
     LaunchedEffect(frame) {
         if (!listState.isScrollInProgress && atBottom(listState, total)) listState.scrollToItem(total - 1)
     }
+    // Whether we're detached from the tail -- drives the jump-to-bottom chip.
+    val pinned by remember { derivedStateOf { atBottom(listState, total) } }
+    val scope = rememberCoroutineScope()
 
     val preds = predictionsByRow(frame)
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(PAD)) {
-        items(frame.scrollback.size) { i -> GridRow(frame.scrollback[i], -1, frame, cursorOn, preds, rowHeight, cellW, measurer) }
-        items(frame.grid.size) { r -> GridRow(frame.grid[r], r, frame, cursorOn, preds, rowHeight, cellW, measurer) }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(PAD)) {
+            items(frame.scrollback.size) { i ->
+                val abs = frame.totalScrolled - frame.scrollback.size + i
+                GridRow(frame.scrollback[i], -1, frame, cursorOn, preds, rowHeight, cellW, measurer, selectionSpanForRow(selection, abs, frame.cols))
+            }
+            items(frame.grid.size) { r ->
+                val abs = frame.totalScrolled + r
+                GridRow(frame.grid[r], r, frame, cursorOn, preds, rowHeight, cellW, measurer, selectionSpanForRow(selection, abs, frame.cols))
+            }
+        }
+        if (!pinned) {
+            ScrollToBottomChip(
+                onTap = { scope.launch { listState.scrollToItem(total - 1) } },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(PAD),
+            )
+        }
     }
 }
 
@@ -156,6 +365,18 @@ private fun PrimaryScreen(frame: TermFrame, cursorOn: Boolean, rowHeight: Dp, ce
 private fun atBottom(listState: LazyListState, total: Int): Boolean {
     val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return true
     return total > 0 && last >= total - 1
+}
+
+/** Send one scrollback-navigation arrow key for [AltScreen]'s swipe/wheel
+ *  handling -- honors application-cursor-keys mode, same as [TerminalKeysBar]. */
+private fun sendScrollArrow(session: TerminalSession, convId: String, up: Boolean) {
+    val appKeys = session.terminalScreen(convId).applicationCursorKeys
+    val seq = if (up) {
+        if (appKeys) TermSeq.APP_UP else TermSeq.UP
+    } else {
+        if (appKeys) TermSeq.APP_DOWN else TermSeq.DOWN
+    }
+    session.terminalRaw(convId, seq)
 }
 
 /**
@@ -182,6 +403,7 @@ private fun GridRow(
     rowHeight: Dp,
     cellW: Int,
     measurer: TextMeasurer,
+    selSpan: IntRange? = null,
 ) {
     val cursorHere = cursorOn && gridIndex == frame.cursorRow
     val rowPreds = if (gridIndex >= 0) preds[gridIndex] else null
@@ -190,7 +412,9 @@ private fun GridRow(
     // lambda, so a later font swap (system-fallback -> bundled JetBrains Mono, see
     // LoadFonts) wouldn't otherwise invalidate already-built segments. cellW itself is
     // remember(Fonts.mono)-keyed in LiveTerminalView, so it changes exactly when the
-    // font does, piggy-backing that invalidation here.
+    // font does, piggy-backing that invalidation here. [selSpan] is deliberately NOT
+    // in this key -- it's read straight from the draw scope below, alongside the
+    // segments, so dragging a selection never forces a re-measure of the row text.
     val segments = remember(row.gen, cursorHere, frame.cursorCol, rowPreds, cellW) {
         buildRowSegments(row, if (cursorHere) frame.cursorCol else -1, rowPreds, measurer)
     }
@@ -203,6 +427,13 @@ private fun GridRow(
             }
             val y = (rowHeightPx - seg.layout.size.height) / 2f
             drawText(seg.layout, topLeft = Offset(x, y))
+        }
+        // Selection highlight -- drawn AFTER the glyphs so it reads as a translucent
+        // wash over the text, not a solid block hiding it.
+        if (selSpan != null) {
+            val x = selSpan.first * cellW.toFloat()
+            val span = (selSpan.last - selSpan.first + 1).coerceAtLeast(0)
+            drawRect(SELECTION_HIGHLIGHT, topLeft = Offset(x, 0f), size = Size(span * cellW.toFloat(), rowHeightPx))
         }
     }
 }
@@ -217,6 +448,127 @@ private val DEFAULT_FG = AzulaColors.text2
 private val TERM_BG = AzulaColors.bg1
 private val CURSOR = AzulaColors.pink
 private val PRED_FG = AzulaColors.textDim
+private val SELECTION_HIGHLIGHT = AzulaColors.pink.copy(alpha = 0.25f)
+
+/** An absolute row index (see [TermFrame.totalScrolled]) + column, the result of
+ *  translating a tap/drag position into terminal-grid coordinates. */
+private data class AbsCell(val abs: Long, val col: Int)
+
+/**
+ * Translate a pointer position (in this composable's own px coordinate space)
+ * into an absolute row + column, for the selection long-press/drag gestures.
+ *
+ * On the alt screen the grid is a fixed [Column] with no scroll offset, so the
+ * row is just `y / rowHeightPx`. On the primary screen the same y has to be
+ * resolved against the LazyColumn's current scroll position: `itemIndex =
+ * firstVisibleItemIndex + (y − PAD + firstVisibleItemScrollOffset) / rowHeightPx`,
+ * and since `scrollback[i]` is abs `totalScrolled − scrollback.size + i` while
+ * `grid[r]` is abs `totalScrolled + r` (see [TermFrame.totalScrolled]), the same
+ * `totalScrolled − scrollback.size + itemIndex` expression resolves either kind
+ * of item -- the scrollback/grid split "falls out" of the arithmetic.
+ */
+private fun hitTest(
+    pos: Offset,
+    frame: TermFrame,
+    listState: LazyListState,
+    rowHeightPx: Float,
+    cellW: Int,
+    padPx: Float,
+): AbsCell {
+    val col = if (cellW > 0) ((pos.x - padPx) / cellW).toInt().coerceIn(0, (frame.cols - 1).coerceAtLeast(0)) else 0
+    val abs = if (frame.altScreen) {
+        val row = if (rowHeightPx > 0f) (pos.y / rowHeightPx).toInt() else 0
+        frame.totalScrolled + row.coerceIn(0, (frame.grid.size - 1).coerceAtLeast(0))
+    } else {
+        val total = frame.scrollback.size + frame.grid.size
+        val itemIndex = if (rowHeightPx > 0f) {
+            listState.firstVisibleItemIndex + ((pos.y - padPx + listState.firstVisibleItemScrollOffset) / rowHeightPx).toInt()
+        } else {
+            listState.firstVisibleItemIndex
+        }
+        frame.totalScrolled - frame.scrollback.size + itemIndex.coerceIn(0, (total - 1).coerceAtLeast(0))
+    }
+    return AbsCell(abs, col)
+}
+
+/** The inclusive [start, end] column span of the "word" touching [col] in
+ *  [row]: scans outward to the nearest blank cell on each side (or the row
+ *  edge). A press landing on a wide glyph's trailing spacer is treated as its
+ *  lead cell, so a wide character is never split across the selection edge. */
+private fun wordBoundsAt(row: Row, col: Int): Pair<Int, Int> {
+    val clamped = col.coerceIn(0, row.cols - 1)
+    val start0 = if (row.flags[clamped] and ATTR_WIDE_TRAIL != 0) (clamped - 1).coerceAtLeast(0) else clamped
+    fun isBlank(c: Int) = row.cp[c] <= 0 || row.cp[c] == 0x20
+    if (isBlank(start0)) return start0 to start0
+    var s = start0
+    while (s > 0 && !isBlank(s - 1)) s--
+    var e = start0
+    while (e < row.cols - 1 && !isBlank(e + 1)) e++
+    return s to e
+}
+
+/** The inclusive column span of [sel] (normalized) that falls on the row at
+ *  absolute index [abs], or null if [abs] isn't part of the selection --
+ *  interior rows highlight in full, the first/last rows clip to the exact
+ *  columns, mirroring [dev.azula.terminal.textInSelection]'s own clipping. */
+private fun selectionSpanForRow(sel: TermSelection?, abs: Long, cols: Int): IntRange? {
+    if (sel == null) return null
+    val n = sel.normalized()
+    if (abs < n.startAbs || abs > n.endAbs) return null
+    return when {
+        n.startAbs == n.endAbs -> n.startCol..n.endCol
+        abs == n.startAbs -> n.startCol..(cols - 1)
+        abs == n.endAbs -> 0..n.endCol
+        else -> 0..(cols - 1)
+    }
+}
+
+/** The floating "Copy · Cancel" chip shown while a selection is active (see
+ *  [LiveTerminalView]). Styled to match [TerminalKeysBar]'s accessory keys. */
+@Composable
+private fun SelectionActionChip(copied: Boolean, onCopy: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(AzulaColors.bg2)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChipLabel(if (copied) "✓ copied" else "Copy", active = copied, onTap = onCopy)
+        Box(Modifier.width(1.dp).height(18.dp).background(AzulaColors.border4))
+        ChipLabel("Cancel", active = false, onTap = onCancel)
+    }
+}
+
+/** A small "jump to the tail" affordance shown on [PrimaryScreen] when the view
+ *  has scrolled away from the bottom (see [atBottom]). */
+@Composable
+private fun ScrollToBottomChip(onTap: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(AzulaColors.bg2)
+            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("↓", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun ChipLabel(label: String, active: Boolean, onTap: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(7.dp))
+            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (active) AzulaColors.onlineBright else AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 12.sp)
+    }
+}
 
 /** A resolved, already-measured run of one or more cells sharing a style, ready
  *  to paint at [startCol] * cellW. [cellSpan] is how many grid columns the

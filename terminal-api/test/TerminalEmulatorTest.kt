@@ -1,6 +1,8 @@
 import dev.azula.terminal.ATTR_BOLD
 import dev.azula.terminal.ATTR_REVERSE
 import dev.azula.terminal.ATTR_UNDERLINE
+import dev.azula.terminal.ATTR_WIDE_LEAD
+import dev.azula.terminal.ATTR_WIDE_TRAIL
 import dev.azula.terminal.PredictedCell
 import dev.azula.terminal.PredictionEngine
 import dev.azula.terminal.TermSeq
@@ -256,6 +258,82 @@ class TerminalEmulatorTest {
         assertEquals("┌─┐", e.rowText(0))  // ┌─┐
         e.feed("Z")
         assertTrue(e.rowText(0).endsWith("Z"))            // ASCII restored
+    }
+
+    // ---- glyph width (wcwidth-ish) ----
+
+    @Test
+    fun asciiIsSingleWidth() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("A")
+        assertEquals(0 to 1, e.cursor)
+    }
+
+    @Test
+    fun cjkIsDoubleWidthAndReservesLeadTrail() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("中")   // 中
+        assertEquals(0 to 2, e.cursor)
+        val row = e.line(0)
+        assertTrue(row.flags[0] and ATTR_WIDE_LEAD != 0)
+        assertTrue(row.flags[1] and ATTR_WIDE_TRAIL != 0)
+    }
+
+    @Test
+    fun dingbatSpinnerGlyphIsDoubleWidth() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("✻")   // ✻ — claude's spinner glyph
+        assertEquals(0 to 2, e.cursor)
+    }
+
+    @Test
+    fun geometricBulletIsDoubleWidth() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("●")   // ● black circle
+        assertEquals(0 to 2, e.cursor)
+    }
+
+    @Test
+    fun boxDrawingStaysSingleWidth() {
+        // Regression: the Geometric Shapes wide-range must not bleed into box-drawing
+        // (a different block, 0x2500-257F) — those stay 1-cell in JetBrains Mono.
+        val e = TerminalEmulator(20, 6)
+        e.feed("─")   // ─
+        assertEquals(0 to 1, e.cursor)
+    }
+
+    @Test
+    fun variationSelector16IsZeroWidth() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("A\uFE0F")   // A + VS16 -- the selector contributes no column
+        assertEquals(0 to 1, e.cursor)
+    }
+
+    @Test
+    fun combiningMarkIsZeroWidth() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("e\u0301")   // e + combining acute accent (not the precomposed char)
+        assertEquals(0 to 1, e.cursor)
+    }
+
+    // ---- OSC 11 background-color query ----
+
+    @Test
+    fun osc11QuerySTTerminatedRepliesWithBackground() {
+        val e = TerminalEmulator(20, 6)
+        val out = StringBuilder()
+        e.onResponse = { out.append(it) }
+        e.feed("${ESC}]11;?${ESC}\\")
+        assertEquals("${ESC}]11;rgb:0a0a/0a0a/1010${ESC}\\", out.toString())
+    }
+
+    @Test
+    fun osc11QueryBelTerminatedAlsoReplies() {
+        val e = TerminalEmulator(20, 6)
+        val out = StringBuilder()
+        e.onResponse = { out.append(it) }
+        e.feed("${ESC}]11;?\u0007")
+        assertEquals("${ESC}]11;rgb:0a0a/0a0a/1010${ESC}\\", out.toString())
     }
 
     // ---- device queries ----

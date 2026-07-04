@@ -351,7 +351,15 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         while (i < n) {
             val ch = text[i]
             val code = ch.code
-            if (code == 0x1b) { state = ESCAPE; escInter.setLength(0); i++; continue }
+            if (code == 0x1b) {
+                // ST (ESC \) terminates OSC/DCS/etc; if we're mid-OSC and the next byte
+                // completes it, dispatch before switching into ESCAPE (otherwise the
+                // buffered command — e.g. an OSC 11 query — would be lost unprocessed).
+                if (state == OSC && i + 1 < n && text[i + 1] == '\\') {
+                    dispatchOsc(); state = GROUND; i += 2; continue
+                }
+                state = ESCAPE; escInter.setLength(0); i++; continue
+            }
             when (state) {
                 GROUND ->
                     if (code < 0x20) execC0(code)
@@ -364,7 +372,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
                     }
                 ESCAPE -> escapeByte(ch, code)
                 CSI -> csiByte(ch, code)
-                OSC -> if (code == 0x07) state = GROUND else if (oscBuf.length < 256) oscBuf.append(ch)
+                OSC -> if (code == 0x07) { dispatchOsc(); state = GROUND } else if (oscBuf.length < 256) oscBuf.append(ch)
                 STRING -> if (code == 0x07) state = GROUND // else swallow (DCS/APC/PM/SOS)
             }
             i++
@@ -384,6 +392,18 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             0x0f -> shiftOut = false                                                           // SI -> G0
             // BEL (0x07) and others ignored
         }
+    }
+
+    /** Handle a completed OSC command (buffered in [oscBuf], BEL- or ST-terminated).
+     *  Only OSC 11 (query background color) gets a reply — needed so claude's
+     *  light/dark theme detection doesn't time out; title/cwd (OSC 0/1/7) and
+     *  everything else stay swallowed. */
+    private fun dispatchOsc() {
+        val s = oscBuf.toString()
+        if (s == "11;?") {
+            onResponse?.invoke("$ESC]11;rgb:${hex4(TERM_BG_R)}/${hex4(TERM_BG_G)}/${hex4(TERM_BG_B)}$ESC\\")
+        }
+        oscBuf.setLength(0)
     }
 
     // ---- ESC dispatch ----
@@ -653,6 +673,9 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
     private fun printChar(cp0: Int) {
         val cp = if (usingGraphics()) decSpecial(cp0) else cp0
         val w = charWidth(cp)
+        // Zero-width (combining marks, VS, ZWJ, …): true grapheme clustering onto the
+        // previous cell isn't modeled, so just drop it rather than reserve/clobber a column.
+        if (w == 0) return
         if (active.wrapNext && autoWrap) { active.cursorCol = 0; index(); active.wrapNext = false }
         if (w == 2 && active.cursorCol == cols - 1) {
             if (autoWrap) { active.lines[active.cursorRow].setCell(active.cursorCol, SP, 0L, curBg, 0); active.cursorCol = 0; index() }
@@ -748,6 +771,16 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         const val SCROLLBACK_CAP = 5000
         val ESC = 0x1b.toChar().toString()
 
+        // Mirrors AzulaColors.bg1 (0xFF0A0A10) from the theme module — duplicated
+        // here (not imported) since terminal-api is dependency-free (module.yaml).
+        // Used to answer an OSC 11 background-color query.
+        const val TERM_BG_R = 0x0A
+        const val TERM_BG_G = 0x0A
+        const val TERM_BG_B = 0x10
+
+        /** An 8-bit color byte as the 4-hex-digit component an OSC 11 `rgb:` reply uses. */
+        fun hex4(v: Int): String { val h = (v and 0xFF).toString(16).padStart(2, '0'); return h + h }
+
         // One-Dark-ish 16-color palette (black shown as gray so it stays visible).
         val ANSI16 = longArrayOf(
             0xFF5C6370, 0xFFE06C75, 0xFF98C379, 0xFFE5C07B,
@@ -799,8 +832,14 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             else -> cp
         }
 
-        /** East-Asian wide / fullwidth → 2 columns, else 1 (combining marks deferred). */
+        /**
+         * wcwidth-ish column width: 0 for combining/zero-width marks, 2 for
+         * East-Asian-wide/fullwidth/emoji-ish symbols, else 1. Kept as a compact,
+         * commented table (not a full Unicode wcwidth dump) targeting the blocks
+         * real TUIs (claude included) actually emit.
+         */
         fun charWidth(cp: Int): Int {
+            if (isZeroWidth(cp)) return 0
             if (cp < 0x1100) return 1
             val wide = cp in 0x1100..0x115F ||   // Hangul Jamo
                 cp in 0x2E80..0x303E ||          // CJK radicals, Kangxi
@@ -813,9 +852,25 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
                 cp in 0xFE30..0xFE4F ||          // CJK compat forms
                 cp in 0xFF00..0xFF60 ||          // Fullwidth forms
                 cp in 0xFFE0..0xFFE6 ||
+                cp in 0x1F1E6..0x1F1FF ||        // regional-indicator flag letters
+                cp in 0x25A0..0x25FF ||          // Geometric Shapes (●○■▲… used as bullets/spinners) — NOT box-drawing (0x2500-257F, a different block, stays 1)
+                cp in 0x2600..0x27BF ||          // Misc Symbols & Dingbats (☀✓✗✻➜… claude's spinner/status glyphs)
                 cp in 0x1F300..0x1FAFF ||        // emoji / symbols
                 cp in 0x20000..0x3FFFD           // CJK Ext B+
             return if (wide) 2 else 1
         }
+
+        /** Combining marks, variation selectors (incl. VS16 0xFE0F), ZWJ and other
+         *  default-ignorable/zero-width code points — occupy no column. */
+        fun isZeroWidth(cp: Int): Boolean = cp in 0x0300..0x036F ||   // combining diacritical marks
+            cp in 0x1AB0..0x1AFF ||          // combining diacritical marks extended
+            cp in 0x1DC0..0x1DFF ||          // combining diacritical marks supplement
+            cp in 0x20D0..0x20FF ||          // combining diacritical marks for symbols
+            cp in 0xFE00..0xFE0F ||          // variation selectors 1-16 (incl. VS16, emoji-presentation)
+            cp in 0xFE20..0xFE2F ||          // combining half marks
+            cp in 0xE0100..0xE01EF ||        // variation selectors supplement
+            cp == 0x200B ||                  // zero-width space
+            cp == 0x200D ||                  // zero-width joiner
+            cp == 0xFEFF                     // zero-width no-break space / BOM
     }
 }

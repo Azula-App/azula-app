@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -333,7 +334,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                     cs.reconnecting -> "reconnecting…"
                     else -> "offline"
                 }
-                Text(sub, color = A2uiTokens.muted, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text(sub, color = A2uiTokens.muted, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.testTag("chat-status"))
             }
             cs.peerDescription?.takeIf { it.isNotBlank() }?.let { desc ->
                 Text(desc, color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
@@ -503,19 +504,27 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
     // Tagged only when Complete -- otherwise TransferChromeRow below is the sole
     // tagged node for this attachment (never both, so onNodeWithTag stays unambiguous).
     Column(Modifier.let { if (att.state == TransferState.Complete) it.testTag("attachment-complete") else it }) {
-        Box(
-            Modifier.padding(top = 6.dp)
-                .heightIn(max = 220.dp).widthIn(max = 260.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(AzulaColors.inputBg)
-                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
-        ) {
-            if (shown != null) {
-                Image(shown, contentDescription = att.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.size(180.dp, 140.dp), contentAlignment = Alignment.Center) {
-                    Text("🖼", fontSize = 28.sp, color = AzulaColors.textFaint)
-                }
+        if (shown != null) {
+            // Wrap the bubble tightly to the image's own aspect ratio (clamped so an
+            // extreme panorama/tall shot still reads as a sane tile), capped at 260x220dp.
+            val ratio = (shown.width.toFloat() / shown.height.toFloat()).coerceIn(0.5f, 2.5f)
+            Image(
+                shown,
+                contentDescription = att.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.padding(top = 6.dp)
+                    .widthIn(max = 260.dp).heightIn(max = 220.dp)
+                    .aspectRatio(ratio)
+                    .clip(RoundedCornerShape(10.dp))
+                    .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
+            )
+        } else {
+            Box(
+                Modifier.padding(top = 6.dp).size(180.dp, 140.dp)
+                    .clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("🖼", fontSize = 28.sp, color = AzulaColors.textFaint)
             }
         }
         if (att.state != TransferState.Complete) TransferChromeRow(state, convId, att)
@@ -529,19 +538,20 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
 @Composable
 private fun VideoAttachmentView(state: AzulaState, convId: String, att: Attachment) {
     val thumb = remember(att.id, att.thumbBytes) { att.thumbBytes?.let { decodeImageBitmap(it) } }
+    // When we have a poster, wrap the bubble tightly to its aspect ratio (clamped),
+    // capped at 260x220dp; otherwise fall back to a fixed placeholder tile.
+    val ratio = thumb?.let { (it.width.toFloat() / it.height.toFloat()).coerceIn(0.5f, 2.5f) }
     Column(Modifier.let { if (att.state == TransferState.Complete) it.testTag("attachment-complete") else it }) {
         Box(
             Modifier.padding(top = 6.dp)
-                .heightIn(max = 220.dp).widthIn(max = 260.dp)
+                .let { if (ratio != null) it.widthIn(max = 260.dp).heightIn(max = 220.dp).aspectRatio(ratio) else it.size(180.dp, 140.dp) }
                 .clip(RoundedCornerShape(10.dp))
                 .background(AzulaColors.codeBlock)
                 .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
             contentAlignment = Alignment.Center,
         ) {
             if (thumb != null) {
-                Image(thumb, contentDescription = att.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.size(180.dp, 140.dp))
+                Image(thumb, contentDescription = att.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
             if (att.state == TransferState.Complete) {
                 Box(

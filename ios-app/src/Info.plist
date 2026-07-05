@@ -24,6 +24,15 @@
 	<dict/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Auto-save received images/video into the Photos library (add-only). -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Azula saves media you receive to your photo library so you can view and share it.</string>
+	<!-- Received audio/files auto-save into Documents/Azula/; these two keys make
+	     that folder visible and editable in the Files app. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<!-- Custom scheme fallback: azula://connect?code=<token>. Universal links
 	     (https://azula.app/s/<token>) use the Associated Domains entitlement
 	     (azula.entitlements) + the AASA file served by site/. See docs/deeplinks.md. -->

@@ -65,6 +65,12 @@ private class JvmAudioPlayerHandle(private val path: String) : AudioPlayerHandle
         }
     }
 
+    override fun seekTo(ms: Long) {
+        val c = clip ?: return
+        c.microsecondPosition = (ms * 1000).coerceIn(0L, c.microsecondLength)
+        positionMs = ms
+    }
+
     override fun openExternally() {
         runCatching { Desktop.getDesktop().open(File(path)) }
     }

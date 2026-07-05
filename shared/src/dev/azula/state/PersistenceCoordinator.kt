@@ -62,7 +62,7 @@ class PersistenceCoordinator(
             cs.peerAvatarBitmap = dto.avatarB64?.let { b64 -> runCatching { decodeImageBitmap(Base64.decode(b64)) }.getOrNull() }
             cs.termSessionId = dto.termSessionId
             if (convStore.conversationOrNull(id) == null) {
-                convStore.conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview, dto.enabled))
+                convStore.conversations.add(Conversation(id, dto.name, dto.kind, dto.glyph, dto.sub, dto.preview, dto.enabled, dto.localName))
             }
             for (m in dto.messages) {
                 val n = m.id.takeLastWhile { it.isDigit() }.toIntOrNull() ?: continue
@@ -86,6 +86,7 @@ class PersistenceCoordinator(
             preview = meta?.preview ?: "",
             messages = cs.messages.map { it.toDto() },
             enabled = meta?.enabled ?: true,
+            localName = meta?.localName,
             avatarB64 = cs.peerAvatarB64,
             avatarMime = cs.peerAvatarMime,
             peerDescription = cs.peerDescription,

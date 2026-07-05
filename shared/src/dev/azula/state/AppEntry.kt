@@ -6,8 +6,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
 import dev.azula.net.createTransport
+import dev.azula.notify.platformNotifier
 import dev.azula.persist.platformBlobStore
 import dev.azula.persist.platformInvitationsStore
+import dev.azula.persist.platformMediaExporter
 import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
 import dev.azula.net.platformPeerStore
@@ -41,12 +43,13 @@ fun rememberAzulaState(): AzulaState {
         createGraphFactory<AppGraph.Factory>().create(
             scope = scope,
             transport = createTransport(),
-            notifier = null,
+            notifier = platformNotifier(),
             messageStore = platformMessageStore(),
             profileStore = platformProfileStore(),
             peerStore = platformPeerStore(),
             blobStore = platformBlobStore(),
             invitationsStore = platformInvitationsStore(),
+            mediaExporter = platformMediaExporter(),
         ).azulaState
     }
     LaunchedEffect(Unit) { state.start() }

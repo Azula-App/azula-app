@@ -56,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import dev.azula.theme.Fonts
+import dev.azula.ui.cacheAudioFile
 import dev.azula.ui.decodeImageBitmap
+import dev.azula.ui.rememberAudioPlayer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -832,7 +834,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircleStroke(
 ) = drawCircle(color, radius, center, style = stroke)
 
 // ---------------------------------------------------------------------------
-// Video / AudioPlayer — full styled mock players (visual only; no playback)
+// Video / AudioPlayer — Video is a styled mock (visual only, no playback);
+// AudioPlayer plays real audio when `url` is a `data:audio/...;base64,` URI,
+// falling back to the same static mock look for a remote/absent url.
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -865,39 +869,47 @@ private fun RenderVideo(comp: JsonObject, surface: A2uiSurface) {
     }
 }
 
+@OptIn(ExperimentalEncodingApi::class)
 @Composable
 private fun RenderAudio(comp: JsonObject, surface: A2uiSurface) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(A2uiTokens.rLg)
-            .background(A2uiTokens.surfaceAlt)
-            .border(1.dp, A2uiTokens.outlineSoft, A2uiTokens.rLg)
-            .padding(horizontal = 15.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(38.dp).clip(CircleShape).background(A2uiTokens.primaryBrush),
-            contentAlignment = Alignment.Center,
-        ) { PlayTriangle(11.dp, A2uiTokens.onPrimary) }
-        Row(
-            Modifier.weight(1f).padding(horizontal = 13.dp).height(30.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            val bars = 40
-            repeat(bars) { i ->
-                val h = (6f + abs(sin(i * 0.9)) * 22f).toInt()
-                val filled = i.toFloat() / bars < 0.25f
-                Box(Modifier.width(3.dp).height(h.dp).clip(A2uiTokens.rPill).background(if (filled) A2uiTokens.primary else A2uiTokens.trackIdle))
-            }
-        }
-        Text("0:12 / 0:48", color = A2uiTokens.muted, fontFamily = Fonts.mono, fontSize = 11.sp)
+    val url = resolveString(prop(comp, "url"), surface.dataModel)
+    val compId = comp["id"]?.jsonPrimitive?.contentOrNull ?: ""
+
+    val path = remember(surface.surfaceId, compId, url) {
+        if (url != null && url.startsWith("data:audio/")) {
+            val commaIdx = url.indexOf(',')
+            if (commaIdx != -1) {
+                val bytes = runCatching { Base64.decode(url.substring(commaIdx + 1)) }.getOrNull()
+                bytes?.let { cacheAudioFile(it, key = "${surface.surfaceId}:$compId") }
+            } else null
+        } else null
+    }
+
+    if (path != null) {
+        val player = rememberAudioPlayer(path)
+        A2uiAudioBar(
+            isPlaying = player.isPlaying,
+            positionMs = player.positionMs,
+            durationMs = player.durationMs,
+            onToggle = player::toggle,
+            onSeek = player::seekTo,
+            seed = compId.hashCode(),
+        )
+    } else {
+        // No url, a remote (non-data-URI) url, or an undecodable payload — same
+        // static mock look as before this component could play anything.
+        A2uiAudioBar(
+            isPlaying = false,
+            positionMs = 0L,
+            durationMs = 0L,
+            onToggle = {},
+            onSeek = null,
+        )
     }
 }
 
 @Composable
-private fun PlayTriangle(dim: androidx.compose.ui.unit.Dp, color: Color) {
+internal fun PlayTriangle(dim: androidx.compose.ui.unit.Dp, color: Color) {
     Canvas(Modifier.size(dim)) {
         val w = size.width
         val h = size.height

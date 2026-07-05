@@ -11,6 +11,7 @@ import dev.azula.net.IrohConfig
 import dev.azula.net.createTransport
 import dev.azula.persist.AndroidBlobStore
 import dev.azula.persist.AndroidInvitationsStore
+import dev.azula.persist.AndroidMediaExporter
 import dev.azula.persist.AndroidMessageStore
 import dev.azula.persist.AndroidProfileStore
 import dev.azula.state.AppStateHost
@@ -90,6 +91,7 @@ class AzulaApplication : Application() {
             peerStore = AndroidPeerStore(applicationContext),
             blobStore = AndroidBlobStore(applicationContext),
             invitationsStore = AndroidInvitationsStore(applicationContext),
+            mediaExporter = AndroidMediaExporter(applicationContext),
         ).azulaState.also {
             AppStateHost.shared = it
             appScope.launch { it.start() }

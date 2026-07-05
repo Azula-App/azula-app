@@ -9,11 +9,9 @@ import dev.azula.link.AzulaLinks
 import dev.azula.link.DeepLinkBus
 import dev.azula.link.InviteCodec
 import dev.azula.link.isInvite
-import dev.azula.model.Attachment
 import dev.azula.model.ConnectStage
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
-import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.net.Alpns
 import dev.azula.net.Frame
@@ -503,11 +501,7 @@ class ConnectService(
                     if (frame is Frame.FileBegin) {
                         runCatching {
                             val received = receiveFile(stream, frame) { stream.receiveLine() }
-                            val attachment = Attachment(received.id, received.name, received.mime, received.bytes.size.toLong(), received.bytes, received.caption)
-                            convStore.conv(convId).messages.add(
-                                Message(convStore.nextId("r"), Role.THEM, text = received.caption, attachments = listOf(attachment))
-                            )
-                            persistence.save(convId)
+                            mediaService.ingestLocalBlob(convId, received.bytes, received.name, received.mime, received.caption, Role.THEM)
                             frameDispatcher.notify(convId, received.caption ?: "sent ${received.name}")
                         }
                         continue

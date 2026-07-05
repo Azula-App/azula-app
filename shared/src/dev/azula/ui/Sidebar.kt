@@ -167,12 +167,21 @@ fun ConnectRow(active: Boolean, onClick: () -> Unit) {
  * by the desktop sidebar and the mobile home screen so the empty state, key-based
  * item identity, and [ConversationRow] arg-mapping only exist once. [activeId]
  * drives the desktop selection highlight ([ConversationRow.active]); mobile has
- * no such highlight and passes `null`.
+ * no such highlight and passes `null`. [filter] narrows which conversations are
+ * shown (e.g. [SharePickerOverlay] excludes `TERMINAL` conversations); defaults
+ * to showing everything.
  */
 @Composable
-fun ConversationList(state: AzulaState, activeId: String?, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+fun ConversationList(
+    state: AzulaState,
+    activeId: String?,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    filter: (Conversation) -> Boolean = { true },
+) {
+    val shown = state.conversations.filter(filter)
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (state.conversations.isEmpty()) {
+        if (shown.isEmpty()) {
             item {
                 Text(
                     "No conversations yet — connect a peer to begin.",
@@ -181,7 +190,7 @@ fun ConversationList(state: AzulaState, activeId: String?, onSelect: (String) ->
                 )
             }
         }
-        items(state.conversations, key = { it.id }) { conv ->
+        items(shown, key = { it.id }) { conv ->
             ConversationRow(
                 conv = conv,
                 active = activeId == conv.id,
@@ -192,6 +201,7 @@ fun ConversationList(state: AzulaState, activeId: String?, onSelect: (String) ->
                 onClick = { onSelect(conv.id) },
                 onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
                 onDelete = { state.deleteConversation(conv.id) },
+                onRename = { state.renameConversation(conv.id, it) },
             )
         }
     }
@@ -209,8 +219,9 @@ fun ConversationRow(
     onClick: () -> Unit,
     onToggleEnabled: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onRename: ((String?) -> Unit)? = null,
 ) {
-    val hasMenu = onToggleEnabled != null || onDelete != null
+    val hasMenu = onToggleEnabled != null || onDelete != null || onRename != null
     var menuOpen by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     Row(
@@ -231,7 +242,7 @@ fun ConversationRow(
         AvatarBox(avatar, conv.glyph, conv.kind)
         Column(Modifier.weight(1f)) {
             Text(
-                conv.name,
+                conv.displayName,
                 color = if (active) Color(0xFFFCE8F3) else AzulaColors.text1,
                 fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -255,6 +266,8 @@ fun ConversationRow(
                 enabled = conv.enabled,
                 onToggleEnabled = onToggleEnabled,
                 onDelete = onDelete,
+                currentName = conv.displayName,
+                onRename = onRename,
                 expanded = menuOpen,
                 onExpandedChange = { menuOpen = it },
             )

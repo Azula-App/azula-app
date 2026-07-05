@@ -316,6 +316,90 @@ class MediaServiceTest {
 
         awaitSaveMatching(messageStore, convId) { d -> d.messages.any { m -> m.attachments.any { it.id == attachment.id && it.fetchTicket != null } } }
     }
+
+    /**
+     * On-device runtime testing surfaced audio/file attachments (picked via
+     * Android's SAF `GetContent` picker) showing a "blob missing" / "unknown
+     * blob" Failed+retry chrome in a `-mock` PEER conversation, while photo
+     * attachments (Photo Picker) looked fine. This test (and its sibling below)
+     * disambiguates real send bug vs. mock-rendering artifact: it drives
+     * [AzulaState.sendMedia] (the PEER offer/fetch path an "Audio" pick uses) with
+     * an audio MIME and asserts the ME attachment reaches [TransferState.Complete]
+     * with the real bytes readable back out of the [BlobStore] -- i.e. the SEND
+     * path is sound regardless of media kind. (The actual bug turned out to be
+     * `AudioAttachmentView` calling `state.blobPath` on this already-Complete
+     * attachment: `InMemoryBlobStore.pathFor` is deliberately null (off-disk),
+     * which the view mistook for a failed transfer -- see Chat.kt.)
+     */
+    @Test
+    fun sendAudioViaPeerSendMediaReachesCompleteWithReadableBlob() = runTest {
+        val transport = FakeTransport()
+        val blobStore = InMemoryBlobStore()
+        val messageStore = InMemoryMessageStore()
+        val azulaState = testAzulaState(backgroundScope, transport, messageStore, blobStore)
+        azulaState.start()
+        runCurrent()
+
+        azulaState.connectPeer("peer-ticket")
+        runCurrent()
+        val convId = azulaState.conversations.single { it.kind == ConversationKind.PEER }.id
+
+        val bytes = ByteArray(4_000) { (it % 233).toByte() }
+        azulaState.sendMedia(convId, bytes, name = "voice-memo.m4a", mime = "audio/mp4", caption = null)
+
+        blobStore.writes.receive()
+        awaitSaveMatching(messageStore, convId) { d -> d.messages.any { m -> m.attachments.any { it.mime == "audio/mp4" } } }
+
+        val meMessage = azulaState.conv(convId).messages.last { it.attachments.isNotEmpty() }
+        assertEquals(Role.ME, meMessage.role)
+        val attachment = meMessage.attachments.single()
+        assertEquals(TransferState.Complete, attachment.state, "the sender's own audio copy is complete immediately")
+        assertEquals(dev.azula.model.MediaKind.AUDIO, attachment.kind)
+        assertTrue(bytes.contentEquals(blobStore.bytesFor(attachment.blobId!!)), "the audio blob's bytes should be readable back out of the BlobStore")
+
+        // Mirrors AudioAttachmentView's own check: under the mock's InMemoryBlobStore
+        // this is null by design (see InMemoryBlobStore.pathFor) -- a real device's
+        // FileBlobStore returns non-null here, so this is the mock-only condition
+        // the view must not mistake for a failed send.
+        assertEquals(null, azulaState.blobPath(attachment.blobId!!), "expected the mock's off-disk store to have no path, by design")
+    }
+
+    /**
+     * The other half of the disambiguation above: an audio file picked via the
+     * generic "File" menu entry (also SAF `GetContent`, and also possibly
+     * MIME-sniffed to an audio type) never goes through [AzulaState.sendMedia] at
+     * all -- [dev.azula.ui.Chat.AttachMenu]'s File entry always calls
+     * [AzulaState.sendFile] regardless of conversation kind (see ChatService.sendFile
+     * -> MediaService.ingestLocalBlob). Confirms that path, too, lands the ME
+     * attachment at Complete with real, readable bytes -- so neither of the two
+     * real send paths an on-device audio/file pick can take is broken.
+     */
+    @Test
+    fun sendAudioViaChatServiceSendFileIngestsLocallyAsComplete() = runTest {
+        val transport = FakeTransport()
+        val blobStore = InMemoryBlobStore()
+        val messageStore = InMemoryMessageStore()
+        val azulaState = testAzulaState(backgroundScope, transport, messageStore, blobStore)
+        azulaState.start()
+        runCurrent()
+
+        azulaState.connectPeer("peer-ticket")
+        runCurrent()
+        val convId = azulaState.conversations.single { it.kind == ConversationKind.PEER }.id
+
+        val bytes = ByteArray(4_000) { (it % 211).toByte() }
+        azulaState.sendFile(convId, bytes, name = "voice-memo.m4a", mime = "audio/mp4")
+
+        awaitSaveMatching(messageStore, convId) { d -> d.messages.any { m -> m.attachments.any { it.mime == "audio/mp4" } } }
+
+        val meMessage = azulaState.conv(convId).messages.last { it.attachments.isNotEmpty() }
+        assertEquals(Role.ME, meMessage.role)
+        val attachment = meMessage.attachments.single()
+        assertEquals(TransferState.Complete, attachment.state, "sendFile's local ingestion completes immediately")
+        assertEquals(dev.azula.model.MediaKind.AUDIO, attachment.kind)
+        assertTrue(attachment.blobId != null, "ingestLocalBlob should have written a real blobId-backed attachment")
+        assertTrue(bytes.contentEquals(blobStore.bytesFor(attachment.blobId!!)), "the ingested audio blob's bytes should be readable back out of the BlobStore")
+    }
 }
 
 private suspend fun awaitSaveMatching(

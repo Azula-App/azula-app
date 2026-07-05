@@ -1,6 +1,7 @@
 @file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 
 import dev.azula.mock.FakeTransport
+import dev.azula.notify.Notifier
 import dev.azula.state.InviteService
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -86,6 +87,34 @@ class InviteServiceTest {
     }
 
     @Test
+    fun enqueuePendingPostsADedicatedConnectionRequestNotificationWhenBackgrounded() = runTest {
+        val transport = boundTransport()
+        val notifier = RecordingNotifier()
+        val service = InviteService(null, transport, notifier, backgroundScope)
+        service.foreground = { false }
+
+        service.enqueuePending("peer-z", null, "peer-z-code", FakeStream(), "azula/chat/0", unverified = true)
+
+        assertEquals(1, notifier.connectionRequests.size, "must post via postConnectionRequest, not postMessage")
+        assertTrue(notifier.messages.isEmpty(), "must not fall back to the generic postMessage channel")
+        val (count, peerCode) = notifier.connectionRequests.single()
+        assertEquals(1, count)
+        assertEquals("peer-z-code", peerCode)
+    }
+
+    @Test
+    fun enqueuePendingDoesNotNotifyWhileForegrounded() = runTest {
+        val transport = boundTransport()
+        val notifier = RecordingNotifier()
+        val service = InviteService(null, transport, notifier, backgroundScope)
+        service.foreground = { true }
+
+        service.enqueuePending("peer-w", null, "peer-w-code", FakeStream(), "azula/chat/0", unverified = true)
+
+        assertTrue(notifier.connectionRequests.isEmpty(), "the foreground in-app banner covers this case, not a notification")
+    }
+
+    @Test
     fun declineClosesTheStreamAndDropsThePendingRequestWithoutAddingAContact() = runTest {
         val transport = boundTransport()
         val service = InviteService(null, transport, null, backgroundScope)
@@ -110,4 +139,19 @@ private class FakeStream : dev.azula.net.P2pStream {
     override suspend fun sendBytes(bytes: ByteArray) = Unit
     override suspend fun receiveBytes(n: Int): ByteArray? = null
     override suspend fun close() { closed = true }
+}
+
+/** Records every call instead of posting anything, so tests can assert which
+ *  [Notifier] method [InviteService] invoked. */
+private class RecordingNotifier : Notifier {
+    val messages = mutableListOf<Triple<String, String, String>>()
+    val connectionRequests = mutableListOf<Pair<Int, String>>()
+
+    override fun postMessage(conversationId: String, title: String, body: String) {
+        messages.add(Triple(conversationId, title, body))
+    }
+
+    override fun postConnectionRequest(count: Int, peerCode: String) {
+        connectionRequests.add(count to peerCode)
+    }
 }

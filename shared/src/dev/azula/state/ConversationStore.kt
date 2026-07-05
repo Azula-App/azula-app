@@ -67,6 +67,20 @@ class ConversationStore {
         return id
     }
 
+    /**
+     * Set (or clear) a user-chosen local rename for [convId]. The local name
+     * always wins over the announced/shared/mnemonic [Conversation.name] in the
+     * UI (see [Conversation.displayName]). [name] is trimmed; a blank/null value
+     * clears the rename back to the default. Persistence is the caller's job
+     * (AzulaState persists immediately), mirroring the other mutating conv ops.
+     */
+    fun renameConversation(convId: String, name: String?) {
+        val idx = conversations.indexOfFirst { it.id == convId }
+        if (idx < 0) return
+        val trimmed = name?.trim()?.ifBlank { null }
+        conversations[idx] = conversations[idx].copy(localName = trimmed)
+    }
+
     fun kindPriority(k: ConversationKind): Int = when (k) {
         ConversationKind.PEER -> 3
         ConversationKind.LLM -> 2

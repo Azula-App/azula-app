@@ -1,7 +1,10 @@
-@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlin.io.encoding.ExperimentalEncodingApi::class)
 
+import dev.azula.mock.InMemoryBlobStore
 import dev.azula.model.Role
+import dev.azula.model.TransferState
 import dev.azula.net.Alpns
+import dev.azula.net.FileEncoding
 import dev.azula.net.Frame
 import dev.azula.net.IncomingConnection
 import dev.azula.net.IrohTransport
@@ -13,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlin.io.encoding.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -132,6 +136,46 @@ class ConnectServiceFrameDispatchTest {
 
         assertEquals("Bob", azulaState.conversation("peer-profile").name)
         assertEquals("a friend", azulaState.conv("peer-profile").peerDescription)
+    }
+
+    /**
+     * Covers Phase 0's R2: `receiveLoop`'s `Frame.FileBegin` branch (the legacy
+     * inline file protocol LLM/MCP peers use) now routes through
+     * [dev.azula.state.MediaService.ingestLocalBlob], so an inbound legacy file
+     * gets a real `blobId` in the [dev.azula.persist.BlobStore] instead of
+     * persisting as inline base64.
+     */
+    @Test
+    fun legacyFileBeginIngestsIntoTheBlobStoreWithARealBlobId() = runTest {
+        val pipe = PeerPipe()
+        val transport = OneShotIncomingTransport("peer-legacy-file", Alpns.LLM, pipe)
+        // Stranger gate: LLM has no accept path, so a known peer must be seeded
+        // (same as tokenStreamAssemblesOneAssistantMessageAndTogglesThinking).
+        val peerStore = InMemoryPeerStore().also { it.save(listOf("peer-legacy-file")) }
+        val blobStore = InMemoryBlobStore()
+        val azulaState = testAzulaState(backgroundScope, transport, peerStore = peerStore, blobStore = blobStore)
+        azulaState.start()
+        runCurrent()
+
+        val bytes = ByteArray(256) { it.toByte() }
+        pipe.sendFrame(
+            Frame.FileBegin(
+                id = "f1", name = "clip.bin", mime = "application/octet-stream",
+                size = bytes.size.toLong(), encoding = FileEncoding.BASE64.wire, caption = "here you go",
+            ),
+        )
+        runCurrent()
+        pipe.sendFrame(Frame.FileChunk(id = "f1", seq = 0, data = Base64.encode(bytes)))
+        runCurrent()
+        pipe.sendFrame(Frame.FileEnd(id = "f1"))
+        runCurrent()
+
+        val message = azulaState.conv("peer-legacy-file").messages.last { it.attachments.isNotEmpty() }
+        assertEquals(Role.THEM, message.role)
+        val attachment = message.attachments.single()
+        assertEquals(TransferState.Complete, attachment.state)
+        assertTrue(attachment.blobId != null, "a legacy inbound file should ingest through the BlobStore, not persist inline bytes")
+        assertTrue(bytes.contentEquals(blobStore.bytesFor(attachment.blobId!!)), "the blob's bytes should round-trip exactly")
     }
 }
 

@@ -25,7 +25,17 @@ data class Conversation(
      * rows are unaffected.
      */
     val enabled: Boolean = true,
-)
+    /**
+     * A user-chosen local rename for this conversation. When set it ALWAYS wins
+     * over [name] (the announced/shared/mnemonic title) for display — see
+     * [displayName]. Null means "no local rename" (fall back to [name]). Trimmed;
+     * blank is stored as null. Persisted so a rename survives restart.
+     */
+    val localName: String? = null,
+) {
+    /** The title to show everywhere: the local rename if set, else [name]. */
+    val displayName: String get() = localName ?: name
+}
 
 /**
  * What kind of media an [Attachment] carries, driving which player/viewer UI

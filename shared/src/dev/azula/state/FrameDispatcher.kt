@@ -141,7 +141,7 @@ class FrameDispatcher(
         if (foreground()) return
         if (convStore.conversationOrNull(convId)?.enabled == false) return
         val n = notifier ?: return
-        val title = runCatching { convStore.conversation(convId).name }.getOrDefault(convId)
+        val title = runCatching { convStore.conversation(convId).displayName }.getOrDefault(convId)
         n.postMessage(convId, title, body)
     }
 }

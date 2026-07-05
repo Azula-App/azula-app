@@ -1,7 +1,9 @@
 @file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 
 import dev.azula.mock.FakeTransport
+import dev.azula.mock.InMemoryBlobStore
 import dev.azula.model.Role
+import dev.azula.model.TransferState
 import dev.azula.persist.ConversationDto
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -52,6 +54,38 @@ class ChatServiceTest {
         // store's channel rather than racing it with runCurrent().
         val dto = awaitSaveContaining(store, convId, "hello there")
         assertTrue(dto.messages.any { it.text == "hello there" })
+    }
+
+    /**
+     * Covers [dev.azula.state.ChatService.sendFile] (the legacy LLM/MCP file
+     * path) routing its local ME attachment through
+     * [dev.azula.state.MediaService.ingestLocalBlob] (Phase 0's R2): the
+     * attachment gets a real `blobId` -- round-tripping through the
+     * [dev.azula.persist.BlobStore] -- rather than persisting as inline bytes.
+     * The FileBegin/Chunk/End wire frames sendFile also emits are covered
+     * elsewhere (FileTransfer's own tests); this test is about the local copy.
+     */
+    @Test
+    fun sendFileIngestsTheLocalAttachmentThroughTheBlobStore() = runTest {
+        val transport = FakeTransport()
+        val messageStore = InMemoryMessageStore()
+        val blobStore = InMemoryBlobStore()
+        val azulaState = testAzulaState(backgroundScope, transport, messageStore, blobStore)
+        azulaState.start()
+        runCurrent()
+
+        azulaState.connectPeer("any-ticket")
+        runCurrent()
+        val convId = azulaState.conversations.single().id
+
+        val bytes = ByteArray(4_096) { it.toByte() }
+        azulaState.sendFile(convId, bytes, name = "notes.txt", mime = "text/plain")
+        runCurrent()
+
+        val attachment = azulaState.conv(convId).messages.last { it.attachments.isNotEmpty() }.attachments.single()
+        assertEquals(TransferState.Complete, attachment.state)
+        assertTrue(attachment.blobId != null, "legacy sendFile should ingest through the BlobStore, not persist inline bytes")
+        assertTrue(bytes.contentEquals(blobStore.bytesFor(attachment.blobId!!)), "the blob's bytes should round-trip exactly")
     }
 }
 

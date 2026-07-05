@@ -6,6 +6,7 @@ import dev.azula.net.PeerStore
 import dev.azula.notify.Notifier
 import dev.azula.persist.BlobStore
 import dev.azula.persist.InvitationsStore
+import dev.azula.persist.MediaExporter
 import dev.azula.persist.MessageStore
 import dev.azula.persist.ProfileStore
 import dev.azula.state.AzulaState
@@ -39,6 +40,7 @@ interface AppGraph {
             @Provides peerStore: PeerStore?,
             @Provides blobStore: BlobStore?,
             @Provides invitationsStore: InvitationsStore?,
+            @Provides mediaExporter: MediaExporter?,
         ): AppGraph
     }
 }

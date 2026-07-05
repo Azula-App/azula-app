@@ -4,13 +4,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -27,12 +31,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.a2ui.A2uiTokens
 import dev.azula.model.ConversationKind
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
@@ -51,9 +59,9 @@ fun glyphStyleFor(kind: ConversationKind): GlyphStyle = when (kind) {
  *  back to a neutral gray instead of the online green (a disconnected
  *  peer/terminal must not look connected). */
 fun statusDotColor(online: Boolean, enabled: Boolean, kind: ConversationKind): Color = when {
-    online && enabled -> AzulaColors.online
-    kind == ConversationKind.LLM -> AzulaColors.pink
-    else -> AzulaColors.muted
+    online && enabled -> A2uiTokens.success
+    kind == ConversationKind.LLM -> A2uiTokens.primary
+    else -> A2uiTokens.muted
 }
 
 val PinkButtonBrush = Brush.linearGradient(listOf(AzulaColors.pink, AzulaColors.pinkDark))
@@ -106,12 +114,16 @@ fun rememberImeVisible(): Boolean {
 }
 
 /**
- * A ⋮ overflow menu for managing a conversation: Enable/Disable + Delete (with a
- * confirmation dialog). Shared by the sidebar/mobile rows and the chat header.
+ * A ⋮ overflow menu for managing a conversation: Rename + Enable/Disable + Delete
+ * (each with its own dialog). Shared by the sidebar/mobile rows and the chat header.
  *
  * The expanded state is optionally controllable: pass [onExpandedChange] to drive
  * it from outside (e.g. a long-press on the whole row). Left unset, the menu owns
  * its own state and opens only from the ⋮ button.
+ *
+ * [onRename] (with [currentName] pre-filling the field) enables a "Rename" item
+ * that opens a small dialog: Save calls `onRename(newName)`; "Reset to default"
+ * calls `onRename(null)` to clear the local rename back to the shared/mnemonic name.
  */
 @Composable
 fun ConvOverflowMenu(
@@ -120,12 +132,15 @@ fun ConvOverflowMenu(
     onDelete: (() -> Unit)?,
     onCopyScreen: (() -> Unit)? = null,
     onCopyAll: (() -> Unit)? = null,
+    currentName: String? = null,
+    onRename: ((String?) -> Unit)? = null,
     glyphSize: Int = 16,
     expanded: Boolean = false,
     onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     var internalOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val open = if (onExpandedChange != null) expanded else internalOpen
     val setOpen: (Boolean) -> Unit = onExpandedChange ?: { internalOpen = it }
     Box {
@@ -136,6 +151,12 @@ fun ConvOverflowMenu(
             Text("⋮", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = glyphSize.sp)
         }
         DropdownMenu(expanded = open, onDismissRequest = { setOpen(false) }) {
+            if (onRename != null) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = { setOpen(false); renaming = true },
+                )
+            }
             if (onCopyScreen != null) {
                 DropdownMenuItem(
                     text = { Text("Copy screen") },
@@ -171,4 +192,68 @@ fun ConvOverflowMenu(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
+    if (renaming && onRename != null) {
+        RenameConversationDialog(
+            currentName = currentName.orEmpty(),
+            onSave = { renaming = false; onRename(it) },
+            onReset = { renaming = false; onRename(null) },
+            onCancel = { renaming = false },
+        )
+    }
+}
+
+/**
+ * A small neon-glass dialog to set a conversation's local rename. The field is
+ * pre-filled with the current display name; Save applies it (blank clears back to
+ * the default), and "Reset to default" clears any existing rename explicitly.
+ */
+@Composable
+private fun RenameConversationDialog(
+    currentName: String,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by remember { mutableStateOf(currentName) }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Rename conversation") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Set a name just for you. Leave blank (or reset) to use the shared name.",
+                    color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                )
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
+                        .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        textStyle = TextStyle(color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 13.sp),
+                        cursorBrush = SolidColor(AzulaColors.pink),
+                        modifier = Modifier.fillMaxWidth().testTag("rename-input"),
+                        decorationBox = { inner ->
+                            if (text.isEmpty()) {
+                                Text("conversation name", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
+                            }
+                            inner()
+                        },
+                    )
+                }
+                if (currentName.isNotBlank()) {
+                    Text(
+                        "Reset to default",
+                        color = AzulaColors.pink, fontFamily = Fonts.mono, fontSize = 12.sp,
+                        modifier = Modifier.clickable { onReset() }.testTag("rename-reset"),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
 }

@@ -44,6 +44,7 @@ fun DesktopApp(state: AzulaState) {
             }
         }
         FullscreenMediaOverlay(state)
+        SharePickerOverlay(state)
     }
 }
 

@@ -13,7 +13,7 @@ import dev.azula.theme.AzulaColors
  * spec; brand colors are shared with [AzulaColors], a few catalog-specific values
  * live there too ([AzulaColors.surfaceAlt], [AzulaColors.muted], [AzulaColors.accent]).
  */
-internal object A2uiTokens {
+object A2uiTokens {
     // ── Color ──
     val primary = AzulaColors.pink            // #FF2D9B
     val primaryLight = AzulaColors.pinkLight  // #FF6EC7
@@ -56,6 +56,14 @@ internal object A2uiTokens {
     val rLg = RoundedCornerShape(12.dp)
     val rXl = RoundedCornerShape(16.dp)
     val rPill = RoundedCornerShape(percent = 50)
+
+    /** Chat-bubble "tail" corners — asymmetric so ME/THEM bubbles read as
+     *  speech shapes rather than plain rounded rects. Not part of the
+     *  agent-facing A2UI catalog (no renderer/tools.rs touch needed), just the
+     *  shared chat-chrome shape used by [dev.azula.ui.MessageBubble] and
+     *  [dev.azula.ui.ThinkingIndicator]. */
+    val rBubbleMe = RoundedCornerShape(15.dp, 15.dp, 5.dp, 15.dp)
+    val rBubbleThem = RoundedCornerShape(15.dp, 15.dp, 15.dp, 5.dp)
 
     // ── Gradients ──
     /** Primary Button / play-button fill: pink → deep pink (135° in the spec). */

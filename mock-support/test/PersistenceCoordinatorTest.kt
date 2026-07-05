@@ -69,4 +69,26 @@ class PersistenceCoordinatorTest {
         coordinator.delete(id)
         assertEquals(id, store.deletes.receive())
     }
+
+    @Test
+    fun localNameSurvivesSaveAndRestore() = runTest {
+        val store = InMemoryMessageStore()
+        val convStore = ConversationStore()
+        val coordinator = PersistenceCoordinator(convStore, store, backgroundScope)
+        val id = convStore.ensureConv("peerR", ConversationKind.PEER, announcedName = "Rex")
+        convStore.renameConversation(id, "Buddy")
+
+        coordinator.save(id)
+        val (_, dto) = store.saves.receive()
+        assertEquals("Buddy", dto.localName, "the local rename is persisted")
+        assertEquals("Rex", dto.name, "the shared name is persisted underneath the rename")
+
+        // Restore into a fresh store from the same backing data.
+        val convStore2 = ConversationStore()
+        PersistenceCoordinator(convStore2, store, backgroundScope).restoreAll()
+        val restored = convStore2.conversation(id)
+        assertEquals("Buddy", restored.localName, "the local rename comes back")
+        assertEquals("Buddy", restored.displayName, "the local name still wins after restore")
+        assertEquals("Rex", restored.name)
+    }
 }

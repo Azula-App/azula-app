@@ -25,6 +25,16 @@ expect fun platformInvitationsStore(): InvitationsStore?
  */
 expect fun platformBlobStore(): BlobStore?
 
+/**
+ * Platform default media exporter (auto-save received media to user-visible
+ * storage). JVM copies into `~/Downloads/Azula/`; iOS saves images/video to the
+ * Photos library and other files into `Documents/Azula/` (Files.app). Android
+ * returns null here and binds an `AndroidMediaExporter(context)` into the Metro
+ * graph via the app module, same as [platformBlobStore]. Null means "no export"
+ * (e.g. the `-mock` apps), and callers treat export as best-effort.
+ */
+expect fun platformMediaExporter(): MediaExporter?
+
 /** Turns an arbitrary id into a filesystem-safe filename fragment. Shared by every
  * platform's file-backed store (JVM/Android [FileMessageStore]/[FileBlobStore], and
  * iOS's blob store) so ids are sanitized identically everywhere. */

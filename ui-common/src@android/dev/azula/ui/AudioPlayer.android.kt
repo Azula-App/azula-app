@@ -1,7 +1,6 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
-
 package dev.azula.ui
 
+import android.media.MediaPlayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,12 +9,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
-import platform.AVFAudio.AVAudioPlayer
-import platform.Foundation.NSURL
 
 @Composable
 actual fun rememberAudioPlayer(path: String): AudioPlayerHandle {
-    val handle = remember(path) { IosAudioPlayerHandle(path) }
+    val handle = remember(path) { AndroidAudioPlayerHandle(path) }
     DisposableEffect(handle) { onDispose { handle.release() } }
     LaunchedEffect(handle.isPlaying) {
         while (handle.isPlaying) {
@@ -26,28 +23,36 @@ actual fun rememberAudioPlayer(path: String): AudioPlayerHandle {
     return handle
 }
 
-private class IosAudioPlayerHandle(path: String) : AudioPlayerHandle {
-    private val player = AVAudioPlayer(contentsOfURL = NSURL.fileURLWithPath(path), error = null)
+private class AndroidAudioPlayerHandle(path: String) : AudioPlayerHandle {
+    private val player = MediaPlayer().apply {
+        setDataSource(path)
+        prepare()
+        setOnCompletionListener { this@AndroidAudioPlayerHandle.isPlaying = false }
+    }
 
     override var isPlaying by mutableStateOf(false)
         private set
     override var positionMs by mutableStateOf(0L)
         private set
-    override val durationMs: Long = ((player?.duration ?: 0.0) * 1000).toLong()
-    override val supported: Boolean = player != null
+    override val durationMs: Long = player.duration.toLong()
+    override val supported = true
 
-    fun refresh() { positionMs = ((player?.currentTime ?: 0.0) * 1000).toLong() }
+    fun refresh() { positionMs = player.currentPosition.toLong() }
 
     override fun toggle() {
-        val p = player ?: return
-        if (p.playing) {
-            p.pause()
+        if (player.isPlaying) {
+            player.pause()
             isPlaying = false
         } else {
-            p.play()
+            player.start()
             isPlaying = true
         }
     }
 
-    fun release() { player?.stop() }
+    override fun seekTo(ms: Long) {
+        player.seekTo(ms.toInt())
+        positionMs = ms
+    }
+
+    fun release() = runCatching { player.release() }
 }

@@ -30,6 +30,7 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         peerStore = null,
         blobStore = InMemoryBlobStore(),
         invitationsStore = MockInvitationsStore(),
+        mediaExporter = null,
     ).azulaState
 
 /**

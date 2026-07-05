@@ -160,8 +160,7 @@ class InviteService(
         pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn, epochSeconds()))
         persist()
         if (!foreground()) {
-            val body = if (pending.size == 1) "$peerCode wants to connect" else "${pending.size} connection requests"
-            notifier?.postMessage("invites", "Connection requests", body)
+            notifier?.postConnectionRequest(pending.size, peerCode)
         }
     }
 

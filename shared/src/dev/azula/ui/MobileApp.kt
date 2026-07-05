@@ -43,9 +43,20 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun MobileApp(state: AzulaState) {
+    // The "Share to…" picker (an inbound OS share) owns the system back gesture
+    // first -- it should cancel the share, not dismiss whatever else is open
+    // underneath it. Registered above (so it wins over) the other handlers below.
+    PlatformBackHandler(enabled = state.pendingShare != null) { state.cancelShare() }
+    // The fullscreen media viewer, when open, owns the system back gesture --
+    // it should dismiss the overlay and return to chat rather than navigate the
+    // mobile nav underneath it. Registered above (so it wins over) the nav
+    // back-handler below.
+    PlatformBackHandler(enabled = state.pendingShare == null && state.fullscreenMedia != null) { state.dismissFullscreenMedia() }
     // System back (e.g. Android's back button / gesture) navigates within the
     // app's mobile nav instead of exiting it.
-    PlatformBackHandler(enabled = state.mScreen != MScreen.HOME) { state.mobileBack() }
+    PlatformBackHandler(
+        enabled = state.pendingShare == null && state.fullscreenMedia == null && state.mScreen != MScreen.HOME,
+    ) { state.mobileBack() }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
         // Keep the gradient full-bleed (edge to edge) but inset the content so it
         // clears the status bar / camera cutout / home indicator and the keyboard.
@@ -76,6 +87,7 @@ fun MobileApp(state: AzulaState) {
             }
         }
         FullscreenMediaOverlay(state)
+        SharePickerOverlay(state)
     }
 }
 

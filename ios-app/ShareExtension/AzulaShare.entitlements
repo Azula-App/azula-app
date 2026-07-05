@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Lets the extension write into the same App Group container the host app
+	  reads from (shared/src@ios/dev/azula/state/ShareInbox.kt). Requires a
+	  provisioning profile for the app.azula.AzulaShare bundle id with the App
+	  Groups capability enabled and group.app.azula registered -- a
+	  signing/release prerequisite that can't be done from this environment
+	  (needs an Apple Developer account + Xcode's "Signing & Capabilities" UI,
+	  or the equivalent App Store Connect / fastlane match setup). See the
+	  matching entry in ../src/azula.entitlements for the host app target.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.azula</string>
+	</array>
+</dict>
+</plist>

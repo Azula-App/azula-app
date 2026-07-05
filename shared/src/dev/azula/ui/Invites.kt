@@ -250,8 +250,14 @@ fun InviteReviewSheet(state: AzulaState, req: PendingConnectionRequest, onDismis
                 Box(
                     Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(PinkButtonBrush)
                         .clickable {
-                            val persona = if (showShareOptions) state.personaById(selectedPersonaId) else null
-                            state.acceptInvite(req, persona?.toFrame(shareName, sharePic, shareDesc))
+                            // Share our name back by default; picture/description
+                            // stay opt-in behind the expanded share panel.
+                            val persona = state.personaById(selectedPersonaId)
+                            val profile = persona?.let {
+                                if (showShareOptions) it.toFrame(shareName, sharePic, shareDesc)
+                                else it.toFrame(shareName = true, sharePic = false, shareDesc = false)
+                            }
+                            state.acceptInvite(req, profile)
                             onDismiss()
                         }
                         .padding(vertical = 12.dp),

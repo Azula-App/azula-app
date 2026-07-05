@@ -97,6 +97,10 @@ data class ConversationDto(
     val messages: List<MessageDto> = emptyList(),
     /** Whether the conversation is enabled (see [dev.azula.model.Conversation.enabled]). */
     val enabled: Boolean = true,
+    /** A user-chosen local rename that always wins over [name] in the UI (see
+     *  [dev.azula.model.Conversation.localName]). Null/absent means no rename;
+     *  the default keeps old persisted blobs (which lack the key) decoding. */
+    val localName: String? = null,
     /** Last received peer profile: base64 avatar, its mime, and description. */
     val avatarB64: String? = null,
     val avatarMime: String? = null,

@@ -36,9 +36,13 @@ import dev.azula.theme.Fonts
 @Composable
 fun MarkdownText(source: String, color: Color, mine: Boolean = false) {
     val blocks = remember(source) { MarkdownParser.parse(source) }
+    // markdown has no dependency on a2ui (module.yaml: "depends only on theme"),
+    // so these read the same AzulaColors constants A2uiTokens itself wraps
+    // (pinkLight == A2uiTokens.primaryLight, inputBg == A2uiTokens.inputBg, …)
+    // rather than importing the token object directly.
     val strong = if (mine) Color(0xFFFFFFFF) else AzulaColors.textBright
     val codeColor = if (mine) Color(0xFFFFD9EE) else AzulaColors.pinkLight
-    val codeBg = if (mine) Color(0x40000000) else Color(0xFF1A1A23)
+    val codeBg = if (mine) Color(0x40000000) else AzulaColors.inputBg
     val linkColor = if (mine) Color(0xFFFFFFFF) else AzulaColors.pinkLight
 
     Column {
@@ -86,13 +90,13 @@ fun MarkdownText(source: String, color: Color, mine: Boolean = false) {
                         .horizontalScroll(rememberScrollState())
                         .padding(12.dp),
                 ) {
-                    Text(block.code, color = Color(0xFFCDD6E0), fontFamily = Fonts.mono, fontSize = 12.sp, lineHeight = 19.sp)
+                    Text(block.code, color = AzulaColors.text2, fontFamily = Fonts.mono, fontSize = 12.sp, lineHeight = 19.sp)
                 }
 
                 is MdBlock.BlockQuote -> Row(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0x14FF2D9B)),
+                        .background(AzulaColors.pink.copy(alpha = 0.08f)),
                 ) {
                     Box(Modifier.width(2.dp).background(AzulaColors.pink))
                     Text(
@@ -122,7 +126,7 @@ private fun TableRow(cells: List<String>, header: Boolean, strong: Color, codeCo
             Box(
                 Modifier.weight(1f)
                     .border(1.dp, AzulaColors.border4)
-                    .background(if (header) Color(0xFF16161F) else Color.Transparent)
+                    .background(if (header) AzulaColors.inputBg else Color.Transparent)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 Text(

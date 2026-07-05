@@ -15,6 +15,10 @@ interface AudioPlayerHandle {
 
     fun toggle()
 
+    /** Seek to [ms] milliseconds into the track, for a scrubbable waveform. A
+     *  no-op when [supported] is false. */
+    fun seekTo(ms: Long)
+
     /** Open the file in the system's default player. A no-op on platforms where
      *  [supported] is always true (Android/iOS never need it); JVM's fallback when
      *  [supported] is false. */

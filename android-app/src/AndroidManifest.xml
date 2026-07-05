@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Auto-saving received media to the public gallery/Downloads on API 26–28
+         (pre-scoped-storage) writes to public external dirs + a media scan. On
+         API ≥29 the MediaExporter uses scoped-storage MediaStore inserts, which
+         need no permission — hence maxSdkVersion="28". -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+                     android:maxSdkVersion="28" />
     <application android:name="app.azula.AzulaApplication"
                  android:label="Azula"
                  android:icon="@mipmap/ic_launcher"
@@ -42,6 +48,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="azula" />
+            </intent-filter>
+
+            <!-- OS "Share into Azula": lets Azula appear in the system share sheet
+                 for images/video/audio/files (EXTRA_STREAM) and plain text
+                 (EXTRA_TEXT) from any other app; see MainActivity.handleShareIntent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

@@ -63,7 +63,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.a2ui.A2uiAudioBar
 import dev.azula.a2ui.A2uiSurfaceView
+import dev.azula.a2ui.A2uiTokens
 import dev.azula.markdown.MarkdownText
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
@@ -102,10 +104,6 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         Box(contentMod) {
             if (conv.kind == ConversationKind.TERMINAL) TerminalView(state, convId, state.terminalSmartInput) else MessageThread(state, convId)
         }
-        // A picked-but-not-yet-sent media file, awaiting a caption (the draft text
-        // field doubles as the caption input while this is non-null). Keyed to the
-        // conversation so switching chats doesn't leak a pending pick into another.
-        var pendingMedia by remember(convId) { mutableStateOf<PendingMedia?>(null) }
         when {
             termLive -> {
                 // Type directly in the terminal — no input bar, just the compact key row.
@@ -119,28 +117,41 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
             conv.kind == ConversationKind.TERMINAL ->
                 TerminalEndedBar(state, convId)
             else -> {
-                pendingMedia?.let { PendingMediaPreview(it, onCancel = { pendingMedia = null }) }
+                // A picked-but-not-yet-sent media file, awaiting a caption (the draft
+                // text field doubles as the caption input while this is non-null).
+                // Lives on ConversationState (cs.pendingMedia), not local remember
+                // state, so a pick survives recomposition/navigation and an
+                // out-of-composition flow (the OS share sheet) can pre-fill it.
+                val pendingFile = cs.pendingMedia.firstOrNull()
+                pendingFile?.let { PendingMediaPreview(it, onCancel = { cs.pendingMedia.clear() }) }
                 ChatInput(
                     value = cs.draft,
                     onValueChange = { state.updateDraft(convId, it) },
                     onSend = {
-                        val pending = pendingMedia
-                        if (pending != null) {
-                            state.sendMedia(convId, pending.file.bytes, pending.file.name, pending.file.mime, cs.draft.trim().ifBlank { null })
+                        if (pendingFile != null) {
+                            val caption = cs.draft.trim().ifBlank { null }
+                            // PEER gets the streamed offer/fetch pipeline; LLM/MCP gets the
+                            // legacy inline wire the Rust bridge understands (R2's outbound
+                            // ingestLocalBlob still gives it the same blob-backed attachment
+                            // UI locally -- see ChatService.sendFile).
+                            if (conv.kind == ConversationKind.PEER) {
+                                state.sendMedia(convId, pendingFile.bytes, pendingFile.name, pendingFile.mime, caption)
+                            } else {
+                                state.sendFile(convId, pendingFile.bytes, pendingFile.name, pendingFile.mime, caption = caption)
+                            }
                             state.updateDraft(convId, "")
-                            pendingMedia = null
+                            cs.pendingMedia.clear()
                         } else {
                             state.send(convId)
                         }
                     },
-                    placeholder = if (pendingMedia != null) "add a caption…" else "message ${conv.name}",
+                    placeholder = if (pendingFile != null) "add a caption…" else "message ${conv.displayName}",
                     terminal = false,
                     onInterrupt = null,
                     attachMenu = {
                         AttachMenu(
-                            showMedia = conv.kind == ConversationKind.PEER,
                             onFilePicked = { picked -> state.sendFile(convId, picked.bytes, picked.name, picked.mime) },
-                            onMediaPicked = { kind, picked -> pendingMedia = PendingMedia(kind, picked) },
+                            onMediaPicked = { _, picked -> cs.pendingMedia.clear(); cs.pendingMedia.add(picked) },
                         )
                     },
                 )
@@ -149,19 +160,14 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
     }
 }
 
-/** A media file picked from [AttachMenu] but not yet sent. */
-private data class PendingMedia(val kind: MediaKind, val file: PickedFile)
-
 /**
  * The composer's 📎 button: a dropdown offering Photo/Video/Audio (via
- * [rememberMediaPicker], only when [showMedia] — PEER conversations only, see
- * [ChatPane]) plus File (via the legacy [rememberFilePicker], every conversation
- * kind). Pickers must be remembered unconditionally regardless of [showMedia] --
- * Compose forbids conditionally-called composables -- they just never fire if
- * their menu item is never shown.
+ * [rememberMediaPicker]) plus File (via the legacy [rememberFilePicker]) --
+ * shown for every non-terminal conversation, PEER and LLM/MCP alike; only the
+ * send-time routing (see [ChatPane]) differs by kind.
  */
 @Composable
-private fun AttachMenu(showMedia: Boolean, onFilePicked: (PickedFile) -> Unit, onMediaPicked: (MediaKind, PickedFile) -> Unit) {
+private fun AttachMenu(onFilePicked: (PickedFile) -> Unit, onMediaPicked: (MediaKind, PickedFile) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val launchFile = rememberFilePicker(onFilePicked)
     val launchPhoto = rememberMediaPicker(MediaKind.IMAGE) { onMediaPicked(MediaKind.IMAGE, it) }
@@ -170,8 +176,8 @@ private fun AttachMenu(showMedia: Boolean, onFilePicked: (PickedFile) -> Unit, o
     Box {
         Box(
             Modifier
-                .clip(RoundedCornerShape(11.dp))
-                .border(1.dp, AzulaColors.border4, RoundedCornerShape(11.dp))
+                .clip(A2uiTokens.rLg)
+                .border(1.dp, A2uiTokens.outline, A2uiTokens.rLg)
                 .clickable { open = true }
                 .padding(horizontal = 9.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
@@ -179,45 +185,45 @@ private fun AttachMenu(showMedia: Boolean, onFilePicked: (PickedFile) -> Unit, o
             Text("📎", fontSize = 16.sp)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (showMedia) {
-                DropdownMenuItem(text = { Text("Photo") }, onClick = { open = false; launchPhoto() })
-                DropdownMenuItem(text = { Text("Video") }, onClick = { open = false; launchVideo() })
-                DropdownMenuItem(text = { Text("Audio") }, onClick = { open = false; launchAudio() })
-            }
+            DropdownMenuItem(text = { Text("Photo") }, onClick = { open = false; launchPhoto() })
+            DropdownMenuItem(text = { Text("Video") }, onClick = { open = false; launchVideo() })
+            DropdownMenuItem(text = { Text("Audio") }, onClick = { open = false; launchAudio() })
             DropdownMenuItem(text = { Text("File") }, onClick = { open = false; launchFile() })
         }
     }
 }
 
-/** The composer preview strip for a [PendingMedia] pick: a thumbnail (images) or
+/** The composer preview strip for a [PickedFile] pick (staged in
+ *  [dev.azula.state.ConversationState.pendingMedia]): a thumbnail (images) or
  *  name+size (everything else), and a ✕ to discard the pick. The draft text field
  *  below doubles as the caption -- there's no separate caption input here. */
 @Composable
-private fun PendingMediaPreview(pending: PendingMedia, onCancel: () -> Unit) {
-    val bitmap = remember(pending.file) {
-        if (pending.kind == MediaKind.IMAGE) decodeImageBitmap(pending.file.bytes) else null
+internal fun PendingMediaPreview(file: PickedFile, onCancel: () -> Unit) {
+    val kind = remember(file) { MediaKind.fromMime(file.mime) }
+    val bitmap = remember(file) {
+        if (kind == MediaKind.IMAGE) decodeImageBitmap(file.bytes) else null
     }
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, top = 10.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
-                .background(AzulaColors.inputBg).border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp)),
+            Modifier.size(48.dp).clip(A2uiTokens.rMd)
+                .background(A2uiTokens.inputBg).border(1.dp, A2uiTokens.outline, A2uiTokens.rMd),
             contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null) {
-                Image(bitmap, contentDescription = pending.file.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+                Image(bitmap, contentDescription = file.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(A2uiTokens.rMd))
             } else {
-                Text(iconFor(pending.kind), fontSize = 18.sp)
+                Text(iconFor(kind), fontSize = 18.sp)
             }
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(pending.file.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(humanSize(pending.file.bytes.size.toLong()), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(file.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(humanSize(file.bytes.size.toLong()), color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
         }
-        Text("✕", color = AzulaColors.textDim, fontSize = 16.sp, modifier = Modifier.clickable { onCancel() }.padding(8.dp))
+        Text("✕", color = A2uiTokens.muted, fontSize = 16.sp, modifier = Modifier.clickable { onCancel() }.padding(8.dp))
     }
 }
 
@@ -308,13 +314,13 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack, modifier = Modifier.padding(end = 3.dp)) {
-                Text("‹", color = AzulaColors.textDim, fontSize = 22.sp)
+                Text("‹", color = A2uiTokens.muted, fontSize = 22.sp)
             }
         }
         AvatarBox(cs.peerAvatarBitmap, conv.glyph, conv.kind)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(conv.name, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(conv.displayName, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(statusDotColor(online, conv.enabled, conv.kind))
                 Spacer(Modifier.width(7.dp))
@@ -327,10 +333,10 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                     cs.reconnecting -> "reconnecting…"
                     else -> "offline"
                 }
-                Text(sub, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text(sub, color = A2uiTokens.muted, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
             cs.peerDescription?.takeIf { it.isNotBlank() }?.let { desc ->
-                Text(desc, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+                Text(desc, color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
             }
         }
         // Spawn a sibling terminal session over the same connection. Only terminals:
@@ -338,7 +344,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
         // the same peer isn't.
         if (conv.kind == ConversationKind.TERMINAL && cs.sourceTicket != null) {
             IconButton(onClick = { state.newSessionFrom(conv.id) }) {
-                Text("+", color = AzulaColors.pinkLight, fontSize = 22.sp)
+                Text("+", color = A2uiTokens.primaryLight, fontSize = 22.sp)
             }
         }
         val isTerminal = conv.kind == ConversationKind.TERMINAL
@@ -346,6 +352,8 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
             enabled = conv.enabled,
             onToggleEnabled = { state.setConversationEnabled(conv.id, !conv.enabled) },
             onDelete = { state.deleteConversation(conv.id) },
+            currentName = conv.displayName,
+            onRename = { state.renameConversation(conv.id, it) },
             onCopyScreen = if (isTerminal) {
                 {
                     clipboard.setText(AnnotatedString(state.terminalScreen(conv.id).frame.screenText()))
@@ -360,7 +368,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
             } else null,
         )
     }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(A2uiTokens.outlineSoft))
 }
 
 @Composable
@@ -388,7 +396,7 @@ fun MessageThread(state: AzulaState, convId: String) {
                     frozen = frozen,
                 )
             } else {
-                MessageBubble(state, convId, m, senderName = state.conversation(convId).name)
+                MessageBubble(state, convId, m, senderName = state.conversation(convId).displayName)
             }
         }
         if (thinking) item { ThinkingIndicator() }
@@ -403,21 +411,21 @@ fun MessageBubble(state: AzulaState, convId: String, m: Message, senderName: Str
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (me) Arrangement.End else Arrangement.Start,
     ) {
-        val shape = if (me) RoundedCornerShape(15.dp, 15.dp, 5.dp, 15.dp) else RoundedCornerShape(15.dp, 15.dp, 15.dp, 5.dp)
+        val shape = if (me) A2uiTokens.rBubbleMe else A2uiTokens.rBubbleThem
         val bg: Modifier = if (me) {
-            Modifier.background(Brush.verticalGradient(listOf(Color(0x38FF2D9B), Color(0x1AFF2D9B))))
-                .border(1.dp, Color(0x66FF2D9B), shape)
+            Modifier.background(Brush.verticalGradient(listOf(A2uiTokens.primary.copy(alpha = 0.22f), A2uiTokens.primary.copy(alpha = 0.10f))))
+                .border(1.dp, A2uiTokens.primary.copy(alpha = 0.4f), shape)
         } else {
-            Modifier.background(AzulaColors.msgOther).border(1.dp, AzulaColors.border3, shape)
+            Modifier.background(A2uiTokens.surfaceAlt).border(1.dp, A2uiTokens.outlineSoft, shape)
         }
         Column(
             Modifier.widthIn(max = 460.dp).clip(shape).then(bg).padding(horizontal = 13.dp, vertical = 9.dp),
         ) {
             if (m.role == Role.AZULA) {
-                Text("✦ $senderName", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
+                Text("✦ $senderName", color = A2uiTokens.primaryLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
             }
             if (!m.text.isNullOrEmpty()) {
-                MarkdownText(m.text, color = if (me) Color(0xFFFBE6F1) else AzulaColors.text2, mine = me)
+                MarkdownText(m.text, color = if (me) A2uiTokens.contentBright else A2uiTokens.content, mine = me)
             }
             m.attachments.forEach { att -> AttachmentView(state, convId, att) }
         }
@@ -464,19 +472,19 @@ private fun LegacyAttachmentView(att: Attachment) {
     } else {
         Row(
             Modifier.padding(top = 6.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(AzulaColors.inputBg)
-                .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                .clip(A2uiTokens.rMd)
+                .background(A2uiTokens.inputBg)
+                .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("📎", fontSize = 14.sp)
             Spacer(Modifier.width(7.dp))
             Text(
-                att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
             )
-            Text(" · ${humanSize(att.size)}", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
         }
     }
 }
@@ -500,7 +508,7 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
                 .heightIn(max = 220.dp).widthIn(max = 260.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(AzulaColors.inputBg)
-                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(att) } else it },
+                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
         ) {
             if (shown != null) {
                 Image(shown, contentDescription = att.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
@@ -527,7 +535,7 @@ private fun VideoAttachmentView(state: AzulaState, convId: String, att: Attachme
                 .heightIn(max = 220.dp).widthIn(max = 260.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(AzulaColors.codeBlock)
-                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(att) } else it },
+                .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
             contentAlignment = Alignment.Center,
         ) {
             if (thumb != null) {
@@ -558,41 +566,64 @@ private fun AudioAttachmentView(state: AzulaState, convId: String, att: Attachme
     }
     val path = att.blobId?.let { state.blobPath(it) }
     if (path == null) {
-        TransferChromeRow(state, convId, att.copy(state = TransferState.Failed("blob missing")))
-        return
-    }
-    val player = rememberAudioPlayer(path)
-    Row(
-        Modifier.padding(top = 6.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(AzulaColors.inputBg)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .widthIn(min = 200.dp, max = 260.dp)
-            .testTag("attachment-complete"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (player.supported) {
-            Text(
-                if (player.isPlaying) "⏸" else "▶",
-                color = AzulaColors.pinkLight, fontSize = 16.sp,
-                modifier = Modifier.clickable { player.toggle() }.padding(end = 9.dp),
-            )
-            Column(Modifier.weight(1f)) {
-                Text(att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val progress = if (player.durationMs > 0) player.positionMs.toFloat() / player.durationMs else 0f
-                Box(Modifier.fillMaxWidth().height(3.dp).padding(top = 4.dp).clip(RoundedCornerShape(2.dp)).background(AzulaColors.border5)) {
-                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).clip(RoundedCornerShape(2.dp)).background(AzulaColors.pink))
-                }
-            }
-        } else {
+        // Complete, but the BlobStore has no on-disk path for it -- true of the
+        // `-mock` apps' InMemoryBlobStore by design (off-disk, see its `pathFor`),
+        // never of a real device's FileBlobStore. This is NOT a failed transfer:
+        // the bytes are already here, so don't show Failed/retry chrome for it --
+        // tapping retry would call MediaService.startFetch on an attachment that's
+        // already Complete and has nothing to fetch, which used to dial the
+        // mock's fake media ALPN and mutate this into a genuinely-Failed
+        // ("unknown blob") attachment. Degrade to a static chip instead, same
+        // shape as the "player unsupported" row below minus the open action
+        // (there's no path to open).
+        Row(
+            Modifier.padding(top = 6.dp)
+                .clip(A2uiTokens.rLg)
+                .background(A2uiTokens.inputBg)
+                .border(1.dp, A2uiTokens.outline, A2uiTokens.rLg)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .widthIn(min = 200.dp, max = 260.dp)
+                .testTag("attachment-complete"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text("🎵", fontSize = 14.sp)
             Spacer(Modifier.width(7.dp))
             Text(
-                att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
-            Text("open ↗", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.clickable { player.openExternally() })
+        }
+        return
+    }
+    val player = rememberAudioPlayer(path)
+    if (player.supported) {
+        A2uiAudioBar(
+            isPlaying = player.isPlaying,
+            positionMs = player.positionMs,
+            durationMs = player.durationMs.takeIf { it > 0 } ?: att.durationMs ?: 0L,
+            onToggle = player::toggle,
+            onSeek = player::seekTo,
+            seed = att.id.hashCode(),
+            modifier = Modifier.padding(top = 6.dp).widthIn(min = 200.dp, max = 260.dp).testTag("attachment-complete"),
+        )
+    } else {
+        Row(
+            Modifier.padding(top = 6.dp)
+                .clip(A2uiTokens.rLg)
+                .background(A2uiTokens.inputBg)
+                .border(1.dp, A2uiTokens.outline, A2uiTokens.rLg)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .widthIn(min = 200.dp, max = 260.dp)
+                .testTag("attachment-complete"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("🎵", fontSize = 14.sp)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Text("open ↗", color = A2uiTokens.primaryLight, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.clickable { player.openExternally() })
         }
     }
 }
@@ -610,9 +641,9 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
     }
     Row(
         Modifier.padding(top = 6.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(AzulaColors.inputBg)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .clip(A2uiTokens.rMd)
+            .background(A2uiTokens.inputBg)
+            .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .testTag("attachment-complete"),
         verticalAlignment = Alignment.CenterVertically,
@@ -620,10 +651,10 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
         Text("📎", fontSize = 14.sp)
         Spacer(Modifier.width(7.dp))
         Text(
-            att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+            att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
         )
-        Text(" · ${humanSize(att.size)}", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
     }
 }
 
@@ -639,9 +670,9 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
 private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment) {
     Row(
         Modifier.padding(top = 6.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(AzulaColors.inputBg)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .clip(A2uiTokens.rMd)
+            .background(A2uiTokens.inputBg)
+            .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .widthIn(max = 260.dp)
             .testTag(attachmentStateTestTag(att.state)),
@@ -651,32 +682,34 @@ private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment
             is TransferState.Downloading -> {
                 CircularProgressIndicator(
                     progress = { if (s.bytesTotal > 0) (s.bytesDone.toFloat() / s.bytesTotal).coerceIn(0f, 1f) else 0f },
-                    color = AzulaColors.pinkLight,
+                    color = A2uiTokens.primaryLight,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "${humanSize(s.bytesDone)} / ${humanSize(s.bytesTotal)}", color = AzulaColors.text1,
+                    "${humanSize(s.bytesDone)} / ${humanSize(s.bytesTotal)}", color = A2uiTokens.contentBright,
                     fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.weight(1f),
                 )
-                Text("✕", color = AzulaColors.textDim, fontSize = 14.sp, modifier = Modifier.clickable { state.cancelFetch(att.id) })
+                Text("✕", color = A2uiTokens.muted, fontSize = 14.sp, modifier = Modifier.clickable { state.cancelFetch(att.id) })
             }
             is TransferState.Failed -> {
+                // AzulaColors.error has no A2uiTokens equivalent (no danger/error
+                // color in the neon-glass token set) -- kept as-is.
                 Text(
                     "⚠ ${s.reason}", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
-                Text("↻", color = AzulaColors.pinkLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
+                Text("↻", color = A2uiTokens.primaryLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
             }
             else -> { // Offered (or, defensively, Complete with no blob -- shouldn't happen)
                 Text(
-                    att.name, color = AzulaColors.text1, fontFamily = Fonts.ui, fontSize = 12.5.sp,
+                    att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
-                Text(humanSize(att.size), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text(humanSize(att.size), color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
                 Spacer(Modifier.width(9.dp))
-                Text("⬇", color = AzulaColors.pinkLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
+                Text("⬇", color = A2uiTokens.primaryLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
             }
         }
     }
@@ -702,8 +735,8 @@ private fun humanSize(bytes: Long): String = when {
 fun ThinkingIndicator() {
     val t = rememberInfiniteTransition(label = "think")
     Row(
-        Modifier.clip(RoundedCornerShape(15.dp, 15.dp, 15.dp, 5.dp)).background(AzulaColors.msgOther)
-            .border(1.dp, AzulaColors.border3, RoundedCornerShape(15.dp, 15.dp, 15.dp, 5.dp))
+        Modifier.clip(A2uiTokens.rBubbleThem).background(A2uiTokens.surfaceAlt)
+            .border(1.dp, A2uiTokens.outlineSoft, A2uiTokens.rBubbleThem)
             .padding(horizontal = 15.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -714,7 +747,7 @@ fun ThinkingIndicator() {
                 animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse, StartOffset(i * 150)),
                 label = "dot$i",
             )
-            Box(Modifier.size(7.dp).clip(CircleShape).background(AzulaColors.pink.copy(alpha = a)))
+            Box(Modifier.size(7.dp).clip(CircleShape).background(A2uiTokens.primary.copy(alpha = a)))
         }
     }
 }
@@ -731,7 +764,7 @@ fun ChatInput(
 ) {
     val focusManager = LocalFocusManager.current
     fun sendAndDismiss() { onSend(); focusManager.clearFocus() }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(A2uiTokens.outlineSoft))
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -743,19 +776,22 @@ fun ChatInput(
         if (onInterrupt != null) {
             Box(
                 Modifier
-                    .clip(RoundedCornerShape(7.dp))
-                    .border(1.dp, AzulaColors.border5, RoundedCornerShape(7.dp))
+                    .clip(A2uiTokens.rSm)
+                    .border(1.dp, A2uiTokens.outlineStrong, A2uiTokens.rSm)
                     .clickable { onInterrupt() }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("^C", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text("^C", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
         }
         Box(
-            Modifier.weight(1f).clip(RoundedCornerShape(11.dp))
-                .background(if (terminal) AzulaColors.codeBlock else AzulaColors.inputBg)
-                .border(1.dp, if (terminal) Color(0x4DFF2D9B) else AzulaColors.border4, RoundedCornerShape(11.dp))
+            Modifier.weight(1f).clip(A2uiTokens.rLg)
+                // Terminal mode keeps its own code-block chrome (TERMINAL is a
+                // distinct kind, not part of the PEER/LLM seam); everything else
+                // reads the shared neon-glass input tokens.
+                .background(if (terminal) AzulaColors.codeBlock else A2uiTokens.inputBg)
+                .border(1.dp, if (terminal) A2uiTokens.primary.copy(alpha = 0.3f) else A2uiTokens.outline, A2uiTokens.rLg)
                 .padding(horizontal = 13.dp, vertical = 11.dp),
         ) {
             BasicTextField(
@@ -763,17 +799,17 @@ fun ChatInput(
                 onValueChange = onValueChange,
                 singleLine = true,
                 textStyle = TextStyle(
-                    color = if (terminal) AzulaColors.termGreen else AzulaColors.text1,
+                    color = if (terminal) AzulaColors.termGreen else A2uiTokens.contentBright,
                     fontFamily = if (terminal) Fonts.mono else Fonts.ui,
                     fontSize = 13.5.sp,
                 ),
-                cursorBrush = SolidColor(AzulaColors.pink),
+                cursorBrush = SolidColor(A2uiTokens.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { sendAndDismiss() }),
                 modifier = Modifier.fillMaxWidth().testTag("composer-input"),
                 decorationBox = { inner ->
                     if (value.isEmpty()) {
-                        Text(placeholder, color = AzulaColors.textFaint, fontFamily = if (terminal) Fonts.mono else Fonts.ui, fontSize = 13.5.sp)
+                        Text(placeholder, color = A2uiTokens.mutedFaint, fontFamily = if (terminal) Fonts.mono else Fonts.ui, fontSize = 13.5.sp)
                     }
                     inner()
                 },
@@ -786,7 +822,7 @@ fun ChatInput(
 @Composable
 fun SendButton(onClick: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(PinkButtonBrush).clickable { onClick() }
+        Modifier.size(40.dp).clip(A2uiTokens.rLg).background(A2uiTokens.primaryBrush).clickable { onClick() }
             .testTag("send-button"),
         contentAlignment = Alignment.Center,
     ) {

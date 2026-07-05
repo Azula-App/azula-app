@@ -19,6 +19,7 @@ import dev.azula.net.P2pStream
 import dev.azula.net.receiveMediaBody
 import dev.azula.net.sendMediaBody
 import dev.azula.persist.BlobStore
+import dev.azula.persist.MediaExporter
 import dev.azula.ui.scaleImageForAvatar
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -67,6 +68,7 @@ class MediaService(
     private val convStore: ConversationStore,
     private val persistence: PersistenceCoordinator,
     private val blobStore: BlobStore?,
+    private val mediaExporter: MediaExporter?,
     private val scope: CoroutineScope,
 ) {
     /**
@@ -157,6 +159,75 @@ class MediaService(
             runCatching { stream.sendLine(FrameCodec.encode(offer)) }
         }
         return true
+    }
+
+    /**
+     * Ingest a file delivered outside the streamed media protocol -- the legacy
+     * inline `file_begin`/`file_chunk`/`file_end` frames LLM/MCP peers still use --
+     * into the [BlobStore], exactly like [sendMedia] does for streamed media, so
+     * these attachments get a real `blobId` instead of persisting as inline
+     * base64 (and so [AttachmentView]'s per-kind dispatch picks them up, e.g. a
+     * real audio player instead of a dead-end chip). Builds and appends the
+     * [Message] itself -- id prefix `"m"` for [Role.ME], `"r"` for anything else,
+     * matching [sendMedia]/[onMediaOffer]'s convention -- and persists; callers
+     * just react afterward (e.g. a notification). Sends **no** [Frame.MediaOffer]:
+     * this is local-only ingestion, any wire frames are the caller's job.
+     *
+     * Falls back to an inline [Attachment] (bytes kept, `blobId` null) when no
+     * [BlobStore] is bound, so the `-mock` apps still work (with no on-disk player
+     * path, e.g. audio degrades to the chrome row in tests -- acceptable).
+     *
+     * Like [sendMedia], this writes the blob synchronously on the calling thread;
+     * a caller already on a background dispatcher (the receive loop) is fine as
+     * -is, a UI-thread caller should hop to `Dispatchers.Default` first.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    fun ingestLocalBlob(convId: String, bytes: ByteArray, name: String, mime: String, caption: String?, role: Role): Attachment {
+        val cs = convStore.conv(convId)
+        val kind = MediaKind.fromMime(mime)
+        val thumbBytes = if (kind == MediaKind.IMAGE) scaleImageForAvatar(bytes)?.bytes else null
+
+        val attachment = blobStore?.let { store ->
+            val id = Uuid.random().toString()
+            store.openWriter(id).use { writer ->
+                var offset = 0
+                while (offset < bytes.size) {
+                    val end = minOf(offset + MEDIA_CHUNK, bytes.size)
+                    writer.write(bytes.copyOfRange(offset, end))
+                    offset = end
+                }
+            }
+            Attachment(
+                id = id,
+                name = name,
+                mime = mime,
+                size = bytes.size.toLong(),
+                bytes = null,
+                caption = caption,
+                kind = kind,
+                thumbBytes = thumbBytes,
+                blobId = id,
+                state = TransferState.Complete,
+            )
+        } ?: Attachment(
+            id = Uuid.random().toString(),
+            name = name,
+            mime = mime,
+            size = bytes.size.toLong(),
+            bytes = bytes,
+            caption = caption,
+            kind = kind,
+            thumbBytes = thumbBytes,
+            state = TransferState.Complete,
+        )
+
+        cs.messages.add(Message(convStore.nextId(if (role == Role.ME) "m" else "r"), role, text = caption, attachments = listOf(attachment)))
+        persistence.save(convId)
+        // Received legacy/LLM files auto-save to device storage exactly once, here at
+        // their Complete point (this covers ConnectService.receiveLoop's FileBegin
+        // branch — do NOT also export there). ME ingestion never exports.
+        if (role == Role.THEM) attachment.blobId?.let { exportReceived(it, name, mime) }
+        return attachment
     }
 
     // ---- receiving an offer ----
@@ -257,6 +328,13 @@ class MediaService(
     fun startFetch(convId: String, attachmentId: String) {
         val store = blobStore ?: return
         val attachment = findAttachment(convId, attachmentId) ?: return
+        // Nothing to fetch for an attachment that's already Complete (e.g. one's
+        // own just-sent copy) -- defends against any UI path that offers a
+        // fetch/retry affordance on a Complete attachment, which would otherwise
+        // dial the peer for a blob the caller already has (and, over a solo mock
+        // loopback, spuriously fail with "unknown blob" since there's no second
+        // party to serve it -- see AudioAttachmentView's blobPath-null handling).
+        if (attachment.state == TransferState.Complete) return
         val ticket = attachment.fetchTicket ?: return
 
         // Atomically claim the id: bail while a live fetch exists; a dead entry (a
@@ -304,8 +382,15 @@ class MediaService(
                             }
                         }
                     }
-                    updateAttachment(convId, attachmentId) {
-                        it.copy(state = if (ok) TransferState.Complete else TransferState.Failed("connection closed"))
+                    if (ok) {
+                        val att = findAttachment(convId, attachmentId)
+                        updateAttachment(convId, attachmentId) { it.copy(state = TransferState.Complete) }
+                        // Only received fetches reach runFetch (sendMedia never calls it),
+                        // so this auto-saves each received PEER blob to device storage
+                        // exactly once, at its Complete transition.
+                        if (att != null) exportReceived(attachmentId, att.name, att.mime)
+                    } else {
+                        updateAttachment(convId, attachmentId) { it.copy(state = TransferState.Failed("connection closed")) }
                     }
                 }
             }
@@ -368,6 +453,23 @@ class MediaService(
      *  player/viewer (video/audio) or an "open externally" affordance. Null if the
      *  blob is incomplete, absent, or there's no [BlobStore] bound. */
     fun blobPath(id: String): String? = blobStore?.pathFor(id)
+
+    /**
+     * Auto-save a just-completed **received** blob into user-visible device
+     * storage (gallery / Downloads / Files), fire-and-forget on [scope]. Called
+     * exactly once at the Complete transition — from [runFetch]'s success branch
+     * for streamed PEER media, and from [ingestLocalBlob] for legacy/LLM files
+     * (THEM only) — so a given transfer exports once. Best-effort: a null
+     * [mediaExporter] (mock apps), a missing on-disk path, or an export failure
+     * are all silently ignored; export never blocks or fails the transfer. Sends
+     * (Role.ME) never reach here, so the user's own outbound files aren't
+     * re-exported.
+     */
+    private fun exportReceived(blobId: String, name: String, mime: String) {
+        val exporter = mediaExporter ?: return
+        val path = blobPath(blobId) ?: return
+        scope.launch { runCatching { exporter.export(path, name, mime) } }
+    }
 
     // ---- serving a fetch (the sender side of the ALPN) ----
 

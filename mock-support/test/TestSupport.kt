@@ -7,6 +7,7 @@ import dev.azula.net.PeerStore
 import dev.azula.persist.BlobStore
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.InvitationsStore
+import dev.azula.persist.MediaExporter
 import dev.azula.persist.MessageStore
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
@@ -27,6 +28,7 @@ internal fun testAzulaState(
     blobStore: BlobStore? = null,
     peerStore: PeerStore? = null,
     invitationsStore: InvitationsStore? = null,
+    mediaExporter: MediaExporter? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -37,6 +39,7 @@ internal fun testAzulaState(
         peerStore = peerStore,
         blobStore = blobStore,
         invitationsStore = invitationsStore,
+        mediaExporter = mediaExporter,
     ).azulaState
 
 /** An in-memory [PeerStore], so a test can inspect exactly what ConnectService persisted. */

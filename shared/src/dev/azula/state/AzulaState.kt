@@ -15,8 +15,10 @@ import dev.azula.model.Attachment
 import dev.azula.model.Conversation
 import dev.azula.model.ConversationKind
 import dev.azula.model.ConnectStage
+import dev.azula.model.MediaKind
 import dev.azula.model.Message
 import dev.azula.model.Role
+import dev.azula.model.TransferState
 import dev.azula.net.Alpns
 import dev.azula.net.FileEncoding
 import dev.azula.net.Frame
@@ -35,6 +37,7 @@ import dev.azula.persist.Persona
 import dev.azula.terminal.PredictionEngine
 import dev.azula.terminal.TerminalEmulator
 import dev.azula.terminal.TerminalSession
+import dev.azula.ui.PickedFile
 import dev.azula.ui.decodeImageBitmap
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -50,6 +53,13 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 
 enum class MScreen { HOME, CONNECT, CHAT, SETTINGS, INVITES }
+
+/**
+ * The pages backing [AzulaState.fullscreenMedia]: a gallery of [items] to swipe
+ * through (all completed images in the conversation, for an image tap; a single
+ * entry for video) and which page ([startIndex]) to open on.
+ */
+data class FullscreenMedia(val items: List<Attachment>, val startIndex: Int)
 
 /** Build a [Frame.Profile] from a persona, including only the toggled-on fields. */
 fun Persona.toFrame(shareName: Boolean, sharePic: Boolean, shareDesc: Boolean): Frame.Profile =
@@ -108,6 +118,13 @@ class ConversationState(seed: List<Message>) {
      *  so scheduleReconnect must not treat this terminal as eligible; the UI
      *  offers an explicit "New shell" instead. */
     var termExited by mutableStateOf(false)
+    /** Media picked (Photo/Video/Audio) but not yet sent, awaiting a caption --
+     *  the composer's draft field doubles as the caption input while this is
+     *  non-empty. Lives here (rather than as `ChatPane` `remember` state) so a
+     *  pick survives recomposition/navigation, and so an out-of-composition
+     *  flow (the OS share sheet) can pre-fill a composer. A list to support
+     *  sharing multiple items at once; today's UI only ever holds one. */
+    val pendingMedia = mutableStateListOf<PickedFile>()
 }
 
 /**
@@ -127,12 +144,14 @@ class AzulaState(
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope, blobStore),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
     private val a2uiService: A2uiService = A2uiService(convStore, surfaceStore, persistence, scope),
-    private val chatService: ChatService = ChatService(convStore, persistence, scope),
     // The media-attachment core (send/offer/fetch over the BlobStore + the
-    // azula/media/0 ALPN). Needs the transport directly, which AzulaState doesn't
-    // hold itself, so -- like connectService below -- it has no usable default and
-    // must come from the real DI graph.
+    // azula/media/0 ALPN, and legacy-file blob ingestion). Needs the transport
+    // directly, which AzulaState doesn't hold itself, so -- like connectService
+    // below -- it has no usable default and must come from the real DI graph.
+    // Declared before chatService: its default constructs a ChatService, which
+    // now needs mediaService too.
     private val mediaService: MediaService,
+    private val chatService: ChatService = ChatService(convStore, persistence, scope, mediaService),
     // The inbound-frame reaction core (applyFrame/applyProfile + the share
     // handshake). ConnectService hands it frames as they arrive off the wire.
     private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, mediaService, null),
@@ -197,6 +216,14 @@ class AzulaState(
         connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
         frameDispatcher.foreground = { inForeground }
         inviteService.foreground = { inForeground }
+        // iOS tap-routing for the "Connection requests" local notification --
+        // no-op on Android (MainActivity routes via AppStateHost directly) but
+        // harmless to register everywhere.
+        InviteBus.setHandler { openInvitesMobile() }
+        // iOS share-into-app: drainShareInbox() (ShareInbox.kt, src@ios) delivers
+        // here via ShareBus -- no-op on Android (MainActivity stages shares
+        // directly via AppStateHost) but harmless to register everywhere.
+        ShareBus.setHandler { stageShare(it) }
     }
     private fun nextId(p: String): String = convStore.nextId(p)
 
@@ -299,12 +326,31 @@ class AzulaState(
      *  "open externally"; see [MediaService.blobPath]. */
     fun blobPath(id: String): String? = mediaService.blobPath(id)
 
-    /** The attachment currently shown fullscreen (image viewer / video overlay), or
+    /** The attachment(s) currently shown fullscreen (image viewer / video overlay), or
      *  null when no overlay is open. Set by [AttachmentView]-side taps; the root
-     *  composable (MobileApp/DesktopApp) renders the overlay when non-null. */
-    var fullscreenMedia by mutableStateOf<Attachment?>(null)
+     *  composable (MobileApp/DesktopApp) renders the overlay when non-null.
+     *  [FullscreenMedia.items] is the page list to swipe through (all completed
+     *  images in the conversation, for an image; a single item for video), and
+     *  [FullscreenMedia.startIndex] is which page to open on. */
+    var fullscreenMedia by mutableStateOf<FullscreenMedia?>(null)
         private set
-    fun showFullscreenMedia(att: Attachment) { fullscreenMedia = att }
+
+    /**
+     * Open the fullscreen viewer for [att] in conversation [convId]. Images open
+     * onto a pager over every completed image in the conversation (so swiping
+     * moves through the rest of the gallery); anything else (video) opens a
+     * single-page viewer.
+     */
+    fun showFullscreenMedia(convId: String, att: Attachment) {
+        fullscreenMedia = if (att.kind == MediaKind.IMAGE) {
+            val imgs = conv(convId).messages.flatMap { it.attachments }
+                .filter { it.kind == MediaKind.IMAGE && it.state == TransferState.Complete }
+            val start = imgs.indexOfFirst { it.id == att.id }.coerceAtLeast(0)
+            FullscreenMedia(imgs.ifEmpty { listOf(att) }, start)
+        } else {
+            FullscreenMedia(listOf(att), 0)
+        }
+    }
     fun dismissFullscreenMedia() { fullscreenMedia = null }
 
     fun markCopied() {
@@ -392,6 +438,17 @@ class AzulaState(
     fun reconnectSaved() = connectService.reconnectSaved()
 
     // ---- conversation management (enable/disable, delete) ----
+
+    /**
+     * Set (or clear, with a null/blank [name]) a user-chosen local rename for a
+     * conversation. The local name always wins over the announced/shared/mnemonic
+     * title in the UI (see [Conversation.displayName]); clearing falls back to it.
+     * Persists immediately so the rename survives restart.
+     */
+    fun renameConversation(convId: String, name: String?) {
+        convStore.renameConversation(convId, name)
+        persist(convId)
+    }
 
     /**
      * Enable or disable a conversation. Disabling closes any live stream and
@@ -482,4 +539,63 @@ class AzulaState(
     fun openInvitesMobile() { mScreen = MScreen.INVITES }
     fun openInvitesDesktop() { desktopActive = "invites" }
 
+    // ---- share-into-app (OS share sheet: Android intent-filter, iOS Share Extension) ----
+
+    /**
+     * Items shared in from the OS (a `SEND`/`SEND_MULTIPLE` intent on Android, the
+     * App-Group inbox drained on iOS -- see [dev.azula.state.ShareInbox]/`ShareBus`)
+     * awaiting a conversation to land in, or null when no share is in flight.
+     * [SharePickerOverlay] renders the "Share to…" picker whenever this is non-null;
+     * mounted at the root of both `MobileApp`/`DesktopApp`.
+     */
+    var pendingShare by mutableStateOf<List<PickedFile>?>(null)
+        private set
+    /** A plain-text share (`EXTRA_TEXT`) staged alongside/instead of [pendingShare];
+     *  [shareTo] pre-fills the target conversation's draft with it rather than
+     *  adding it to [ConversationState.pendingMedia]. */
+    private var pendingShareText: String? = null
+
+    /** Stage one or more picked files from an inbound OS share; no-op if empty.
+     *  [SharePickerOverlay] then prompts for a destination conversation. */
+    fun stageShare(items: List<PickedFile>) {
+        if (items.isEmpty()) return
+        pendingShare = items
+        pendingShareText = null
+    }
+
+    /** Stage a plain-text share (`EXTRA_TEXT`); no-op if blank. [shareTo] sets the
+     *  target conversation's draft to this text instead of staging media. */
+    fun stageShareText(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        pendingShareText = t
+        pendingShare = emptyList()
+    }
+
+    /** Deliver the currently staged share (files and/or text) into conversation
+     *  [convId]'s composer and navigate to it, clearing the pending share. No-op
+     *  if nothing is staged. */
+    fun shareTo(convId: String) {
+        if (pendingShare == null) return
+        val items = pendingShare.orEmpty()
+        val text = pendingShareText
+        if (items.isNotEmpty()) {
+            val cs = conv(convId)
+            cs.pendingMedia.clear()
+            cs.pendingMedia.addAll(items)
+        }
+        if (text != null) conv(convId).draft = text
+        pendingShare = null
+        pendingShareText = null
+        // Mobile and desktop navigation are independent fields -- set both
+        // unconditionally so the picker works regardless of which shell is active.
+        openChatMobile(convId)
+        desktopActive = convId
+    }
+
+    /** Discard the currently staged share without delivering it anywhere. */
+    fun cancelShare() {
+        pendingShare = null
+        pendingShareText = null
+    }
 }

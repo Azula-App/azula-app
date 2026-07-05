@@ -74,12 +74,17 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
     var sharePic by remember { mutableStateOf(true) }
     var shareDesc by remember { mutableStateOf(true) }
 
-    // Guest connect is the default: paste + hit connect dials immediately.
-    // Sharing a persona is an inline opt-in, never a blocking gate.
+    // Guest connect is the default: paste + hit connect dials immediately. The
+    // selected persona's NAME rides the profile by default (share-name-by-default);
+    // picture/description stay an inline opt-in behind the expanded share panel.
     fun beginConnect(ticket: String) {
         if (ticket.isBlank()) return
-        val persona = if (showShareOptions) state.personaById(selectedPersonaId) else null
-        state.connectPeer(ticket, persona?.toFrame(shareName, sharePic, shareDesc))
+        val persona = state.personaById(selectedPersonaId)
+        val profile = persona?.let {
+            if (showShareOptions) it.toFrame(shareName, sharePic, shareDesc)
+            else it.toFrame(shareName = true, sharePic = false, shareDesc = false)
+        }
+        state.connectPeer(ticket, profile)
     }
 
     if (showCreateInvite && useBottomSheet) {
@@ -209,7 +214,7 @@ private fun HolepunchProgress(state: AzulaState) {
     val peerCode = state.peerCodeForInput(state.connectInput)
     val peerConv = peerId?.let { state.conversationOrNull(it) }
     val peerCs = peerId?.let { state.convOrNull(it) }
-    val peerName = peerConv?.name?.takeIf { peerCode == null || it != peerCode }
+    val peerName = peerConv?.displayName?.takeIf { peerCode == null || it != peerCode }
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
         Text(
             if (connected) "CONNECTED" else "HOLEPUNCHING",

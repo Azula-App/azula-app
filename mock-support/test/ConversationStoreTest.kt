@@ -51,6 +51,34 @@ class ConversationStoreTest {
     }
 
     @Test
+    fun renameConversationSetsLocalNameThatOverridesDisplayName() {
+        val store = ConversationStore()
+        val id = store.ensureConv("peer1", ConversationKind.PEER, announcedName = "Rex")
+        assertEquals("Rex", store.conversation(id).displayName)
+
+        store.renameConversation(id, "  Buddy  ")
+        assertEquals("Buddy", store.conversation(id).localName, "the rename is trimmed")
+        assertEquals("Buddy", store.conversation(id).displayName, "the local name wins for display")
+        assertEquals("Rex", store.conversation(id).name, "the shared name is preserved underneath")
+    }
+
+    @Test
+    fun renameConversationBlankOrNullClearsBackToDefault() {
+        val store = ConversationStore()
+        val id = store.ensureConv("peer1", ConversationKind.PEER, announcedName = "Rex")
+        store.renameConversation(id, "Buddy")
+
+        store.renameConversation(id, "   ")
+        assertNull(store.conversation(id).localName, "a blank rename clears the local name")
+        assertEquals("Rex", store.conversation(id).displayName)
+
+        store.renameConversation(id, "Buddy")
+        store.renameConversation(id, null)
+        assertNull(store.conversation(id).localName, "a null rename clears the local name")
+        assertEquals("Rex", store.conversation(id).displayName)
+    }
+
+    @Test
     fun nextIdIsMonotonicAndSetIdFloorOnlyAdvances() {
         val store = ConversationStore()
         assertEquals("p0", store.nextId("p"))

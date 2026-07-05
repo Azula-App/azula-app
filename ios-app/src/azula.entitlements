@@ -15,5 +15,16 @@
 		<string>applinks:azula.app</string>
 		<string>webcredentials:azula.app</string>
 	</array>
+	<!--
+	  Shared with the AzulaShare extension (../ShareExtension/AzulaShare.entitlements)
+	  so shared/src@ios/dev/azula/state/ShareInbox.kt can read what the extension
+	  writes. Requires a provisioning profile for this bundle id with the App
+	  Groups capability enabled and group.app.azula registered -- see the note
+	  in AzulaShare.entitlements.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.azula</string>
+	</array>
 </dict>
 </plist>

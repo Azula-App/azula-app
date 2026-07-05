@@ -4,7 +4,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.azula.core.AppScope
-import dev.azula.model.Attachment
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.net.FileEncoding
@@ -28,6 +27,12 @@ class ChatService(
     private val convStore: ConversationStore,
     private val persistence: PersistenceCoordinator,
     private val scope: CoroutineScope,
+    // Ingests the local ME attachment through the BlobStore (see
+    // MediaService.ingestLocalBlob) so a legacy file send gets a blobId-backed
+    // attachment locally, same as an inbound legacy receive -- the FileBegin/
+    // Chunk/End wire frames below are unaffected. One-directional dependency:
+    // MediaService never depends on ChatService.
+    private val mediaService: MediaService,
 ) {
     /** True while the remote assistant is composing a reply. */
     var thinking by mutableStateOf(false)
@@ -54,10 +59,7 @@ class ChatService(
         caption: String?,
     ) {
         val cs = convStore.conv(convId)
-        val msgId = convStore.nextId("f")
-        val attachment = Attachment(msgId, name, mime, bytes.size.toLong(), bytes, caption)
-        cs.messages.add(Message(msgId, Role.ME, text = caption, attachments = listOf(attachment)))
-        persistence.save(convId)
+        mediaService.ingestLocalBlob(convId, bytes, name, mime, caption, Role.ME)
         val stream = cs.stream ?: return
         scope.launch {
             runCatching { sendFile(stream, OutgoingFile(name = name, mime = mime, bytes = bytes, caption = caption), encoding) }

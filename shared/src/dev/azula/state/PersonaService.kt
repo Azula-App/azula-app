@@ -24,26 +24,28 @@ class PersonaService(private val profileStore: ProfileStore?) {
     var defaultPersonaId by mutableStateOf<String?>(null)
         private set
 
-    /** Terminal input mode: smart (swipe/autocorrect/suggestions) vs. the
-     *  legacy raw fallback -- see [dev.azula.persist.ProfileBook.terminalSmartInput]. */
-    var terminalSmartInput by mutableStateOf(true)
-        private set
+    /** [ProfileBook.terminalSmartInput] as last loaded from/written to disk --
+     *  frozen, not live state. `terminalSmartInput` now lives in `SettingsService`
+     *  (see azula-docs/docs/tech-debt.md §6); this snapshot exists only so (a) a
+     *  fresh `SettingsService` can migrate a pre-SettingsStore install's value on
+     *  first read ([legacyTerminalSmartInput]), and (b) persona saves round-trip
+     *  the field unchanged instead of clobbering it back to the default. */
+    private var legacyTerminalSmartInput = true
+
+    /** The value [SettingsService] should adopt if it's never saved anything of
+     *  its own yet -- see (a) above. */
+    val legacyTerminalSmartInputForMigration: Boolean get() = legacyTerminalSmartInput
 
     fun load() {
         val book = profileStore?.load() ?: return
         personas.clear()
         personas.addAll(book.personas)
         defaultPersonaId = book.defaultId ?: book.personas.firstOrNull()?.id
-        terminalSmartInput = book.terminalSmartInput
+        legacyTerminalSmartInput = book.terminalSmartInput
     }
 
     private fun save() {
-        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId, terminalSmartInput))
-    }
-
-    fun setSmartInput(enabled: Boolean) {
-        terminalSmartInput = enabled
-        save()
+        profileStore?.save(ProfileBook(personas.toList(), defaultPersonaId, legacyTerminalSmartInput))
     }
 
     fun newId(): String {

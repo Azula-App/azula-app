@@ -14,6 +14,7 @@ import dev.azula.persist.AndroidInvitationsStore
 import dev.azula.persist.AndroidMediaExporter
 import dev.azula.persist.AndroidMessageStore
 import dev.azula.persist.AndroidProfileStore
+import dev.azula.persist.AndroidSettingsStore
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
@@ -88,6 +89,7 @@ class AzulaApplication : Application() {
             notifier = AndroidNotifier(this),
             messageStore = AndroidMessageStore(applicationContext),
             profileStore = AndroidProfileStore(applicationContext),
+            settingsStore = AndroidSettingsStore(applicationContext),
             peerStore = AndroidPeerStore(applicationContext),
             blobStore = AndroidBlobStore(applicationContext),
             invitationsStore = AndroidInvitationsStore(applicationContext),

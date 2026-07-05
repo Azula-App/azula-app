@@ -9,27 +9,23 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.waitUntilDoesNotExist
 import androidx.compose.ui.test.waitUntilExactlyOneExists
 import dev.azula.mock.FakeTransport
 import dev.azula.mock.InMemoryBlobStore
-import dev.azula.mock.MockInvitationsStore
 import dev.azula.model.ConversationKind
 import dev.azula.net.Frame
 import dev.azula.state.AzulaState
-import dev.azula.theme.AzulaTheme
 import dev.azula.ui.DesktopApp
 import kotlin.io.encoding.Base64
 import kotlin.test.Test
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -58,27 +54,6 @@ import kotlinx.coroutines.launch
  * rendered UI, polling until it either shows up or the timeout trips.
  */
 class DesktopAppE2eTest {
-
-    /**
-     * Mounts [DesktopApp] over a fresh mock [AzulaState] and runs [block] against
-     * it. The backing scope is cancelled in a `finally` so a test's background
-     * work (fetch jobs, the terminal `incoming()` emit, etc.) never leaks into
-     * the next test.
-     */
-    private fun desktopE2eTest(block: ComposeUiTest.(state: AzulaState, transport: FakeTransport, scope: CoroutineScope) -> Unit) {
-        val transport = FakeTransport()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            runComposeUiTest {
-                val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore(), invitationsStore = MockInvitationsStore())
-                scope.launch { state.start() }
-                setContent { AzulaTheme { DesktopApp(state) } }
-                block(state, transport, scope)
-            }
-        } finally {
-            scope.cancel()
-        }
-    }
 
     /** Drives the sidebar's connect flow exactly like `e2e/android.yaml`'s peer-connect
      *  section: open the connect pane, paste the mock ticket, hit connect, and wait for
@@ -110,11 +85,30 @@ class DesktopAppE2eTest {
         // with the mobile home list -- end to end: the row renders the live
         // terminal (green dot, via statusDotColor) and its onSelect wiring
         // (Sidebar -> state.selectDesktop) actually opens the chat.
-        waitUntilAtLeastOneExists(hasText("mo · onyx · ivy"), timeoutMillis = 5_000)
+        //
+        // Both waits below are real (non-virtual-clock) polls against work that
+        // happens off Compose's test clock -- FakeTransport.incoming()'s 300ms
+        // delayed emit, then a full click -> recompose -> layout -> draw pass for
+        // ChatHeader -- so their timeout is CPU-contention headroom, not protocol
+        // time. 5s was tight enough to intermittently throw ComposeTimeoutException
+        // under concurrent load (azula-docs/docs/tech-debt.md §7); 15s gives real
+        // margin without masking an actual hang (this conversation is never
+        // reconnecting/offline in the mock, so a genuine failure still times out
+        // and fails, just slower).
+        waitUntilAtLeastOneExists(hasText("mo · onyx · ivy"), timeoutMillis = 20_000)
         onNodeWithText("mo · onyx · ivy").performClick()
-        // ChatHeader's sub-line ("connected", driven by the same online/statusDotColor
-        // state as the row) only appears once the chat pane is showing.
-        waitUntilAtLeastOneExists(hasText("connected"), timeoutMillis = 5_000)
+        // ChatHeader's status line is tagged "chat-status" (Chat.kt) precisely so
+        // this wait keys off that one deterministic node instead of a bare text
+        // substring search over the whole tree -- "connected" only ever renders
+        // here (rttMs stays null for every FakeTransport stream, so unlike a real
+        // transport this line never flips to "direct · Nms · e2e" underneath the
+        // wait), but pinning the tag makes the intent explicit and the match cheaper.
+        try {
+            waitUntilAtLeastOneExists(hasTestTag("chat-status") and hasText("connected"), timeoutMillis = 30_000)
+        } catch (e: Throwable) {
+            onRoot().printToLog("DEBUG_TREE_ON_FAILURE")
+            throw e
+        }
     }
 
     @Test
@@ -197,8 +191,13 @@ class DesktopAppE2eTest {
         // always auto-fetch regardless of size -- see MediaService.onMediaOffer) --
         // wait straight for Complete rather than assert the intermediate state, since
         // a small blob like this can race past Offered/Downloading before this test
-        // ever gets to look.
-        waitUntilExactlyOneExists(hasTestTag("attachment-complete"), timeoutMillis = 8_000)
+        // ever gets to look. This leg chains several real (non-virtual-clock) async
+        // hops -- inject -> onMediaOffer -> startFetch -> FakeMediaStream chunks ->
+        // Complete -> recompose -- entirely off Dispatchers.Default, so it's the
+        // most load-sensitive wait in this suite; 8s still intermittently threw
+        // ComposeTimeoutException under concurrent CPU load (tech-debt.md §7), so
+        // this uses the same 20s headroom as the other timing-sensitive waits here.
+        waitUntilExactlyOneExists(hasTestTag("attachment-complete"), timeoutMillis = 20_000)
     }
 
     @Test

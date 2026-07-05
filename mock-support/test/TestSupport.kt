@@ -9,6 +9,9 @@ import dev.azula.persist.ConversationDto
 import dev.azula.persist.InvitationsStore
 import dev.azula.persist.MediaExporter
 import dev.azula.persist.MessageStore
+import dev.azula.persist.AppSettings
+import dev.azula.persist.ProfileStore
+import dev.azula.persist.SettingsStore
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.createGraphFactory
 import kotlinx.coroutines.CoroutineScope
@@ -29,13 +32,16 @@ internal fun testAzulaState(
     peerStore: PeerStore? = null,
     invitationsStore: InvitationsStore? = null,
     mediaExporter: MediaExporter? = null,
+    settingsStore: SettingsStore? = null,
+    profileStore: ProfileStore? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
         transport = transport,
         notifier = null,
         messageStore = messageStore,
-        profileStore = null,
+        profileStore = profileStore,
+        settingsStore = settingsStore,
         peerStore = peerStore,
         blobStore = blobStore,
         invitationsStore = invitationsStore,
@@ -73,6 +79,24 @@ internal class InMemoryMessageStore(seed: Map<String, ConversationDto> = emptyMa
         data.remove(conversationId)
         deletes.trySend(conversationId)
     }
+}
+
+/** An in-memory [SettingsStore] fake, so a test can seed/inspect exactly what was
+ *  persisted without a real file/NSUserDefaults/SharedPreferences backing. `null`
+ *  initial state mirrors "nothing saved yet" (a fresh install). */
+internal class InMemorySettingsStore(initial: AppSettings? = null) : SettingsStore {
+    private var saved: AppSettings? = initial
+    override fun load(): AppSettings? = saved
+    override fun save(settings: AppSettings) { saved = settings }
+}
+
+/** An in-memory [ProfileStore] fake, so a test can seed a [dev.azula.persist.ProfileBook]
+ *  (e.g. to exercise `SettingsService`'s legacy-terminalSmartInput migration) without
+ *  a real file/NSUserDefaults/SharedPreferences backing. */
+internal class InMemoryProfileStore(initial: dev.azula.persist.ProfileBook = dev.azula.persist.ProfileBook()) : ProfileStore {
+    private var book = initial
+    override fun load(): dev.azula.persist.ProfileBook = book
+    override fun save(book: dev.azula.persist.ProfileBook) { this.book = book }
 }
 
 /**

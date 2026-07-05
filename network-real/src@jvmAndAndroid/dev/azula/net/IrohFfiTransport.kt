@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.Base64
+import java.util.concurrent.TimeUnit
 
 /** Persists the iroh secret key so the node id (and "your code") stays stable. */
 interface SecretKeyStore {
@@ -32,6 +34,87 @@ class FileSecretKeyStore(private val path: String) : SecretKeyStore {
             f.writeBytes(bytes)
         }
     }
+
+    /** Removes the plaintext file. Only called by [MacKeychainSecretKeyStore] after a verified migration. */
+    fun delete() {
+        runCatching { File(path).delete() }
+    }
+}
+
+/**
+ * Desktop macOS: stores the key in the login Keychain via the `security` CLI,
+ * invoked with `ProcessBuilder` (no shell, no new dependency). Falls back to
+ * [fallback] — the old plaintext file — if the Keychain call fails for any
+ * reason (non-macOS, `security` missing/sandboxed, etc.), so a failing
+ * Keychain call never loses the identity.
+ *
+ * Migration: an existing plaintext file is read, written to the Keychain, and
+ * read back to verify it matches *before* the file is deleted — mirroring the
+ * iOS Keychain migration in `IrohTransport.ios.kt`.
+ */
+class MacKeychainSecretKeyStore(
+    private val service: String,
+    private val account: String,
+    private val fallback: FileSecretKeyStore,
+) : SecretKeyStore {
+
+    override fun load(): ByteArray? {
+        keychainLoad()?.let { return it }
+
+        // Not in the Keychain yet: fall back to (and migrate) the legacy
+        // plaintext file, if any.
+        val legacy = fallback.load() ?: return null
+        val migratedOk = runCatching {
+            keychainSave(legacy) && keychainLoad()?.contentEquals(legacy) == true
+        }.getOrDefault(false)
+        if (migratedOk) {
+            // Verified: the Keychain now holds the same bytes. Safe to drop
+            // the plaintext copy.
+            runCatching { fallback.delete() }
+        }
+        // Either way we return the correct bytes — there's never a window
+        // where the key exists in neither place.
+        return legacy
+    }
+
+    override fun save(bytes: ByteArray) {
+        val savedToKeychain = runCatching { keychainSave(bytes) }.getOrDefault(false)
+        if (savedToKeychain) {
+            runCatching { fallback.delete() }
+        } else {
+            // Keychain unavailable for some reason — fall back to the old
+            // plaintext-file behavior rather than losing the key.
+            fallback.save(bytes)
+        }
+    }
+
+    private fun keychainLoad(): ByteArray? {
+        val (code, out) = runSecurity("find-generic-password", "-a", account, "-s", service, "-w") ?: return null
+        if (code != 0) return null
+        val trimmed = out.trim()
+        if (trimmed.isEmpty()) return null
+        return runCatching { Base64.getDecoder().decode(trimmed) }.getOrNull()
+    }
+
+    private fun keychainSave(bytes: ByteArray): Boolean {
+        val b64 = Base64.getEncoder().encodeToString(bytes)
+        val result = runSecurity("add-generic-password", "-U", "-a", account, "-s", service, "-w", b64) ?: return false
+        return result.first == 0
+    }
+
+    /** Runs `security <args>`, returning (exit code, stdout) or null if it couldn't run at all. */
+    private fun runSecurity(vararg args: String): Pair<Int, String>? = runCatching {
+        val process = ProcessBuilder(listOf("security") + args).start()
+        // Read stdout to EOF before waiting, so a full pipe can't deadlock the child.
+        val stdout = process.inputStream.bufferedReader().readText()
+        process.errorStream.bufferedReader().readText()
+        val exited = process.waitFor(5, TimeUnit.SECONDS)
+        if (!exited) {
+            process.destroyForcibly()
+            return@runCatching null
+        }
+        process.exitValue() to stdout
+    }.getOrNull()
 }
 
 /** Injectable hooks so the Android app can supply an encrypted key store + lifecycle. */
@@ -168,9 +251,26 @@ private class IrohP2pStream(private val stream: IrohStream) : P2pStream {
 }
 
 actual fun createTransport(): IrohTransport =
-    IrohFfiTransport(IrohConfig.keyStore ?: FileSecretKeyStore(defaultKeyPath()))
+    IrohFfiTransport(IrohConfig.keyStore ?: defaultDesktopKeyStore())
 
 private fun defaultKeyPath(): String {
     val home = System.getProperty("user.home") ?: "."
     return home + File.separator + ".azula" + File.separator + "endpoint.key"
+}
+
+/**
+ * Default store when nothing is injected via [IrohConfig.keyStore] — i.e. JVM
+ * desktop (Android always injects `AndroidSecretKeyStore` before this runs).
+ * macOS gets the Keychain-backed store; other desktop OSes keep the old
+ * plaintext file, noted as a known gap (no equivalent dependency-free OS
+ * keystore CLI on Linux/Windows).
+ */
+private fun defaultDesktopKeyStore(): SecretKeyStore {
+    val fileStore = FileSecretKeyStore(defaultKeyPath())
+    val isMac = System.getProperty("os.name")?.lowercase()?.contains("mac") == true
+    return if (isMac) {
+        MacKeychainSecretKeyStore(service = "app.azula.identity", account = "endpoint_key", fallback = fileStore)
+    } else {
+        fileStore
+    }
 }

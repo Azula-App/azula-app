@@ -242,6 +242,16 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
     var bracketedPaste = false
         private set
 
+    /** Which mouse-tracking DECSET mode (`?1000`/`1002`/`1003`) is currently
+     *  enabled, `OFF` if none -- see [MouseTrackingMode]. */
+    var mouseTrackingMode = MouseTrackingMode.OFF
+        private set
+
+    /** Whether `?1006` (SGR extended mouse coordinates) is enabled -- see
+     *  [encodeMouseReport]. */
+    var mouseSgrEncoding = false
+        private set
+
     private var autoWrap = true
     private var originMode = false
     private var insertMode = false
@@ -341,6 +351,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
         curFg = 0L; curBg = 0L; curFlags = 0
         autoWrap = true; originMode = false; insertMode = false
         cursorVisible = true; applicationCursorKeys = false; bracketedPaste = false
+        mouseTrackingMode = MouseTrackingMode.OFF; mouseSgrEncoding = false
         shiftOut = false; g0Graphics = false; g1Graphics = false
         tabStops = defaultTabs(cols)
         state = GROUND
@@ -668,7 +679,14 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
                     curFg = mainSavedFg; curBg = mainSavedBg; curFlags = mainSavedFlags
                 }
                 2004 -> bracketedPaste = set
-                // 1000/1002/1003/1006/1004/… mouse & focus — parsed and ignored
+                1000 -> mouseTrackingMode = if (set) MouseTrackingMode.NORMAL
+                    else if (mouseTrackingMode == MouseTrackingMode.NORMAL) MouseTrackingMode.OFF else mouseTrackingMode
+                1002 -> mouseTrackingMode = if (set) MouseTrackingMode.BUTTON_EVENT
+                    else if (mouseTrackingMode == MouseTrackingMode.BUTTON_EVENT) MouseTrackingMode.OFF else mouseTrackingMode
+                1003 -> mouseTrackingMode = if (set) MouseTrackingMode.ANY_EVENT
+                    else if (mouseTrackingMode == MouseTrackingMode.ANY_EVENT) MouseTrackingMode.OFF else mouseTrackingMode
+                1006 -> mouseSgrEncoding = set
+                // 1004/… focus & other mouse-adjacent modes — parsed and ignored
             } else when (code) {
                 4 -> insertMode = set
                 // 20 (LNM) etc. ignored

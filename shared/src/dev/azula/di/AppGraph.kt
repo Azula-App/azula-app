@@ -9,6 +9,7 @@ import dev.azula.persist.InvitationsStore
 import dev.azula.persist.MediaExporter
 import dev.azula.persist.MessageStore
 import dev.azula.persist.ProfileStore
+import dev.azula.persist.SettingsStore
 import dev.azula.state.AzulaState
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
@@ -37,6 +38,7 @@ interface AppGraph {
             @Provides notifier: Notifier?,
             @Provides messageStore: MessageStore?,
             @Provides profileStore: ProfileStore?,
+            @Provides settingsStore: SettingsStore?,
             @Provides peerStore: PeerStore?,
             @Provides blobStore: BlobStore?,
             @Provides invitationsStore: InvitationsStore?,

@@ -140,6 +140,7 @@ class AzulaState(
     private val peerStore: PeerStore? = null,
     private val blobStore: BlobStore? = null,
     private val personaService: PersonaService = PersonaService(null),
+    private val settingsService: SettingsService = SettingsService(null),
     private val convStore: ConversationStore = ConversationStore(),
     private val persistence: PersistenceCoordinator = PersistenceCoordinator(convStore, null, scope, blobStore),
     private val surfaceStore: SurfaceStore = SurfaceStore(),
@@ -256,6 +257,7 @@ class AzulaState(
         // build shows seeds instead). Restored A2UI surfaces render frozen.
         val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1)
         personaService.load()
+        settingsService.load(personaService.legacyTerminalSmartInputForMigration)
         inviteService.load()
         // Bind the transport and run the connect/receive core.
         connectService.start()
@@ -508,8 +510,8 @@ class AzulaState(
 
     /** Smart mobile terminal input (swipe typing/autocorrect/suggestions) vs.
      *  the legacy raw fallback -- see [SettingsScreen]'s "Smart input" toggle. */
-    val terminalSmartInput get() = personaService.terminalSmartInput
-    fun setTerminalSmartInput(enabled: Boolean) = personaService.setSmartInput(enabled)
+    val terminalSmartInput get() = settingsService.terminalSmartInput
+    fun setTerminalSmartInput(enabled: Boolean) = settingsService.setSmartInput(enabled)
 
     fun newPersonaId(): String = personaService.newId()
     fun upsertPersona(persona: Persona) = personaService.upsert(persona)

@@ -5,10 +5,13 @@ import dev.azula.terminal.ATTR_REVERSE
 import dev.azula.terminal.ATTR_UNDERLINE
 import dev.azula.terminal.ATTR_WIDE_LEAD
 import dev.azula.terminal.ATTR_WIDE_TRAIL
+import dev.azula.terminal.MouseButton
+import dev.azula.terminal.MouseTrackingMode
 import dev.azula.terminal.PredictedCell
 import dev.azula.terminal.PredictionEngine
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.TerminalEmulator
+import dev.azula.terminal.encodeMouseReport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -420,6 +423,92 @@ class TerminalEmulatorTest {
         e.feed("${ESC}[?25l"); assertFalse(e.cursorVisible)
         e.feed("${ESC}[?25h"); assertTrue(e.cursorVisible)
         e.feed("${ESC}[?2004h"); assertTrue(e.bracketedPaste)
+    }
+
+    // ---- mouse reporting (azula-docs/docs/tech-debt.md §6) ----
+
+    @Test
+    fun mouseTrackingModeAndSgrEncodingTracked() {
+        val e = TerminalEmulator(20, 6)
+        assertEquals(MouseTrackingMode.OFF, e.mouseTrackingMode)
+        assertFalse(e.mouseSgrEncoding)
+
+        e.feed("${ESC}[?1000h")
+        assertEquals(MouseTrackingMode.NORMAL, e.mouseTrackingMode)
+        e.feed("${ESC}[?1006h")
+        assertTrue(e.mouseSgrEncoding)
+
+        // Switching to ?1002/?1003 replaces the mode (they're mutually exclusive
+        // in real xterm); resetting the mode that's NOT currently active is a
+        // no-op, matching real xterm's independent per-mode DECRST.
+        e.feed("${ESC}[?1002h")
+        assertEquals(MouseTrackingMode.BUTTON_EVENT, e.mouseTrackingMode)
+        e.feed("${ESC}[?1000l") // ?1000 isn't the active mode -- no-op
+        assertEquals(MouseTrackingMode.BUTTON_EVENT, e.mouseTrackingMode)
+        e.feed("${ESC}[?1003h")
+        assertEquals(MouseTrackingMode.ANY_EVENT, e.mouseTrackingMode)
+
+        e.feed("${ESC}[?1003l")
+        assertEquals(MouseTrackingMode.OFF, e.mouseTrackingMode)
+        e.feed("${ESC}[?1006l")
+        assertFalse(e.mouseSgrEncoding)
+    }
+
+    @Test
+    fun risResetsMouseTracking() {
+        val e = TerminalEmulator(20, 6)
+        e.feed("${ESC}[?1000h${ESC}[?1006h")
+        assertEquals(MouseTrackingMode.NORMAL, e.mouseTrackingMode)
+        assertTrue(e.mouseSgrEncoding)
+
+        e.clear() // RIS
+        assertEquals(MouseTrackingMode.OFF, e.mouseTrackingMode)
+        assertFalse(e.mouseSgrEncoding)
+    }
+
+    @Test
+    fun sgrMouseReportEncodesAClickAtAKnownCell() {
+        // A left-button press then release at column 10, row 5 (1-based) -- the
+        // pair xterm calls a "click". Regression-pins the SGR wire format:
+        // `ESC [ < Cb ; Cx ; Cy M` for press, the same with lowercase `m` for
+        // release, Cb=0 for the plain left button (no modifiers).
+        val press = encodeMouseReport(MouseButton.LEFT, col = 10, row = 5, pressed = true, sgr = true)
+        assertEquals("$ESC[<0;10;5M", press)
+
+        val release = encodeMouseReport(MouseButton.LEFT, col = 10, row = 5, pressed = false, sgr = true)
+        assertEquals("$ESC[<0;10;5m", release)
+    }
+
+    @Test
+    fun sgrMouseReportEncodesAWheelNotchAtAKnownCell() {
+        // Wheel notches are always a single "press" report (Cb 64/65) -- there's
+        // no release pairing for a wheel tick.
+        val up = encodeMouseReport(MouseButton.WHEEL_UP, col = 3, row = 8, pressed = true, sgr = true)
+        assertEquals("$ESC[<64;3;8M", up)
+
+        val down = encodeMouseReport(MouseButton.WHEEL_DOWN, col = 3, row = 8, pressed = true, sgr = true)
+        assertEquals("$ESC[<65;3;8M", down)
+    }
+
+    @Test
+    fun legacyX10MouseReportEncodesAClickAtAKnownCell() {
+        // Fallback when ?1006 isn't enabled: ESC [ M Cb Cx Cy, one byte each,
+        // value+32; release has no real button id (xterm's fixed code 3).
+        val press = encodeMouseReport(MouseButton.LEFT, col = 10, row = 5, pressed = true, sgr = false)
+        assertEquals("$ESC[M" + (0 + 32).toChar() + (10 + 32).toChar() + (5 + 32).toChar(), press)
+
+        val release = encodeMouseReport(MouseButton.LEFT, col = 10, row = 5, pressed = false, sgr = false)
+        assertEquals("$ESC[M" + (3 + 32).toChar() + (10 + 32).toChar() + (5 + 32).toChar(), release)
+    }
+
+    @Test
+    fun motionReportAddsThirtyTwoToTheButtonCode() {
+        val drag = encodeMouseReport(MouseButton.LEFT, col = 1, row = 1, pressed = true, sgr = true, motion = true)
+        assertEquals("$ESC[<32;1;1M", drag)
+
+        // A wheel notch is never a "motion" report even if the flag is passed.
+        val wheel = encodeMouseReport(MouseButton.WHEEL_UP, col = 1, row = 1, pressed = true, sgr = true, motion = true)
+        assertEquals("$ESC[<64;1;1M", wheel)
     }
 
     @Test

@@ -66,12 +66,15 @@ import dev.azula.terminal.ATTR_REVERSE
 import dev.azula.terminal.ATTR_UNDERLINE
 import dev.azula.terminal.ATTR_WIDE_LEAD
 import dev.azula.terminal.ATTR_WIDE_TRAIL
+import dev.azula.terminal.MouseButton
+import dev.azula.terminal.MouseTrackingMode
 import dev.azula.terminal.Row
 import dev.azula.terminal.TermFrame
 import dev.azula.terminal.TermSelection
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.codePointToString
+import dev.azula.terminal.encodeMouseReport
 import dev.azula.terminal.rowAt
 import dev.azula.terminal.textInSelection
 import dev.azula.theme.AzulaColors
@@ -94,6 +97,11 @@ fun TerminalView(session: TerminalSession, convId: String, smartInput: Boolean =
 private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boolean, smartInput: Boolean = true) {
     val emu = session.terminalScreen(convId)
     val frame = emu.frame   // subscribe: republished on every emulator change
+    // Read fresh alongside `frame`, not cached: any DECSET/DECRST toggling this
+    // (?1000/1002/1003) happens inside the same feed() call that republishes
+    // frame, so re-deriving it here on every frame change keeps it in sync with
+    // what's on screen even though the property itself isn't Compose state.
+    val mouseTrackingMode = emu.mouseTrackingMode
 
     // Measure a monospace cell so we can report the viewport size in character cells.
     val measurer = rememberTextMeasurer()
@@ -186,7 +194,12 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // when convId changes), so closing over the plain `frame` local would pin it
     // to a stale snapshot from whenever the coroutine last (re)started -- reading
     // the live State property instead always sees the current frame.
-    val tapMod = if (live) {
+    // Selection/tap-to-focus gestures are suppressed while a mouse-tracking mode
+    // is active (?1000/1002/1003 -- see azula-docs/docs/tech-debt.md §6): a
+    // mouse-aware TUI (vim, htop, claude's CLI) owns raw pointer events at that
+    // point, and AltScreen's own click-reporting pointerInput (below) takes
+    // over instead -- without this, both would compete for the same taps/drags.
+    val tapMod = if (live && mouseTrackingMode == MouseTrackingMode.OFF) {
         Modifier.pointerInput(convId) {
             detectTapGestures(
                 onTap = {
@@ -208,7 +221,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // Extends the live end of the selection while dragging after the long-press
     // that started it (a separate pointerInput so it doesn't compete with -- or
     // get eaten by -- the LazyColumn's own drag-to-scroll).
-    val dragSelectMod = if (live) {
+    val dragSelectMod = if (live && mouseTrackingMode == MouseTrackingMode.OFF) {
         Modifier.pointerInput(convId) {
             detectDragGesturesAfterLongPress(
                 onDrag = { change, _ ->
@@ -227,7 +240,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
         if (live) RawTerminalInput(session, convId, Modifier.matchParentSize(), reclaimFocusSignal, smartInput)
 
         if (frame.altScreen) {
-            AltScreen(session, convId, frame, cursorOn, rowHeight, cellW, measurer, selection)
+            AltScreen(session, convId, frame, cursorOn, rowHeight, cellW, measurer, selection, mouseTrackingMode)
         } else {
             PrimaryScreen(frame, cursorOn, rowHeight, cellW, measurer, listState, selection, convId, viewportHeightPx)
         }
@@ -263,7 +276,19 @@ internal const val WHEEL_LINES_PER_NOTCH = 3
 /** Full-screen TUI (vi/top/…): a fixed grid, no scrollback, no auto-scroll.
  *  Swipe (mobile) / wheel (desktop) scrolling is translated into arrow-key
  *  presses sent to the PTY -- there's no local scrollback to page through on
- *  the alt screen, so the app itself (less/vi/claude/…) has to move. */
+ *  the alt screen, so the app itself (less/vi/claude/…) has to move.
+ *
+ *  **Mouse reporting** (azula-docs/docs/tech-debt.md §6, `?1000`/`1002`/`1003`
+ *  + `?1006`): when [mouseTrackingMode] is anything but `OFF`, the app has
+ *  asked for real mouse events, so this composable stops converting
+ *  drags/wheel-notches into scrollback arrows and instead reports left-button
+ *  press/release ("click") + wheel notches as SGR (or legacy X10) mouse-report
+ *  bytes -- see [sendMouseReport]. Scoped to the alt screen deliberately: every
+ *  TUI that actually turns mouse tracking on (vim, htop, claude's own CLI)
+ *  already runs full-screen there, so the primary/scrollback screen doesn't
+ *  need it too. Continuous drag/hover **motion** reporting (what `?1002`/
+ *  `?1003` add over plain `?1000`) is a deferred follow-up -- only discrete
+ *  press/release/click/wheel are wired up today. */
 @Composable
 private fun AltScreen(
     session: TerminalSession,
@@ -274,6 +299,7 @@ private fun AltScreen(
     cellW: Int,
     measurer: TextMeasurer,
     selection: TermSelection?,
+    mouseTrackingMode: MouseTrackingMode,
 ) {
     val density = LocalDensity.current
     val rowHeightPx = with(density) { rowHeight.toPx() }
@@ -286,6 +312,12 @@ private fun AltScreen(
     // over the `selection` parameter would pin it to a stale value from whenever
     // that coroutine last (re)started.
     val currentSelection = rememberUpdatedState(selection)
+    // Mouse-report clamping needs the *current* grid size; the click/wheel
+    // pointerInput blocks below only restart on a convId/mode change (not every
+    // frame), so closing over the plain `frame` parameter would pin cols/rows to
+    // whatever they were when the block last (re)started -- stale after a
+    // mid-session resize. Same rationale as `currentSelection` above.
+    val currentFrame = rememberUpdatedState(frame)
 
     // A selection is active -- this drag is extending it (LiveTerminalView's
     // dragSelectMod on the ancestor Box), not paging the alt screen, so both
@@ -296,47 +328,97 @@ private fun AltScreen(
     // against the selection-extend recognizer on the outer Box and get read as
     // scroll-arrows instead. Gating on "no active selection" sidesteps needing
     // to reason about which recognizer wins that race at all -- arrows are never
-    // wanted mid-selection regardless.
-    Column(
-        Modifier.fillMaxSize().padding(PAD)
-            .pointerInput(convId) {
-                detectVerticalDragGestures(
-                    onDragStart = { dragAccumPx = 0f; sentThisGesture = 0 },
-                    onDragEnd = { dragAccumPx = 0f },
-                    onDragCancel = { dragAccumPx = 0f },
-                    onVerticalDrag = { change, dragAmount ->
-                        if (currentSelection.value == null) {
-                            change.consume()
-                            dragAccumPx += dragAmount
-                            // Finger moving UP (dragAmount < 0) reveals content ABOVE, like
-                            // pressing Up in `less` -- flip this mapping if device testing
-                            // disagrees, it's the one constant that encodes the choice.
-                            while (dragAccumPx <= -rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
-                                sendScrollArrow(session, convId, up = true)
-                                dragAccumPx += rowHeightPx; sentThisGesture++
-                            }
-                            while (dragAccumPx >= rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
-                                sendScrollArrow(session, convId, up = false)
-                                dragAccumPx -= rowHeightPx; sentThisGesture++
-                            }
+    // wanted mid-selection regardless. (Moot while mouseTrackingMode != OFF:
+    // LiveTerminalView's dragSelectMod is disabled entirely then, so `selection`
+    // can never be non-null here -- but the guard costs nothing to keep.)
+    val pointerMod = if (mouseTrackingMode == MouseTrackingMode.OFF) {
+        Modifier.pointerInput(convId) {
+            detectVerticalDragGestures(
+                onDragStart = { dragAccumPx = 0f; sentThisGesture = 0 },
+                onDragEnd = { dragAccumPx = 0f },
+                onDragCancel = { dragAccumPx = 0f },
+                onVerticalDrag = { change, dragAmount ->
+                    if (currentSelection.value == null) {
+                        change.consume()
+                        dragAccumPx += dragAmount
+                        // Finger moving UP (dragAmount < 0) reveals content ABOVE, like
+                        // pressing Up in `less` -- flip this mapping if device testing
+                        // disagrees, it's the one constant that encodes the choice.
+                        while (dragAccumPx <= -rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                            sendScrollArrow(session, convId, up = true)
+                            dragAccumPx += rowHeightPx; sentThisGesture++
                         }
-                        // else: leave the change unconsumed so the outer Box's
-                        // selection-extend recognizer can use it instead.
-                    },
-                )
+                        while (dragAccumPx >= rowHeightPx && sentThisGesture < ALT_SCROLL_RATE_CAP) {
+                            sendScrollArrow(session, convId, up = false)
+                            dragAccumPx -= rowHeightPx; sentThisGesture++
+                        }
+                    }
+                    // else: leave the change unconsumed so the outer Box's
+                    // selection-extend recognizer can use it instead.
+                },
+            )
+        }
+    } else {
+        // Mouse-tracking mode owns the pointer now: report a press, then the
+        // matching release once the finger/button lifts -- xterm's "click" is
+        // just that pair, there's no separate click event on the wire. Only the
+        // primary/left button is reported (right/middle -- and continuous drag
+        // motion for ?1002/?1003 -- are a deferred follow-up; see this
+        // function's doc comment).
+        Modifier.pointerInput(convId, mouseTrackingMode) {
+            detectTapGestures(
+                onPress = { pos ->
+                    val f = currentFrame.value
+                    sendMouseReport(session, convId, MouseButton.LEFT, pos, pressed = true, cellW, rowHeightPx, f.cols, f.rows)
+                    tryAwaitRelease()
+                    sendMouseReport(session, convId, MouseButton.LEFT, pos, pressed = false, cellW, rowHeightPx, f.cols, f.rows)
+                },
+            )
+        }
+    }
+    val wheelMod = Modifier.altScreenWheelScroll { lines, pos ->
+        if (currentSelection.value == null) {
+            if (mouseTrackingMode == MouseTrackingMode.OFF) {
+                repeat(kotlin.math.abs(lines)) { sendScrollArrow(session, convId, up = lines > 0) }
+            } else {
+                val button = if (lines > 0) MouseButton.WHEEL_UP else MouseButton.WHEEL_DOWN
+                val f = currentFrame.value
+                sendMouseReport(session, convId, button, pos, pressed = true, cellW, rowHeightPx, f.cols, f.rows)
             }
-            .altScreenWheelScroll { lines ->
-                if (currentSelection.value == null) {
-                    repeat(kotlin.math.abs(lines)) { sendScrollArrow(session, convId, up = lines > 0) }
-                }
-            },
-    ) {
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(PAD).then(pointerMod).then(wheelMod)) {
         val preds = predictionsByRow(frame)
         frame.grid.forEachIndexed { r, row ->
             val abs = frame.totalScrolled + r
             GridRow(row, r, frame, cursorOn, preds, rowHeight, cellW, measurer, selectionSpanForRow(selection, abs, frame.cols))
         }
     }
+}
+
+/** Encodes+sends one mouse-tracking-mode report (see [AltScreen]'s doc comment
+ *  and azula-docs/docs/tech-debt.md §6) for a press/release/wheel-notch at
+ *  pixel position [pos] -- already in this Column's own local coordinate space
+ *  (post-padding; unlike [hitTest]'s outer-Box-relative coordinates, no `padPx`
+ *  subtraction needed here). Column/row are 1-based and clamped to the current
+ *  grid size, matching the wire format. Reads [TerminalEmulator.mouseSgrEncoding]
+ *  fresh at send time to pick SGR vs. legacy X10 (see [encodeMouseReport]). */
+private fun sendMouseReport(
+    session: TerminalSession,
+    convId: String,
+    button: MouseButton,
+    pos: Offset,
+    pressed: Boolean,
+    cellW: Int,
+    rowHeightPx: Float,
+    cols: Int,
+    rows: Int,
+) {
+    val emu = session.terminalScreen(convId)
+    val col = (if (cellW > 0) (pos.x / cellW).toInt() + 1 else 1).coerceIn(1, cols.coerceAtLeast(1))
+    val row = (if (rowHeightPx > 0f) (pos.y / rowHeightPx).toInt() + 1 else 1).coerceIn(1, rows.coerceAtLeast(1))
+    session.terminalRaw(convId, encodeMouseReport(button, col, row, pressed, sgr = emu.mouseSgrEncoding))
 }
 
 /** Interactive shell: scrollback + the live grid in a lazily-rendered scroller. */

@@ -16,6 +16,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
@@ -100,6 +102,32 @@ class FakeTransport : IrohTransport {
     }
 
     /**
+     * Test-only channel backing [incoming]'s "arbitrary stranger" seam -- see
+     * [injectIncomingConnection]. Unbounded and never closed by this class: a
+     * test's own scope teardown just stops collecting it.
+     */
+    private val incomingConnections = Channel<IncomingConnection>(Channel.UNLIMITED)
+
+    /**
+     * Test-only hook: emits [connection] on the exact same inbound flow
+     * [ConnectService][dev.azula.state.ConnectService]'s accept loop collects via
+     * [incoming] -- as if a peer had just dialed in -- so a UI test can drive the
+     * full stranger-gate path (`ConnectService.handleStrangerConnection` ->
+     * `InviteService.enqueuePending` -> `state.pendingInvites` -> the Invites
+     * screen / `InviteReviewSheet`) without a second real peer. Kept minimal and
+     * clearly test-oriented (azula-docs/docs/tech-debt.md §5): unlike
+     * [injectIncoming] (which pushes a frame into an *existing* loopback this
+     * transport dialed out to), this synthesizes the inbound connection itself,
+     * so the caller supplies its own [P2pStream] (e.g. a fresh
+     * `LoopbackStream`-shaped fake, or the shared test harness's `PeerPipe`) to
+     * play "the stranger" -- sending a `Frame.Hello` (with or without a valid
+     * invite) over it once `ConnectService` starts reading it.
+     */
+    suspend fun injectIncomingConnection(connection: IncomingConnection) {
+        incomingConnections.send(connection)
+    }
+
+    /**
      * A stable fake peer id derived from the ticket, so mock conversations key
      * consistently. Special-cases [myTicket]'s own `"azula-mock-<nodeId>"` shape
      * so it resolves back to that exact [nodeId] -- the invariant a real
@@ -114,11 +142,18 @@ class FakeTransport : IrohTransport {
      *  Its remoteId ("mockterm") must be pre-seeded as a known contact via
      *  [MockInvitationsStore] -- ConnectService's stranger gate (see
      *  azula-docs/docs/invitations.md) closes an unknown peer's TERM/LLM stream
-     *  outright, with no accept path for either. */
-    override fun incoming(): Flow<IncomingConnection> = flow {
-        delay(300)
-        emit(IncomingConnection(remoteId = "mockterm", alpn = Alpns.TERM, stream = FakeTerminalStream()))
-    }
+     *  outright, with no accept path for either. Merged with [incomingConnections]
+     *  so a test can additionally push arbitrary connections via
+     *  [injectIncomingConnection] on top of this fixed demo one -- both land on
+     *  the same collector, exactly like a real transport fielding more than one
+     *  inbound dial over its lifetime. */
+    override fun incoming(): Flow<IncomingConnection> = merge(
+        flow {
+            delay(300)
+            emit(IncomingConnection(remoteId = "mockterm", alpn = Alpns.TERM, stream = FakeTerminalStream()))
+        },
+        incomingConnections.receiveAsFlow(),
+    )
 
     override suspend fun shutdown() {}
 
@@ -157,13 +192,24 @@ class MockInvitationsStore : InvitationsStore {
  *  and drops a fresh prompt after each Enter. Enough to drive the terminal UI. */
 private class FakeTerminalStream : P2pStream {
     private val inbox = Channel<String>(Channel.UNLIMITED)
+    private var greeted = false
 
-    init {
+    // The greeting is held back until the first Frame.Resize arrives rather than
+    // sent eagerly from init: the real client only resizes once TerminalView
+    // actually measures its layout, well after the connection is made, so an
+    // eager greeting used to be parsed by the emulator at its default 80-col
+    // width and never reflowed on the later resize (resize() is top-anchored,
+    // not a reflow) -- corrupting any width-sensitive replayed content. See
+    // azula-docs/docs/tech-debt.md §6, "Mock terminal feeds before resize."
+    private fun greet() {
+        if (greeted) return
+        greeted = true
         inbox.trySend(FrameCodec.encode(Frame.Term("mock shell — type away\r\n[38;5;205m›azula[0m ~ \r\n› ")))
     }
 
     override suspend fun sendLine(line: String) {
         val frame = runCatching { FrameCodec.decode(line) }.getOrNull()
+        if (frame is Frame.Resize) greet()
         if (frame is Frame.Input) {
             // Echo the keystrokes (a real PTY echoes); on Enter, newline + a prompt.
             val echo = if (frame.text.contains('\r') || frame.text.contains('\n')) {

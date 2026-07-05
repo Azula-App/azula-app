@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -94,7 +95,8 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
                     .background(Color(0x14FF2D9B)).border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(11.dp))
                     .clickable { editing = null; showEditor = true }
-                    .padding(vertical = 11.dp),
+                    .padding(vertical = 11.dp)
+                    .testTag("new-persona-button"),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("+ new persona", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -127,8 +129,8 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                 "your identity is a single device key. save your recovery phrase to move it to a new device — or restore it after reinstalling.",
                 color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
             )
-            BackupRow("Reveal recovery phrase", "24 words · store in a password manager") { showReveal = true }
-            BackupRow("Restore from a phrase", "replace this device's identity") { showRestore = true }
+            BackupRow("Reveal recovery phrase", "24 words · store in a password manager", tag = "reveal-phrase-row") { showReveal = true }
+            BackupRow("Restore from a phrase", "replace this device's identity", tag = "restore-phrase-row") { showRestore = true }
         }
     }
     if (showEditor) {
@@ -144,12 +146,13 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
 }
 
 @Composable
-private fun BackupRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun BackupRow(title: String, subtitle: String, tag: String, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
             .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(13.dp),
+            .padding(13.dp)
+            .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -183,7 +186,8 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
                 else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
-                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp)).padding(12.dp),
+                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp)).padding(12.dp)
+                            .testTag("recovery-phrase-text"),
                     ) {
                         Text(phrase, color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 14.sp, lineHeight = 22.sp)
                     }
@@ -197,8 +201,8 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            if (!revealed && phrase != null) TextButton(onClick = { revealed = true }) { Text("Reveal") }
-            else TextButton(onClick = onClose) { Text("Done") }
+            if (!revealed && phrase != null) TextButton(onClick = { revealed = true }, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Reveal") }
+            else TextButton(onClick = onClose, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Done") }
         },
         dismissButton = { if (!revealed) TextButton(onClick = onClose) { Text("Cancel") } },
     )
@@ -220,7 +224,7 @@ private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
                     "Paste your 24-word recovery phrase. This replaces the identity on this device — back up the current one first if you still need it.",
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
                 )
-                EditorField("recovery phrase", input, "word word word …") { input = it; error = false }
+                EditorField("recovery phrase", input, "word word word …", tag = "restore-phrase-input") { input = it; error = false }
                 if (error) Text("That isn't a valid recovery phrase.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
         },
@@ -235,6 +239,7 @@ private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
                         if (ok) onClose() else error = true
                     }
                 },
+                modifier = Modifier.testTag("restore-phrase-confirm"),
             ) { Text(if (working) "Restoring…" else "Restore") }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
@@ -254,7 +259,8 @@ private fun PersonaRow(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
             .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp))
             .clickable { onEdit() }
-            .padding(11.dp),
+            .padding(11.dp)
+            .testTag("persona-row-${persona.id}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -312,7 +318,7 @@ private fun PersonaEditor(
                         Text("remove", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.clickable { avatarB64 = null; mime = null })
                     }
                 }
-                EditorField("name", name, "your name") { name = it }
+                EditorField("name", name, "your name", tag = "persona-name-input") { name = it }
                 EditorField("description", description, "a short bio (optional)") { description = it }
             }
         },
@@ -322,6 +328,7 @@ private fun PersonaEditor(
                 onClick = {
                     onSave(Persona(id = id, name = name.trim(), description = description.trim().ifBlank { null }, avatarB64 = avatarB64, mime = mime))
                 },
+                modifier = Modifier.testTag("persona-editor-save"),
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
@@ -329,7 +336,7 @@ private fun PersonaEditor(
 }
 
 @Composable
-private fun EditorField(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
+private fun EditorField(label: String, value: String, placeholder: String, tag: String? = null, onChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label.uppercase(), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 9.sp)
         Box(
@@ -342,7 +349,7 @@ private fun EditorField(label: String, value: String, placeholder: String, onCha
                 singleLine = true,
                 textStyle = TextStyle(color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 13.sp),
                 cursorBrush = SolidColor(AzulaColors.pink),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().let { if (tag != null) it.testTag(tag) else it },
                 decorationBox = { inner ->
                     if (value.isEmpty()) Text(placeholder, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
                     inner()

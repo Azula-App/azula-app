@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -97,7 +98,13 @@ fun InvitesRow(active: Boolean, pending: Int, onClick: () -> Unit) {
             .background(if (active) Color(0x14FFFFFF) else Color.Transparent)
             .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, RoundedCornerShape(11.dp))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+            // Stable regardless of the pending count -- unlike this row's own
+            // label, which flips from "invites" to "invites · N pending" the
+            // moment a request lands, racing an exact-text click target in a
+            // test that injects a stranger connection right before clicking
+            // this row (see InviteReviewSheetE2eTest.kt).
+            .testTag("nav-invites"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {

@@ -27,6 +27,7 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         notifier = null,
         messageStore = null,
         profileStore = null,
+        settingsStore = null,
         peerStore = null,
         blobStore = InMemoryBlobStore(),
         invitationsStore = MockInvitationsStore(),

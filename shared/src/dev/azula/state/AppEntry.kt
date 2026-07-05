@@ -12,6 +12,7 @@ import dev.azula.persist.platformInvitationsStore
 import dev.azula.persist.platformMediaExporter
 import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
+import dev.azula.persist.platformSettingsStore
 import dev.azula.net.platformPeerStore
 import dev.zacsweers.metro.createGraphFactory
 import kotlin.concurrent.Volatile
@@ -46,6 +47,7 @@ fun rememberAzulaState(): AzulaState {
             notifier = platformNotifier(),
             messageStore = platformMessageStore(),
             profileStore = platformProfileStore(),
+            settingsStore = platformSettingsStore(),
             peerStore = platformPeerStore(),
             blobStore = platformBlobStore(),
             invitationsStore = platformInvitationsStore(),

@@ -19,16 +19,17 @@ data class Persona(
     val mime: String? = null,
 )
 
-/** All saved personas plus which one is the default (pre-selected when sharing).
- *  Also doubles as the app's one small settings blob -- [terminalSmartInput]
- *  isn't persona data, but there's no dedicated settings store yet and this
- *  mirrors the existing single-small-blob pattern rather than adding a new one. */
+/** All saved personas plus which one is the default (pre-selected when sharing). */
 @Serializable
 data class ProfileBook(
     val personas: List<Persona> = emptyList(),
     val defaultId: String? = null,
-    /** Whether the terminal uses the rearchitected smart input (swipe typing,
-     *  autocorrect, suggestions) or the legacy raw sentinel-reset fallback. */
+    /** Legacy home of the terminal-input-mode flag, kept only so pre-`SettingsStore`
+     *  installs can be migrated (see `dev.azula.persist.SettingsStore` and
+     *  `dev.azula.state.SettingsService`; azula-docs/docs/tech-debt.md §6). The live
+     *  value now lives in `SettingsStore`/`AppSettings.terminalSmartInput` --
+     *  `PersonaService` only reads/writes this field to preserve it across persona
+     *  saves for old app versions during the transition, it no longer drives the UI. */
     val terminalSmartInput: Boolean = true,
 )
 

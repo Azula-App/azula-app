@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,7 +133,8 @@ private fun PendingRequestRow(req: PendingConnectionRequest, onClick: () -> Unit
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AzulaColors.bg2)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("pending-request-${req.nodeId}"),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -212,7 +214,10 @@ fun InviteReviewSheet(state: AzulaState, req: PendingConnectionRequest, onDismis
     val sheetState = rememberModalBottomSheetState()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp).testTag("invite-review-sheet"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             Text(req.peerCode, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             Text(
                 if (req.unverified) {
@@ -242,7 +247,8 @@ fun InviteReviewSheet(state: AzulaState, req: PendingConnectionRequest, onDismis
                 Box(
                     Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
                         .clickable { state.declineInvite(req); onDismiss() }
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 12.dp)
+                        .testTag("invite-review-decline"),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("decline", color = AzulaColors.textDim, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -260,7 +266,8 @@ fun InviteReviewSheet(state: AzulaState, req: PendingConnectionRequest, onDismis
                             state.acceptInvite(req, profile)
                             onDismiss()
                         }
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 12.dp)
+                        .testTag("invite-review-accept"),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

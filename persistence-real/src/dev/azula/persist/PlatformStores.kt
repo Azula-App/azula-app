@@ -9,6 +9,12 @@ expect fun platformMessageStore(): MessageStore?
 
 expect fun platformProfileStore(): ProfileStore?
 
+/** Platform default settings store (small standalone flags -- see [SettingsStore]).
+ *  JVM writes a file; iOS uses NSUserDefaults; Android returns null here and binds
+ *  a Context-backed store into the Metro graph via the app module, same as
+ *  [platformProfileStore]. */
+expect fun platformSettingsStore(): SettingsStore?
+
 /** Platform default invitations store. JVM writes a file; iOS uses NSUserDefaults;
  *  Android returns null here and binds a Context-backed store into the Metro graph
  *  via the app module, same as [platformProfileStore]/[platformMessageStore]. */

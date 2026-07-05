@@ -5,6 +5,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -83,5 +84,73 @@ class MacKeychainSecretKeyStoreTest {
     fun loadReturnsNullWhenNeitherKeychainNorFileHasAKey() {
         if (!isMac) return
         assertNull(newStore().load())
+    }
+
+    // The tests below inject a fake `security` runner so the miss-vs-unavailable
+    // distinction is exercised deterministically on ANY platform (no real, and no
+    // real *locked*, Keychain needed).
+
+    private fun storeWith(run: (List<String>) -> Pair<Int, String>?) =
+        MacKeychainSecretKeyStore(service, account, FileSecretKeyStore(filePath()), run)
+
+    @Test
+    fun unreadableKeychainWithNoPlaintextThrowsInsteadOfMintingANewIdentity() {
+        // A non-44 `security` error (e.g. errSecInteractionNotAllowed on a locked
+        // keychain) with no plaintext fallback must THROW, not return null — null
+        // would let bind() mint a brand-new identity and orphan the real key.
+        val store = storeWith { args ->
+            if (args.first() == "find-generic-password") 51 to "" else 0 to ""
+        }
+        assertFailsWith<KeychainUnavailableException> { store.load() }
+    }
+
+    @Test
+    fun timeoutIsTreatedAsUnavailableNotAsAMiss() {
+        // runSecurity returning null models a timeout / couldn't-run; that's an
+        // access failure, not "no such item", so with no plaintext it must throw.
+        val store = storeWith { null }
+        assertFailsWith<KeychainUnavailableException> { store.load() }
+    }
+
+    @Test
+    fun unreadableKeychainFallsBackToExistingPlaintextWithoutMigratingOrDeleting() {
+        val key = ByteArray(32) { (it + 7).toByte() }
+        val file = File(filePath()).apply { parentFile.mkdirs(); writeBytes(key) }
+        var savedToKeychain = false
+        val store = storeWith { args ->
+            when (args.first()) {
+                "find-generic-password" -> 51 to "" // unavailable, not a clean miss
+                "add-generic-password" -> { savedToKeychain = true; 0 to "" }
+                else -> 0 to ""
+            }
+        }
+        assertEquals(key.toList(), store.load()?.toList())
+        assertTrue(file.exists(), "must not delete the plaintext while the Keychain is flaky")
+        assertFalse(savedToKeychain, "must not migrate into a flaky Keychain")
+    }
+
+    @Test
+    fun cleanMissWithNoPlaintextReturnsNull() {
+        val store = storeWith { args ->
+            if (args.first() == "find-generic-password") 44 to "" else 0 to ""
+        }
+        assertNull(store.load(), "a genuine errSecItemNotFound with no file is a fresh install")
+    }
+
+    @Test
+    fun cleanMissMigratesPlaintextIntoKeychainAndDeletesTheFile() {
+        val key = ByteArray(32) { (it * 5).toByte() }
+        val file = File(filePath()).apply { parentFile.mkdirs(); writeBytes(key) }
+        val fakeKeychain = HashMap<String, String>() // service -> stored base64
+        val store = storeWith { args ->
+            when (args.first()) {
+                "find-generic-password" -> fakeKeychain[service]?.let { 0 to it } ?: (44 to "")
+                "add-generic-password" -> { fakeKeychain[service] = args.last(); 0 to "" }
+                else -> 0 to ""
+            }
+        }
+        assertEquals(key.toList(), store.load()?.toList())
+        assertFalse(file.exists(), "verified migration deletes the plaintext")
+        assertEquals(key.toList(), store.load()?.toList(), "second read comes from the Keychain alone")
     }
 }

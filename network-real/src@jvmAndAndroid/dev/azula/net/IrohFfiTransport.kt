@@ -42,39 +42,75 @@ class FileSecretKeyStore(private val path: String) : SecretKeyStore {
 }
 
 /**
+ * Thrown by [MacKeychainSecretKeyStore.load] when the Keychain may hold the identity
+ * but is unreadable (login keychain locked, or the `security` call errored/timed out)
+ * and no legacy plaintext copy exists. [IrohFfiTransport.bind] propagates it rather
+ * than degrading to a fresh key, so a transient Keychain outage fails loudly instead
+ * of silently minting a new identity and changing the node id.
+ */
+class KeychainUnavailableException(detail: String) : IllegalStateException(
+    "Identity Keychain unavailable ($detail); refusing to mint a new identity. " +
+        "Unlock the login keychain and relaunch.",
+)
+
+/**
  * Desktop macOS: stores the key in the login Keychain via the `security` CLI,
- * invoked with `ProcessBuilder` (no shell, no new dependency). Falls back to
- * [fallback] — the old plaintext file — if the Keychain call fails for any
- * reason (non-macOS, `security` missing/sandboxed, etc.), so a failing
- * Keychain call never loses the identity.
+ * invoked with `ProcessBuilder` (no shell, no new dependency).
+ *
+ * A genuine "no such item" miss (errSecItemNotFound, exit 44) migrates/falls back to
+ * [fallback] — the old plaintext file — or, if there's none, returns null (a fresh
+ * install; bind then mints a first identity). But a Keychain *access* failure (locked,
+ * `security` error, or timeout) is NOT a miss: with no plaintext copy it throws
+ * [KeychainUnavailableException] instead of reporting "no key", so bind never mints a
+ * new identity over a Keychain that is merely temporarily unreadable.
  *
  * Migration: an existing plaintext file is read, written to the Keychain, and
  * read back to verify it matches *before* the file is deleted — mirroring the
  * iOS Keychain migration in `IrohTransport.ios.kt`.
+ *
+ * [runSecurity] is injectable so the miss/unavailable paths are testable without a
+ * real locked Keychain; it defaults to the real `security` CLI.
  */
 class MacKeychainSecretKeyStore(
     private val service: String,
     private val account: String,
     private val fallback: FileSecretKeyStore,
+    private val runSecurity: (List<String>) -> Pair<Int, String>? = ::runSecurityCli,
 ) : SecretKeyStore {
 
-    override fun load(): ByteArray? {
-        keychainLoad()?.let { return it }
+    private sealed interface Lookup {
+        data class Found(val bytes: ByteArray) : Lookup
+        data object Miss : Lookup
+        data class Unavailable(val detail: String) : Lookup
+    }
 
-        // Not in the Keychain yet: fall back to (and migrate) the legacy
-        // plaintext file, if any.
-        val legacy = fallback.load() ?: return null
-        val migratedOk = runCatching {
-            keychainSave(legacy) && keychainLoad()?.contentEquals(legacy) == true
-        }.getOrDefault(false)
-        if (migratedOk) {
-            // Verified: the Keychain now holds the same bytes. Safe to drop
-            // the plaintext copy.
-            runCatching { fallback.delete() }
+    override fun load(): ByteArray? {
+        when (val r = keychainFind()) {
+            is Lookup.Found -> return r.bytes
+            Lookup.Miss -> {
+                // Genuinely no Keychain entry: migrate a legacy plaintext file if any,
+                // else there truly is no key (fresh install) — null mints a first one.
+                val legacy = fallback.load() ?: return null
+                val migratedOk = runCatching {
+                    keychainSave(legacy) && (keychainFind() as? Lookup.Found)?.bytes?.contentEquals(legacy) == true
+                }.getOrDefault(false)
+                if (migratedOk) {
+                    // Verified: the Keychain now holds the same bytes. Safe to drop
+                    // the plaintext copy.
+                    runCatching { fallback.delete() }
+                }
+                // Either way we return the correct bytes — never a window with no copy.
+                return legacy
+            }
+            is Lookup.Unavailable -> {
+                // The Keychain is present-but-unreadable (locked / security error / timeout).
+                // Never report "no key" here: bind() would mint a NEW identity and orphan
+                // the real one. Prefer a still-present legacy plaintext file (don't migrate
+                // or delete while the Keychain is flaky); otherwise fail loudly.
+                fallback.load()?.let { return it }
+                throw KeychainUnavailableException(r.detail)
+            }
         }
-        // Either way we return the correct bytes — there's never a window
-        // where the key exists in neither place.
-        return legacy
     }
 
     override fun save(bytes: ByteArray) {
@@ -88,34 +124,47 @@ class MacKeychainSecretKeyStore(
         }
     }
 
-    private fun keychainLoad(): ByteArray? {
-        val (code, out) = runSecurity("find-generic-password", "-a", account, "-s", service, "-w") ?: return null
-        if (code != 0) return null
-        val trimmed = out.trim()
-        if (trimmed.isEmpty()) return null
-        return runCatching { Base64.getDecoder().decode(trimmed) }.getOrNull()
+    private fun keychainFind(): Lookup {
+        val res = runSecurity(listOf("find-generic-password", "-a", account, "-s", service, "-w"))
+            ?: return Lookup.Unavailable("security find-generic-password did not run or timed out")
+        val (code, out) = res
+        return when (code) {
+            0 -> {
+                val bytes = out.trim().takeIf { it.isNotEmpty() }
+                    ?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
+                bytes?.let { Lookup.Found(it) }
+                    ?: Lookup.Unavailable("security returned exit 0 with no decodable value")
+            }
+            ERR_SEC_ITEM_NOT_FOUND -> Lookup.Miss
+            else -> Lookup.Unavailable("security find-generic-password exited $code")
+        }
     }
 
     private fun keychainSave(bytes: ByteArray): Boolean {
         val b64 = Base64.getEncoder().encodeToString(bytes)
-        val result = runSecurity("add-generic-password", "-U", "-a", account, "-s", service, "-w", b64) ?: return false
+        val result = runSecurity(listOf("add-generic-password", "-U", "-a", account, "-s", service, "-w", b64)) ?: return false
         return result.first == 0
     }
 
-    /** Runs `security <args>`, returning (exit code, stdout) or null if it couldn't run at all. */
-    private fun runSecurity(vararg args: String): Pair<Int, String>? = runCatching {
-        val process = ProcessBuilder(listOf("security") + args).start()
-        // Read stdout to EOF before waiting, so a full pipe can't deadlock the child.
-        val stdout = process.inputStream.bufferedReader().readText()
-        process.errorStream.bufferedReader().readText()
-        val exited = process.waitFor(5, TimeUnit.SECONDS)
-        if (!exited) {
-            process.destroyForcibly()
-            return@runCatching null
-        }
-        process.exitValue() to stdout
-    }.getOrNull()
+    private companion object {
+        // errSecItemNotFound — the `security` CLI's exit code for "no such keychain item".
+        private const val ERR_SEC_ITEM_NOT_FOUND = 44
+    }
 }
+
+/** Runs `security <args>` with a 5s timeout, returning (exit code, stdout) or null if it couldn't run at all. */
+private fun runSecurityCli(args: List<String>): Pair<Int, String>? = runCatching {
+    val process = ProcessBuilder(listOf("security") + args).start()
+    // Read stdout to EOF before waiting, so a full pipe can't deadlock the child.
+    val stdout = process.inputStream.bufferedReader().readText()
+    process.errorStream.bufferedReader().readText()
+    val exited = process.waitFor(5, TimeUnit.SECONDS)
+    if (!exited) {
+        process.destroyForcibly()
+        return@runCatching null
+    }
+    process.exitValue() to stdout
+}.getOrNull()
 
 /** Injectable hooks so the Android app can supply an encrypted key store + lifecycle. */
 object IrohConfig {
@@ -141,9 +190,18 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     override suspend fun bind(alpns: List<String>) {
         this.alpns = alpns
         // bind reuses the persisted secret key (if any) and brings relays online
-        // in the background; see the Rust crate's `IrohEndpoint::bind`. A failing
-        // key store must not fail the bind — degrade to a fresh key, never to demo.
-        val stored = runCatching { keyStore.load() }.getOrNull()
+        // in the background; see the Rust crate's `IrohEndpoint::bind`. A benign
+        // key-store hiccup degrades to a fresh key (never to demo) — but a
+        // [KeychainUnavailableException] (the identity may exist but the Keychain
+        // is locked/unreadable) propagates, so we fail loudly rather than silently
+        // minting a new identity and changing the node id.
+        val stored = try {
+            keyStore.load()
+        } catch (e: KeychainUnavailableException) {
+            throw e
+        } catch (e: Throwable) {
+            null
+        }
         val ep = IrohEndpoint.bind(alpns, stored)
         endpoint = ep
         nodeId = ep.nodeId()

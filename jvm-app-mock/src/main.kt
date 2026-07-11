@@ -5,9 +5,17 @@ import androidx.compose.ui.window.rememberWindowState
 import dev.azula.AzulaApp
 import dev.azula.link.DeepLinkBus
 import dev.azula.mock.installMockState
+import dev.azula.mock.mockAppIconImage
 import dev.azula.mock.mockAppIconPainter
+import dev.azula.ui.applyDesktopChrome
 
 fun main(args: Array<String>) {
+    // Dark title bar + dock icon (the inverted mock mark, as in the window icon
+    // below). Has to run before the first Window -- see applyDesktopChrome. The
+    // name carries the -mock suffix so the menu bar/dock name distinguishes the
+    // mock build from the real app, exactly as the inverted icon does.
+    applyDesktopChrome(appName = "Azula (mock)", dockIcon = mockAppIconImage())
+
     // -mock build: install an AzulaState wired to the fakes (FakeTransport + no
     // persistence) before the composition, so rememberAzulaState() returns it and
     // the real iroh transport is never created.

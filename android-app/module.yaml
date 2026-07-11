@@ -1,9 +1,5 @@
 product: android/app
 
-# iroh-kmp is published to the local Maven repo (see ../../iroh-kmp).
-repositories:
-  - mavenLocal
-
 dependencies:
   - ../shared
   # Direct dep so MainActivity can call IrohAndroid.installAndroidContext; also

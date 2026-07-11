@@ -5,10 +5,6 @@ product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
-# shared transitively pulls in the iroh-kmp artifact from mavenLocal.
-repositories:
-  - mavenLocal
-
 dependencies:
   - ../shared: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0

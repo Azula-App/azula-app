@@ -4,10 +4,6 @@
 # buildMockState() (FakeTransport + no persistence) and shows the real UI.
 product: android/app
 
-# mock-support -> shared -> network-real transitively pulls iroh-kmp from mavenLocal.
-repositories:
-  - mavenLocal
-
 dependencies:
   - ../shared
   - ../mock-support

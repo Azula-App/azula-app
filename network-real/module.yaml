@@ -9,10 +9,7 @@ product:
 aliases:
   - jvmAndAndroid: [jvm, android]
 
-# iroh-kmp is published to the local Maven repo (see ../../iroh-kmp).
-repositories:
-  - mavenLocal
-
+# iroh-kmp resolves from Maven Central (app.azula.iroh:iroh-kmp), a default repo.
 dependencies:
   - ../network-api: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported

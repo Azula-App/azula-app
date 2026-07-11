@@ -2,11 +2,6 @@ product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
 
-# iroh-kmp (a mavenLocal artifact) is now an implementation detail of network-real;
-# keep the repo so it resolves transitively at runtime.
-repositories:
-  - mavenLocal
-
 dependencies:
   - ../a2ui: exported
   - ../core: exported

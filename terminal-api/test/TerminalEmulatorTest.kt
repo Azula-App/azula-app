@@ -48,6 +48,29 @@ class TerminalEmulatorTest {
         assertEquals(0 to 1, e.cursor)
     }
 
+    // DEL is a no-op on output (ECMA-48 / xterm) -- never a glyph. It used to fail the
+    // `code < 0x20` control check and get *printed*, so a shell echoing the client's
+    // Backspace byte (TermSeq.BACKSPACE is DEL) made Backspace look like it typed a
+    // character instead of deleting one.
+    @Test
+    fun delOnOutputIsIgnoredNotPrinted() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("a\u007fb")
+        assertEquals("ab", e.rowText(0))
+        assertEquals(0 to 2, e.cursor)
+    }
+
+    // The erase a real shell's readline echoes for a Backspace: back up, overwrite the
+    // glyph with a space, back up again.
+    @Test
+    fun backspaceSpaceBackspaceErasesTheLastGlyph() {
+        val e = TerminalEmulator(80, 24)
+        e.feed("abc")
+        e.feed("\b \b")
+        assertEquals("ab", e.rowText(0))
+        assertEquals(0 to 2, e.cursor)
+    }
+
     @Test
     fun deferredWrapNoSpuriousBlankLine() {
         // Writing exactly `cols` chars must NOT advance to the next line until the

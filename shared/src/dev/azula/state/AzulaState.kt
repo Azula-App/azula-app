@@ -253,8 +253,9 @@ class AzulaState(
     // ---- lifecycle ----
 
     suspend fun start() {
-        // Restore persisted conversation history (shipping build only; the demo
-        // build shows seeds instead). Restored A2UI surfaces render frozen.
+        // Restore persisted conversation history from the injected MessageStore
+        // (shipping build: the real on-disk store; the `-mock` apps: mock-support's
+        // read-only SeededMessageStore). Restored A2UI surfaces render frozen.
         val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1)
         personaService.load()
         settingsService.load(personaService.legacyTerminalSmartInputForMigration)

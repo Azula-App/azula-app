@@ -410,7 +410,7 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             }
             when (state) {
                 GROUND ->
-                    if (code < 0x20) execC0(code)
+                    if (code < 0x20 || code == 0x7f) execC0(code)
                     else {
                         var cp = code
                         if (ch.isHighSurrogate() && i + 1 < n && text[i + 1].isLowSurrogate()) {
@@ -439,6 +439,12 @@ class TerminalEmulator(cols: Int = 80, rows: Int = 24) {
             0x0d -> { active.cursorCol = 0; active.wrapNext = false }                          // CR
             0x0e -> shiftOut = true                                                            // SO -> G1
             0x0f -> shiftOut = false                                                           // SI -> G0
+            // DEL (0x7f) is *ignored on output*, per ECMA-48 / xterm -- it is never a
+            // glyph. It reaches here because it's the byte the client sends for
+            // Backspace (TermSeq.BACKSPACE), so anything echoing input back verbatim
+            // feeds it to us; without this case it fails `code < 0x20` and gets drawn
+            // as a printable character, which looked like "Backspace types a character".
+            0x7f -> Unit
             // BEL (0x07) and others ignored
         }
     }

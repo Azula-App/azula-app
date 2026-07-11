@@ -1,6 +1,7 @@
 # mock-support — the fakes for the `-mock` apps, kept entirely out of the real app
-# modules: FakeTransport (fake network + fake terminal + chat loopback) and the
-# buildMockState() helper that wires it into the AppGraph with null stores.
+# modules: FakeTransport (fake network + fake terminal + chat loopback), the seed
+# fixtures the mock apps launch with, the buildMockState() helper that wires them
+# into the AppGraph, and the inverted app icon those apps wear.
 product:
   type: kmp/lib
   platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
@@ -30,9 +31,10 @@ test-dependencies@jvm:
   - $compose.desktop.currentOs
 
 settings:
-  # No @Composable code in mock-support's main sources -- this only turns on the
-  # Compose compiler plugin so test@jvm/'s runComposeUiTest { setContent { ... } }
-  # calls (a @Composable lambda literal) compile.
+  # Compose is on for two reasons: test@jvm/'s runComposeUiTest { setContent { ... } }
+  # calls (a @Composable lambda literal) need the compiler plugin, and this module
+  # owns the inverted `-mock` app icon in composeResources/ (see MockAppIcon.kt --
+  # the asset lives here, not in shared/, so it never ships in the real app).
   compose:
     enabled: true
   kotlin:

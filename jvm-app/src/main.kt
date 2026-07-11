@@ -7,7 +7,9 @@ import dev.azula.link.DeepLinkBus
 import dev.azula.ui.appIconPainter
 
 fun main(args: Array<String>) = application {
-    // Demo/UI-test build: seed content (off by default → shipping build is empty).
+    // This is the shipping build (real transport, no seeded content) -- the
+    // `-mock` apps (mock-support/src/dev/azula/mock/MockApp.kt) are the ones
+    // that launch pre-populated, over a FakeTransport + SeededMessageStore.
     // Test/automation hook: auto-dial a peer ticket on launch (over iroh). The
     // bus buffers the token until AzulaState.start() registers its handler.
     System.getenv("AZULA_CONNECT")?.takeIf { it.isNotBlank() }?.let { DeepLinkBus.deliver(it) }

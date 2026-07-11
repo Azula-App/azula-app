@@ -2,6 +2,8 @@
     <!-- The mock build talks to no network (FakeTransport), so it needs no
          iroh/foreground-service/notification permissions. -->
     <application android:label="azula-mock"
+                 android:icon="@mipmap/ic_launcher"
+                 android:roundIcon="@mipmap/ic_launcher_round"
                  android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="app.azula.mock.MainActivity"
                   android:exported="true"

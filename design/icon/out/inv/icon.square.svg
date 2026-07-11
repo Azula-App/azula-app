@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Full-bleed opaque square (no corner rounding, no alpha) — for iOS (the
+     system applies its own mask) and as the Android adaptive background source. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <pattern id="scan" width="4" height="3" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="#0b0b12" opacity="0.045"/>
+    </pattern>
+    <radialGradient id="depth" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#ff2d9b" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#ff2d9b" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glowPink" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="26" result="b"/>
+      <feFlood flood-color="#ff2d9b" flood-opacity="0.28" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowGreen" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="20" result="b"/>
+      <feFlood flood-color="#52c98a" flood-opacity="0.22" result="c"/>
+      <feComposite in="c" in2="b" operator="in" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" fill="#f8f8f6"/>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#depth)"/>
+  <g font-family="JetBrains Mono, monospace" font-weight="700">
+    <text x="470" y="612" font-size="392" fill="#52c98a" text-anchor="end" filter="url(#glowGreen)">&#x203A;</text>
+    <text x="500" y="632" font-size="437" fill="#ff2d9b" text-anchor="start" filter="url(#glowPink)">a</text>
+  </g>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#scan)"/>
+</svg>

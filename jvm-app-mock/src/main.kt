@@ -5,7 +5,7 @@ import androidx.compose.ui.window.rememberWindowState
 import dev.azula.AzulaApp
 import dev.azula.link.DeepLinkBus
 import dev.azula.mock.installMockState
-import dev.azula.ui.appIconPainter
+import dev.azula.mock.mockAppIconPainter
 
 fun main(args: Array<String>) {
     // -mock build: install an AzulaState wired to the fakes (FakeTransport + no
@@ -21,7 +21,7 @@ fun main(args: Array<String>) {
         Window(
             onCloseRequest = ::exitApplication,
             title = "azula — mock",
-            icon = appIconPainter(),
+            icon = mockAppIconPainter(),
             state = rememberWindowState(width = 1180.dp, height = 760.dp),
         ) {
             AzulaApp()

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The inverted ground: the mock build wears the real icon's glowing ›a mark
+         (foreground layer) on near-white instead of the brand's near-black, so it
+         is tellable apart from the real app at a glance in the launcher. -->
+    <color name="ic_launcher_background">#f8f8f6</color>
+</resources>

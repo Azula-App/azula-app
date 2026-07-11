@@ -28,10 +28,17 @@ import kotlin.random.Random
  * loop back a friendly chat echo; TERM dials return a fake echo shell; MEDIA
  * dials serve a fetch directly out of [blobs] (see [FakeMediaStream]) since
  * there's no second peer to play "the sender". On bind it also surfaces one
- * inbound TERM connection, so a terminal conversation appears in the mock build
- * without needing a live peer.
+ * inbound TERM connection ("mockterm", an interactive echo shell), so a terminal
+ * conversation appears in the mock build without needing a live peer.
+ *
+ * [demoTerminal] adds a *second* inbound terminal ("buildbot") replaying a
+ * canned build transcript. It's off by default and only [buildMockState] turns
+ * it on: it exists to make the `-mock` apps look populated, and the test suites
+ * share this transport -- every test that reasons about "the terminal
+ * conversation" would otherwise have to disambiguate a second one it never
+ * asked for.
  */
-class FakeTransport : IrohTransport {
+class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
     override var nodeId: String? = null
         private set
 
@@ -138,19 +145,39 @@ class FakeTransport : IrohTransport {
         ticket.removePrefix("azula-mock-").takeIf { it != ticket && it.isNotBlank() }
             ?: ("mock" + (ticket.hashCode().toLong() and 0xffffffffL).toString(16))
 
-    /** Surface one inbound terminal connection so the mock build has a live terminal.
-     *  Its remoteId ("mockterm") must be pre-seeded as a known contact via
-     *  [MockInvitationsStore] -- ConnectService's stranger gate (see
-     *  azula-docs/docs/invitations.md) closes an unknown peer's TERM/LLM stream
-     *  outright, with no accept path for either. Merged with [incomingConnections]
-     *  so a test can additionally push arbitrary connections via
-     *  [injectIncomingConnection] on top of this fixed demo one -- both land on
-     *  the same collector, exactly like a real transport fielding more than one
+    /** Surface the inbound terminal connection(s) so the mock build has a live terminal
+     *  without a peer: always "mockterm" (an interactive echo shell, [MOCKTERM_GREETING]),
+     *  plus "buildbot" (a canned, non-interactive build transcript, [BUILDBOT_GREETING])
+     *  when [demoTerminal] is on. Their remoteIds must be pre-seeded as known contacts
+     *  via [MockInvitationsStore] -- ConnectService's stranger gate (see
+     *  azula-docs/docs/invitations.md) closes an unknown peer's TERM/LLM stream outright,
+     *  with no accept path for either.
+     *
+     *  Their ids must stay distinct **in the first mnemonic segment**, not merely
+     *  distinct overall. ConversationStore.mnemonicCode labels an un-announced peer's
+     *  row "<first 2 chars> · word · word", and the sidebar truncates that label, so the
+     *  row only ever shows about "mo · onyx · …". The obvious "mockbuild" collides
+     *  outright (identical label to "mockterm"), and even "mockcargo" -- a genuinely
+     *  different "mo · onyx · ember" -- still *renders* as "mo · onyx · …", i.e. two
+     *  visually identical rows. "buildbot" gives "bu · kite · lyra", which reads apart at
+     *  a glance. Keep any further demo peer distinct in those first two characters.
+     *  Merged with [incomingConnections] so a test can additionally push arbitrary
+     *  connections via [injectIncomingConnection] on top of the fixed demo one(s) -- all
+     *  land on the same collector, exactly like a real transport fielding more than one
      *  inbound dial over its lifetime. */
     override fun incoming(): Flow<IncomingConnection> = merge(
         flow {
             delay(300)
             emit(IncomingConnection(remoteId = "mockterm", alpn = Alpns.TERM, stream = FakeTerminalStream()))
+            if (demoTerminal) {
+                emit(
+                    IncomingConnection(
+                        remoteId = "buildbot",
+                        alpn = Alpns.TERM,
+                        stream = FakeTerminalStream(greeting = BUILDBOT_GREETING, echo = false),
+                    ),
+                )
+            }
         },
         incomingConnections.receiveAsFlow(),
     )
@@ -174,23 +201,34 @@ class FakeTransport : IrohTransport {
 
 /**
  * An [InvitationsStore] pre-seeded with [FakeTransport.incoming]'s own
- * auto-surfaced demo peer ("mockterm") as an already-accepted contact, so
- * ConnectService's stranger gate recognizes it as known and wires it
- * immediately instead of closing it as an unrecognized stranger. Deliberately
- * NOT a [PeerStore] entry: that would also make ConnectService.reconnectSaved
- * actively re-dial "mockterm" as an outbound peer (FakeTransport.connect never
- * fails), creating a second, spurious PEER conversation alongside the real
- * demo terminal. A contact is known without being something to dial. Read-only:
- * the mock build doesn't persist real invitations, so [save] is a no-op.
+ * auto-surfaced demo peers ("mockterm", "buildbot") as already-accepted
+ * contacts, so ConnectService's stranger gate recognizes them as known and
+ * wires them immediately instead of closing them as unrecognized strangers.
+ * Deliberately NOT [PeerStore] entries: that would also make
+ * ConnectService.reconnectSaved actively re-dial them as outbound peers
+ * (FakeTransport.connect never fails), creating a second, spurious PEER
+ * conversation alongside each real demo terminal. A contact is known without
+ * being something to dial. Read-only: the mock build doesn't persist real
+ * invitations, so [save] is a no-op.
  */
 class MockInvitationsStore : InvitationsStore {
-    override fun load(): InvitationsBook = InvitationsBook(contacts = listOf("mockterm"))
+    override fun load(): InvitationsBook = InvitationsBook(contacts = listOf("mockterm", "buildbot"))
     override fun save(book: InvitationsBook) = Unit
 }
 
-/** A fake echo shell: prints a prompt, echoes keystrokes back as terminal output,
- *  and drops a fresh prompt after each Enter. Enough to drive the terminal UI. */
-private class FakeTerminalStream : P2pStream {
+/**
+ * A fake echo shell: feeds [greeting], then -- when [echo] is true -- echoes
+ * keystrokes back as terminal output and drops a fresh prompt after each
+ * Enter. Enough to drive the terminal UI. Parameterized so [FakeTransport.incoming]
+ * can surface two differently-flavored terminals off the same implementation:
+ * "mockterm" ([MOCKTERM_GREETING], the interactive default) and "buildbot"
+ * ([BUILDBOT_GREETING] with `echo = false`, a read-only transcript replay --
+ * typing into it still reaches [sendLine], it just never produces output).
+ */
+private class FakeTerminalStream(
+    private val greeting: String = MOCKTERM_GREETING,
+    private val echo: Boolean = true,
+) : P2pStream {
     private val inbox = Channel<String>(Channel.UNLIMITED)
     private var greeted = false
 
@@ -204,18 +242,24 @@ private class FakeTerminalStream : P2pStream {
     private fun greet() {
         if (greeted) return
         greeted = true
-        inbox.trySend(FrameCodec.encode(Frame.Term("mock shell — type away\r\n[38;5;205m›azula[0m ~ \r\n› ")))
+        inbox.trySend(FrameCodec.encode(Frame.Term(greeting)))
     }
 
     override suspend fun sendLine(line: String) {
         val frame = runCatching { FrameCodec.decode(line) }.getOrNull()
         if (frame is Frame.Resize) greet()
-        if (frame is Frame.Input) {
+        if (echo && frame is Frame.Input) {
             // Echo the keystrokes (a real PTY echoes); on Enter, newline + a prompt.
-            val echo = if (frame.text.contains('\r') || frame.text.contains('\n')) {
+            // Backspace arrives as DEL (TermSeq.BACKSPACE, 0x7f) and must be echoed the
+            // way a real shell's readline does -- "\b \b": step left, overwrite the glyph
+            // with a space, step left again. Echoing the DEL back verbatim (what this
+            // used to do) leaves the character on screen, since DEL is a no-op on output.
+            val echoed = if (frame.text.contains('\r') || frame.text.contains('\n')) {
                 frame.text.replace("\r", "\r\n") + "› "
-            } else frame.text
-            inbox.trySend(FrameCodec.encode(Frame.Term(echo)))
+            } else {
+                frame.text.replace("\u007f", "\b \b")
+            }
+            inbox.trySend(FrameCodec.encode(Frame.Term(echoed)))
         }
     }
 
@@ -224,6 +268,44 @@ private class FakeTerminalStream : P2pStream {
     override suspend fun receiveBytes(n: Int): ByteArray? = null
     override suspend fun close() { inbox.close() }
 }
+
+/**
+ * Greeting for "mockterm", the interactive echo-shell terminal (see
+ * [FakeTransport.incoming]). Written as though a couple of commands had
+ * already run before the tab was opened, so it reads as a live shell instead
+ * of a bare prompt -- ends on the same bare "› " the original greeting did,
+ * so typing still lands right after it. Lines stay under ~72 columns: this
+ * is fed at whatever width the UI measured for the first [Frame.Resize] (see
+ * [FakeTerminalStream.greet]'s comment above).
+ */
+private const val MOCKTERM_GREETING =
+    "mock shell — type away\r\n" +
+        "[38;5;205m›azula[0m ~ git log --oneline -3\r\n" +
+        "a3f9c1e resume interrupted media fetches\r\n" +
+        "e281b04 add invite QR fallback for narrow screens\r\n" +
+        "9c7d2aa fix holepunch retry backoff\r\n" +
+        "[38;5;205m›azula[0m ~ pwd\r\n" +
+        "/home/azula/dev/azula-cli\r\n" +
+        "[38;5;205m›azula[0m ~ \r\n› "
+
+/**
+ * Greeting for "buildbot", a second demo terminal (see [FakeTransport.incoming])
+ * that replays a canned `cargo build` -- using the same bold-green ANSI cargo
+ * itself prints for "Compiling"/"Finished" -- followed by a `git status`, then
+ * sits on a bare prompt. Always paired with `echo = false`, so it reads as a
+ * finished transcript rather than something you can type into.
+ */
+private const val BUILDBOT_GREETING =
+    "[1;32m   Compiling[0m azula-core v0.4.2\r\n" +
+        "[1;32m   Compiling[0m azula-net v0.4.2\r\n" +
+        "[1;32m   Compiling[0m azula-cli v0.4.2\r\n" +
+        "[1;32m    Finished[0m dev [unoptimized + debuginfo] target(s) in 4.87s\r\n" +
+        "[38;5;205m›azula[0m ~ git status\r\n" +
+        "On branch main\r\n" +
+        "Your branch is up to date with 'origin/main'.\r\n" +
+        "\r\n" +
+        "nothing to commit, working tree clean\r\n" +
+        "[38;5;205m›azula[0m ~ "
 
 /** Echoes sent chat back as if a peer replied — just enough to demo p2p chat solo.
  *  [onSend] fires for every decodable frame passed to [sendLine] (not just

@@ -7,6 +7,11 @@
 #   icon.foreground.svg  mark only, inset, transparent — Android adaptive foreground
 #   favicon.src.svg      compact mark                  — web favicon (baked to paths)
 #
+# The `-mock` apps get an INVERTED render of these same masters (see `invert`
+# below): light ground, same green/magenta mark, so the mock build is instantly
+# tellable apart from the real one in a launcher or dock. The masters are never
+# forked — inverting is a palette substitution, so the geometry can't drift.
+#
 # Requires: inkscape, magick (ImageMagick), sips + iconutil (macOS). Font:
 # JetBrains Mono must be installed (it is, under ~/Library/Fonts). Outputs land
 # in ./out and are copied into the repo asset locations.
@@ -17,7 +22,25 @@ app="$(cd "$here/../.." && pwd)"          # azula-app
 out="$here/out"
 ink() { inkscape "$1" --export-type=png --export-filename="$2" -w "$3" -h "$3" >/dev/null 2>&1; }
 
-rm -rf "$out"; mkdir -p "$out"/{ios,jvm,web,android,font,macos.iconset}
+# Write an inverted-ground copy of a master SVG to $out/inv/ and echo its path.
+# Only the *ground* flips — the brand mark keeps its green #52c98a and magenta
+# #ff2d9b. Three things have to move with the background or the render breaks:
+# the hairline edge (invisible on white), the scanline overlay (white-on-white),
+# and the two glow floods (a 0.6-opacity bloom over white reads as mud, so they
+# come down to a hint of halo).
+invert() {
+  local src="$1" dst="$out/inv/$(basename "$1")"
+  sed -e 's/#070709/#f8f8f6/g' \
+      -e 's/#23232e/#c9c9d4/g' \
+      -e 's/fill="#ffffff" opacity="0.018"/fill="#0b0b12" opacity="0.045"/' \
+      -e 's/flood-opacity="0.6"/flood-opacity="0.28"/g' \
+      -e 's/flood-opacity="0.45"/flood-opacity="0.22"/g' \
+      "$src" > "$dst"
+  echo "$dst"
+}
+
+rm -rf "$out"; mkdir -p "$out"/{ios,jvm,web,android,font,macos.iconset,inv}
+mkdir -p "$out"/inv/{ios,jvm,android}
 
 echo "› rendering master PNGs"
 for s in 1024 512 256 128; do ink "$here/icon.master.svg" "$out/master-$s.png" "$s"; done
@@ -67,6 +90,31 @@ for row in mdpi:24 hdpi:36 xhdpi:48 xxhdpi:72 xxxhdpi:96; do
   ink "$here/icon.notification.svg" "$out/android/drawable-$d/ic_stat_azula.png" "$px"
 done
 
+# ============================================================================
+# Inverted renders for the `-mock` apps (light ground, same mark)
+# ============================================================================
+echo "› rendering inverted (mock) icons"
+inv_master="$(invert "$here/icon.master.svg")"
+inv_square="$(invert "$here/icon.square.svg")"
+inv_fg="$(invert "$here/icon.foreground.svg")"
+
+# iOS mock: opaque 1024, flattened onto the light ground (not the dark one).
+ink "$inv_square" "$out/inv/ios/icon-1024.png" 1024
+magick "$out/inv/ios/icon-1024.png" -background "#f8f8f6" -alpha remove -alpha off "$out/inv/ios/icon-1024.png"
+
+# Desktop mock: the rounded master, for jvm-app-mock's window/dock icon.
+ink "$inv_master" "$out/inv/jvm/app_icon_mock.png" 1024
+
+# Android mock: adaptive foreground + legacy mipmaps, same density grid as the
+# real pass. No ic_stat_azula — the mock build has no notifier to draw one.
+for row in mdpi:108:48 hdpi:162:72 xhdpi:216:96 xxhdpi:324:144 xxxhdpi:432:192; do
+  d="${row%%:*}"; rest="${row#*:}"; fg="${rest%%:*}"; leg="${rest##*:}"
+  mkdir -p "$out/inv/android/mipmap-$d"
+  ink "$inv_fg"     "$out/inv/android/mipmap-$d/ic_launcher_foreground.png" "$fg"
+  ink "$inv_master" "$out/inv/android/mipmap-$d/ic_launcher.png"            "$leg"
+  cp "$out/inv/android/mipmap-$d/ic_launcher.png" "$out/inv/android/mipmap-$d/ic_launcher_round.png"
+done
+
 # ---- Fonts: static JetBrains Mono (Regular + Bold) for composeResources ----
 # Prefer the on-disk static instances (zero network, OFL-licensed).
 src_font="$HOME/Library/Fonts"
@@ -82,11 +130,12 @@ fi
 # ============================================================================
 echo "› installing into repo"
 
-# Shared composeResources (desktop window icon + fonts)
-mkdir -p "$app/shared/composeResources/drawable" "$app/shared/composeResources/font"
+# Desktop window icon (shared/) and the bundled fonts (theme/ owns those — it
+# declares the FontFamily, so its composeResources is where they have to land).
+mkdir -p "$app/shared/composeResources/drawable" "$app/theme/composeResources/font"
 cp "$out/jvm/app_icon.png" "$app/shared/composeResources/drawable/app_icon.png"
-[[ -f "$out/font/jetbrainsmono_regular.ttf" ]] && cp "$out/font/jetbrainsmono_regular.ttf" "$app/shared/composeResources/font/"
-[[ -f "$out/font/jetbrainsmono_bold.ttf" ]]    && cp "$out/font/jetbrainsmono_bold.ttf"    "$app/shared/composeResources/font/"
+[[ -f "$out/font/jetbrainsmono_regular.ttf" ]] && cp "$out/font/jetbrainsmono_regular.ttf" "$app/theme/composeResources/font/"
+[[ -f "$out/font/jetbrainsmono_bold.ttf" ]]    && cp "$out/font/jetbrainsmono_bold.ttf"    "$app/theme/composeResources/font/"
 
 # Android res
 res="$app/android-app/res"
@@ -100,6 +149,22 @@ done
 ios="$app/ios-app/src/Assets.xcassets/AppIcon.appiconset"
 mkdir -p "$ios"
 cp "$out/ios/icon-1024.png" "$ios/icon-1024.png"
+
+# ---- the `-mock` apps: the inverted renders ----
+mres="$app/android-app-mock/res"
+for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+  mkdir -p "$mres/mipmap-$d"
+  cp "$out/inv/android/mipmap-$d/"*.png "$mres/mipmap-$d/"
+done
+
+mios="$app/ios-app-mock/src/Assets.xcassets/AppIcon.appiconset"
+mkdir -p "$mios"
+cp "$out/inv/ios/icon-1024.png" "$mios/icon-1024.png"
+
+# mock-support owns the desktop mock icon (rather than shared/) so the inverted
+# asset never ships inside the real app.
+mkdir -p "$app/mock-support/composeResources/drawable"
+cp "$out/inv/jvm/app_icon_mock.png" "$app/mock-support/composeResources/drawable/app_icon_mock.png"
 
 # Site — inline the favicon SVG + apple-touch PNG into the Worker (no asset
 # binding; the Worker serves them from routes). Regenerates src/icon.ts.

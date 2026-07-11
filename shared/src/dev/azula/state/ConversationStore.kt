@@ -12,8 +12,9 @@ import dev.zacsweers.metro.SingleIn
  * Owns the app's conversation state — the sidebar list and each conversation's
  * per-thread [ConversationState] — plus the helpers every feature shares to look
  * up, name, and create conversations. Carved out of AzulaState so the connect /
- * chat / terminal services can build on one shared store; AzulaState delegates to
- * it (and seeds it in demo mode), keeping the UI-facing surface stable.
+ * chat / terminal services can build on one shared store; AzulaState delegates
+ * to it (restoring persisted conversations into it on [start][AzulaState.start]),
+ * keeping the UI-facing surface stable.
  */
 @Inject
 @SingleIn(AppScope::class)

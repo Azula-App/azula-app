@@ -9,6 +9,16 @@ gradle.properties
 # Local configuration
 local.properties
 
+# Release signing — never commit. CI writes keystore.properties from secrets;
+# locally: ./kotlin tool generate-keystore --properties-file android-app/keystore.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Xcode
+xcuserdata/
+*.xcarchive
+
 # IntelliJ/Android Studio
 .idea/
 *.iml

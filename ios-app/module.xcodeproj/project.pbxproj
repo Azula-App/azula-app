@@ -236,15 +236,29 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = src/azula.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				// MARKETING_VERSION / CURRENT_PROJECT_VERSION are overwritten by
+				// .github/scripts/set_version.sh on every release run, and both
+				// Info.plists read them through $(...) so the app and the AzulaShare
+				// extension can never ship different versions (Apple rejects that).
+				CURRENT_PROJECT_VERSION = 1;
+				// Not a secret -- it also has to be published in the AASA as
+				// "<TeamID>.app.azula" (see azula-docs/docs/deeplinks.md). Hardcoded
+				// because Xcode does not read build settings from the environment; CI
+				// additionally passes DEVELOPMENT_TEAM=$APPLE_TEAM_ID on the xcodebuild
+				// command line, and a CLI override wins.
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(TARGET_BUILD_DIR)/AmperFrameworks";
 				GCC_OPTIMIZATION_LEVEL = 0;
 				INFOPLIST_FILE = src/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = 0.0.0;
 				OTHER_LDFLAGS = "$(inherited) -framework SystemConfiguration -framework Network";
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "ios-app";
+				PRODUCT_BUNDLE_IDENTIFIER = app.azula;
 				PRODUCT_MODULE_NAME = app;
 				PRODUCT_NAME = "ios-app";
 				SDKROOT = iphoneos;
@@ -278,12 +292,17 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = src/azula.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(TARGET_BUILD_DIR)/AmperFrameworks";
 				INFOPLIST_FILE = src/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				MARKETING_VERSION = 0.0.0;
 				OTHER_LDFLAGS = "$(inherited) -framework SystemConfiguration -framework Network";
-				PRODUCT_BUNDLE_IDENTIFIER = "ios-app";
+				PRODUCT_BUNDLE_IDENTIFIER = app.azula;
 				PRODUCT_MODULE_NAME = app;
 				PRODUCT_NAME = "ios-app";
 				SDKROOT = iphoneos;
@@ -302,17 +321,20 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/AzulaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 0.0.0;
 				ONLY_ACTIVE_ARCH = YES;
-				// Must stay "<host PRODUCT_BUNDLE_IDENTIFIER>.AzulaShare" -- see the
-				// note on this same key in the "app" target's configs above (the host
-				// id is still the placeholder "ios-app", not the real "app.azula",
-				// pending real bundle-id/signing setup).
-				PRODUCT_BUNDLE_IDENTIFIER = "ios-app.AzulaShare";
+				// Must stay "<host PRODUCT_BUNDLE_IDENTIFIER>.AzulaShare" -- iOS requires
+				// an app extension's bundle id to be a child of its host's.
+				PRODUCT_BUNDLE_IDENTIFIER = app.azula.AzulaShare;
 				PRODUCT_MODULE_NAME = AzulaShare;
 				PRODUCT_NAME = "AzulaShare";
 				SDKROOT = iphoneos;
@@ -333,10 +355,15 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/AzulaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				PRODUCT_BUNDLE_IDENTIFIER = "ios-app.AzulaShare";
+				MARKETING_VERSION = 0.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.azula.AzulaShare;
 				PRODUCT_MODULE_NAME = AzulaShare;
 				PRODUCT_NAME = "AzulaShare";
 				SDKROOT = iphoneos;

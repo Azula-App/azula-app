@@ -8,6 +8,14 @@ dependencies:
   - androidx.activity:activity-compose:1.7.2
   - androidx.lifecycle:lifecycle-process:2.8.0
   - androidx.security:security-crypto:1.0.0
+  # R8 runs on the release variant and resolves every class it sees referenced.
+  # Tink (pulled in by security-crypto) references these two annotation packages
+  # without depending on them, so the release build fails with "Missing class
+  # com.google.errorprone.annotations.Immutable / javax.annotation.concurrent.GuardedBy"
+  # unless they're on the classpath. Amper exposes no proguard/R8 config, so there is
+  # no -dontwarn escape hatch. Both are class-retention only -- R8 strips them.
+  - com.google.errorprone:error_prone_annotations:2.28.0
+  - com.google.code.findbugs:jsr305:3.0.2
   # NotificationCompat for the foreground service + message notifications.
   - androidx.core:core-ktx:1.13.1
   # Metro runtime — this module builds the AppGraph (createGraphFactory intrinsic),
@@ -23,5 +31,18 @@ settings:
         dependency: dev.zacsweers.metro:compiler:0.13.2
   android:
     minSdk: 26
+    # Pinned rather than inherited from the Amper default so a toolchain bump
+    # can't silently move what Play sees.
+    targetSdk: 36
     applicationId: app.azula
     namespace: app.azula
+    # Both overwritten by .github/scripts/set_version.sh on every release run;
+    # the committed values are only what a local build sees.
+    versionCode: 1 # Overwritten by CI
+    versionName: 0.0.0 # Overwritten by CI
+    # Signing is deliberately NOT declared here. Amper's signing is not variant-scoped:
+    # with `signing.enabled: true` committed, even a *debug* build fails outright
+    # (:android-app:prepareAndroidDebug) on any machine without a keystore.properties,
+    # which would break every contributor who never builds a release. Instead
+    # .github/scripts/enable_signing.sh appends the block during a release run, right
+    # after writing keystore.properties. Run it locally too if you need a signed AAB.

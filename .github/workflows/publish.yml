@@ -1,0 +1,302 @@
+name: Publish
+
+# Builds and ships whatever v* tag it is triggered by: Android to Play production,
+# iOS to TestFlight, both at the version encoded in the tag. release.yml cuts and
+# pushes that tag; this workflow never invents a version of its own, so re-running
+# it on a tag reproduces exactly the same build.
+#
+# Can also be dispatched by hand against an existing tag -- to re-run a platform
+# that failed, or (with dry_run) to exercise the whole pipeline without shipping.
+#
+# Deliberately runs no tests: ./kotlin check is known-flaky headlessly (see
+# azula-docs/docs/tech-debt.md), and a flaky gate that fails after one store has
+# already been fed is worse than no gate. Tests belong in PR CI.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing v* tag to build (defaults to the latest tag)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Build and upload artifacts, but do not publish to Play or TestFlight'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: publish-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the tag to build
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          elif [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(git tag --list --sort=-v:refname 'v*' | head -n1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No v* tag to build. Run the Release workflow first." >&2
+            exit 1
+          fi
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || {
+            echo "Tag '$TAG' does not exist." >&2
+            exit 1
+          }
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Derive the version from the tag
+        id: version
+        run: bash .github/scripts/version_from_tag.sh
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation -> Google
+    env:
+      NEW_VERSION: ${{ needs.version.outputs.version }}
+      NEW_VERSION_CODE: ${{ needs.version.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.version.outputs.tag }} # build the tag, not whatever main is now
+
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The ./kotlin wrapper bootstraps its own JRE, the Amper toolchain, and the
+      # resolved dependencies into this directory.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: ${{ runner.os }}-kotlin-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-kotlin-
+
+      - name: Decode the upload keystore
+        env:
+          KEYFILE_BASE64: ${{ secrets.KEYFILE_BASE64 }}
+        run: echo "$KEYFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore.jks"
+
+      # Amper reads settings.android.signing.propertiesFile, which is module-relative.
+      - name: Write android-app/keystore.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          {
+            echo "storeFile=$RUNNER_TEMP/keystore.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android-app/keystore.properties
+
+      # Signing isn't committed: Amper's signing isn't variant-scoped, so declaring it
+      # in module.yaml breaks debug builds for anyone without a keystore. See the script.
+      - name: Enable release signing
+        run: bash .github/scripts/enable_signing.sh
+
+      - name: Stamp the version into both platforms
+        run: bash .github/scripts/set_version.sh
+
+      - name: Build the release AAB
+        run: |
+          ./kotlin package \
+            --module android-app \
+            --platform android \
+            --variant release \
+            --format aab
+
+      # Amper runs AGP inside a generated Gradle project and copies the finished bundle
+      # to the top of the task output dir. Only that copy is signed -- the nested
+      # gradle-project/**/intermediates/.../intermediary-bundle.aab is not -- so match
+      # it exactly (-maxdepth 1) rather than taking the first of a recursive find.
+      - name: Locate the AAB
+        id: aab
+        run: |
+          TASK_DIR=build/tasks/_android-app_bundleAndroid
+          AAB=$(find "$TASK_DIR" -maxdepth 1 -type f -name '*.aab')
+          if [ "$(echo "$AAB" | grep -c .)" -ne 1 ]; then
+            echo "Expected exactly one AAB in $TASK_DIR, got:"
+            echo "$AAB"
+            echo "--- everything under build/ named *.aab:"
+            find build -name '*.aab' || true
+            exit 1
+          fi
+          # Refuse to ship an unsigned bundle: Play would reject it, but late and cryptically.
+          if ! unzip -l "$AAB" | grep -qE 'META-INF/.*\.(RSA|EC|DSA)$'; then
+            echo "$AAB is not signed -- check android-app/keystore.properties and the signing secrets."
+            exit 1
+          fi
+          echo "path=$AAB" >> "$GITHUB_OUTPUT"
+          ls -la "$AAB"
+
+      - name: Upload the AAB as a workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azula-${{ needs.version.outputs.version }}-aab
+          path: ${{ steps.aab.outputs.path }}
+          if-no-files-found: error
+
+      - name: Generate Google Play credentials
+        id: auth
+        if: ${{ !inputs.dry_run }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+
+      - name: Publish to Google Play (production)
+        if: ${{ !inputs.dry_run }}
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
+          packageName: app.azula
+          releaseFiles: ${{ steps.aab.outputs.path }}
+          track: production
+          status: completed
+          releaseName: ${{ needs.version.outputs.version }}
+
+  ios:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 120 # release Kotlin/Native linking for iosArm64 is slow when cold
+    env:
+      NEW_VERSION: ${{ needs.version.outputs.version }}
+      NEW_VERSION_CODE: ${{ needs.version.outputs.version_code }}
+      KOTLIN_CLI_NO_WELCOME_BANNER: '1'
+      ASC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/JetBrains/Kotlin
+          key: ${{ runner.os }}-kotlin-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-kotlin-
+
+      # Both `xcodebuild -allowProvisioningUpdates` and `altool` find the key by
+      # convention at ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8.
+      - name: Install the App Store Connect API key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
+
+      - name: Stamp the version into both platforms
+        run: bash .github/scripts/set_version.sh
+
+      # Compile the Kotlin for the device up front so a Kotlin error surfaces in
+      # readable Amper logs instead of buried in a several-thousand-line xcodebuild
+      # transcript. Deliberately `shared`, not `ios-app`: building the ios-app module
+      # runs a full xcodebuild that code-signs, and Amper doesn't pass
+      # -allowProvisioningUpdates, so it fails on a fresh runner that has no
+      # provisioning profiles yet. The archive step below does pass it.
+      - name: Pre-compile the shared Kotlin framework (iosArm64)
+        run: ./kotlin build -m shared -p iosArm64
+
+      - name: Archive
+        run: |
+          xcodebuild \
+            -project ios-app/module.xcodeproj \
+            -scheme app \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/azula.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            archive
+
+      - name: Export the IPA
+        id: export
+        run: |
+          cp .github/ExportOptions.plist "$RUNNER_TEMP/ExportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/azula.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          IPA=$(find "$RUNNER_TEMP/export" -name '*.ipa' | head -n1)
+          if [ -z "$IPA" ]; then
+            echo "No IPA exported."
+            exit 1
+          fi
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          ls -la "$IPA"
+
+      - name: Upload the IPA as a workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azula-${{ needs.version.outputs.version }}-ipa
+          path: ${{ steps.export.outputs.ipa }}
+          if-no-files-found: error
+
+      # Apple's full acceptance checks (icons, entitlements, duplicate build number)
+      # with no TestFlight side effects -- cheap, and it runs on dry runs too.
+      - name: Validate the build against App Store Connect
+        run: |
+          xcrun altool --validate-app \
+            -f "${{ steps.export.outputs.ipa }}" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload to TestFlight
+        if: ${{ !inputs.dry_run }}
+        run: |
+          xcrun altool --upload-app \
+            -f "${{ steps.export.outputs.ipa }}" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"

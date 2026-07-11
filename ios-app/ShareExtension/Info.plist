@@ -16,10 +16,12 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
+	<!-- Must match the host app exactly; both read the same MARKETING_VERSION /
+	     CURRENT_PROJECT_VERSION that .github/scripts/set_version.sh stamps. -->
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<!--
 	  Share-extension declaration. NSExtensionActivationRule uses the plain
 	  dictionary form (not the more powerful NSPredicate-string form): it has no

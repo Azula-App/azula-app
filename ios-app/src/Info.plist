@@ -16,10 +16,12 @@
 	<string>Azula</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- Both come from MARKETING_VERSION / CURRENT_PROJECT_VERSION in the Xcode
+	     project, which .github/scripts/set_version.sh stamps on every release. -->
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

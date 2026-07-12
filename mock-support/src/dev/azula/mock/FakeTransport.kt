@@ -76,8 +76,19 @@ class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
     // live stream.
     private val loopbacks = mutableMapOf<Pair<String, String>, LoopbackStream>()
 
+    // "self", not "mock": our own id goes through ConversationStore.mnemonicCode too
+    // (the sidebar's YOUR CODE box), and that label is built from the id's first two
+    // characters plus chars 2 and 5 -- so a "mock…" self id always rendered
+    // "mo · onyx · <random>", i.e. the same first two segments as "mockterm"'s
+    // conversation row, and collided with it outright ("mo · onyx · ivy") whenever the
+    // random suffix's 2nd hex digit happened to be '5' or 'e' -- 1 run in 8. Home then
+    // showed two identical labels, one of them not a conversation at all: ambiguous for
+    // any by-text click (e2e/ios.yaml's tapOn, DesktopAppE2eTest's onNodeWithText, which
+    // throws on multiple matches) and just confusing in a demo. "se · …" can't collide
+    // with the demo peers' "mo · …"/"bu · …" -- the same first-two-chars rule the
+    // incoming() doc calls out, which applies to our own id as much as to a peer's.
     override suspend fun bind(alpns: List<String>) {
-        nodeId = "mock" + Random.nextInt(0x10000, 0xfffff).toString(16)
+        nodeId = "self" + Random.nextInt(0x10000, 0xfffff).toString(16)
         onCameOnline?.invoke()
     }
 
@@ -160,7 +171,9 @@ class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
      *  outright (identical label to "mockterm"), and even "mockcargo" -- a genuinely
      *  different "mo · onyx · ember" -- still *renders* as "mo · onyx · …", i.e. two
      *  visually identical rows. "buildbot" gives "bu · kite · lyra", which reads apart at
-     *  a glance. Keep any further demo peer distinct in those first two characters.
+     *  a glance. Keep any further demo peer distinct in those first two characters --
+     *  and note our own node id ([bind]) is subject to the same rule, since the YOUR CODE
+     *  box labels it through the very same mnemonicCode.
      *  Merged with [incomingConnections] so a test can additionally push arbitrary
      *  connections via [injectIncomingConnection] on top of the fixed demo one(s) -- all
      *  land on the same collector, exactly like a real transport fielding more than one

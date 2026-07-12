@@ -50,6 +50,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -546,7 +548,16 @@ private fun GridRow(
     val segments = remember(row.gen, cursorHere, frame.cursorCol, rowPreds, cellW) {
         buildRowSegments(row, if (cursorHere) frame.cursorCol else -1, rowPreds, measurer)
     }
-    Canvas(Modifier.fillMaxWidth().height(rowHeight)) {
+    // Everything below is drawn straight onto a Canvas, which publishes no semantics
+    // of its own -- so without this the terminal's entire content is unreadable to
+    // accessibility services and invisible to any UI test (Maestro's e2e flows assert
+    // against terminal output; nothing else can see it either). One node per row, not
+    // one for the whole screen: a screen-sized string reads as a single run-on blob to
+    // a screen reader, and can't be matched line-wise by a test. Blank rows are left
+    // without a node at all rather than contributing empty ones.
+    val rowText = remember(row.gen) { row.text() }
+    val a11yMod = if (rowText.isBlank()) Modifier else Modifier.semantics { contentDescription = rowText }
+    Canvas(Modifier.fillMaxWidth().height(rowHeight).then(a11yMod)) {
         val rowHeightPx = size.height
         for (seg in segments) {
             val x = seg.startCol * cellW.toFloat()

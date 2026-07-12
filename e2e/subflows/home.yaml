@@ -1,0 +1,23 @@
+appId: ${APP_ID}
+---
+# The `-mock` apps' launch state, asserted identically on every platform. Called via
+# `runFlow` from android.yaml / ios.yaml, which pass APP_ID (Maestro requires a config
+# header in *every* flow file — a subflow does NOT inherit the caller's appId, it
+# fails validation without one — so the caller injects it) and PLATFORM (screenshot
+# name).
+#
+# They launch populated: a SeededMessageStore restores three chats
+# (Azula/Nori/Tavi), and on bind FakeTransport surfaces two inbound terminals --
+# "mockterm" (interactive echo shell) and "buildbot" (a canned build transcript).
+# The terminal rows are labelled by ConversationStore.mnemonicCode, so changing a
+# demo peer's id in FakeTransport renames its row and these selectors with it.
+- takeScreenshot: e2e/screenshots/${PLATFORM}-home
+- assertVisible: "azula"
+- assertVisible: "CONVERSATIONS"
+# The seeded chats — proof the mock seeding survives packaging onto a real device.
+- assertVisible: "Azula"
+- assertVisible: "Nori"
+- assertVisible: "Tavi"
+# The two auto-surfaced terminals.
+- assertVisible: "mo · onyx · ivy"
+- assertVisible: "bu · kite · lyra"

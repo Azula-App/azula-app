@@ -1,0 +1,23 @@
+appId: ${APP_ID}
+---
+# Open the interactive terminal ("mockterm") and prove a keystroke reaches the fake
+# PTY and echoes back. Called via `runFlow` from android.yaml / ios.yaml, which pass
+# APP_ID + PLATFORM (see home.yaml on why APP_ID is injected).
+#
+# The terminal's rows are Canvas-drawn; they are only matchable here because
+# GridRow attaches a per-row contentDescription (see azula-docs/docs/terminal.md,
+# "Accessibility — rows carry their own semantics"). If that ever goes away, these
+# assertions stop matching — the flow goes red, which is the point.
+- tapOn:
+    text: "mo · onyx · ivy"
+- extendedWaitUntil:
+    visible:
+      text: "mock shell.*"
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/${PLATFORM}-terminal
+- inputText: "ls"
+- extendedWaitUntil:
+    visible:
+      text: ".*ls.*"
+    timeout: 5000
+- takeScreenshot: e2e/screenshots/${PLATFORM}-terminal-typed

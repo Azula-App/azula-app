@@ -9,17 +9,10 @@ appId: ios-app-mock
 - launchApp
 - assertVisible:
     text: "azula"
-- tapOn:
-    text: "+ connect a peer"
-- tapOn:
-    text: "paste a code…"
-- inputText: "azula-mock-peer"
-- tapOn:
-    text: "connect"
-- extendedWaitUntil:
-    visible:
-      text: ".*linked over iroh.*"
-    timeout: 8000
+- runFlow:
+    file: subflows/connect-peer.yaml
+    env:
+      APP_ID: ios-app-mock
 - takeScreenshot: e2e/screenshots/ios-media-chat
 
 # ── Attach menu → Photo → PHPicker ───────────────────────────────────────────

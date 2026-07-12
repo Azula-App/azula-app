@@ -1,44 +1,30 @@
 appId: app.azula.mock
 ---
-# The `-mock` app (android-app-mock) injects a FakeTransport — real UI, fake network
-# + terminal — so these flows drive the real screens with no live peer. On bind,
-# FakeTransport surfaces one inbound terminal conversation; a connect dials a chat
-# loopback. clearState avoids saved peers adding rows.
+# Android smoke: the packaged `-mock` app launches seeded, its terminal takes a
+# keystroke, and a peer connects. The journey itself lives in subflows/ (shared with
+# ios.yaml); this file exists to bind it to Android's appId and platform glue.
+#
+# clearState avoids saved peers adding rows; it does NOT empty the list — the seeds
+# are in-memory fixtures, not persisted state.
 - launchApp:
     clearState: true
-- takeScreenshot: e2e/screenshots/android-home
-- assertVisible: "azula"
-- assertVisible: "CONVERSATIONS"
-# The auto-surfaced terminal conversation (named from the fake peer id).
-- assertVisible: "mo · onyx · ivy"
-
-# ── Terminal: open it, type a command, see the fake shell echo it ────────────
-- tapOn:
-    text: "mo · onyx · ivy"
-- extendedWaitUntil:
-    visible:
-      text: "mock shell.*"
-    timeout: 5000
-- takeScreenshot: e2e/screenshots/android-terminal
-- inputText: "ls"
-- extendedWaitUntil:
-    visible:
-      text: ".*ls.*"
-    timeout: 5000
-- takeScreenshot: e2e/screenshots/android-terminal-typed
+- runFlow:
+    file: subflows/home.yaml
+    env:
+      APP_ID: app.azula.mock
+      PLATFORM: android
+- runFlow:
+    file: subflows/terminal.yaml
+    env:
+      APP_ID: app.azula.mock
+      PLATFORM: android
 
 # ── Connect a peer: the fake transport loops chat back ───────────────────────
+# "‹" backs out of the terminal to the home screen first.
 - tapOn:
     text: "‹"
-- tapOn:
-    text: "+ connect a peer"
-- tapOn:
-    text: "paste a code…"
-- inputText: "azula-mock-peer"
-- tapOn:
-    text: "connect"
-- extendedWaitUntil:
-    visible:
-      text: ".*linked over iroh.*"
-    timeout: 8000
+- runFlow:
+    file: subflows/connect-peer.yaml
+    env:
+      APP_ID: app.azula.mock
 - takeScreenshot: e2e/screenshots/android-connected

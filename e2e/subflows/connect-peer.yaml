@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+---
+# Connect a peer from the home screen: FakeTransport's LoopbackStream answers the
+# dial and replies, so this lands in a live chat with no real peer. Called via
+# `runFlow` from android.yaml, android-back.yaml and ios-media.yaml — all three need a
+# connected chat, and each used to carry its own copy of these steps (which is how
+# they all ended up holding the same dead "paste a code…" selector). Callers pass
+# APP_ID (see home.yaml on why).
+#
+# Starts on the home screen; ends inside the new conversation.
+- tapOn:
+    text: "+ connect a peer"
+- tapOn:
+    text: "paste an invite or code…"
+- inputText: "azula-mock-peer"
+- tapOn:
+    text: "connect"
+- extendedWaitUntil:
+    visible:
+      text: ".*linked over iroh.*"
+    timeout: 8000

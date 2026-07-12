@@ -1,24 +1,18 @@
 appId: app.azula.mock
 ---
-# System back should navigate within the app (chat → home), not exit it.
-# The `-mock` app (android-app-mock); clean state. We use a chat conversation (via
-# connect) rather than the terminal, since the terminal auto-shows the keyboard and
-# the first Back would only dismiss that.
+# Android-only: the system Back key should navigate within the app (chat → home),
+# not exit it. No iOS equivalent — this is exactly the platform glue Maestro is for.
+#
+# We connect a fresh peer rather than opening a seeded chat or a terminal: the
+# terminal auto-shows the keyboard, so the first Back would only dismiss that, and
+# connecting keeps this flow independent of the seed fixtures' names.
 - launchApp:
     clearState: true
 - assertVisible: "CONVERSATIONS"
-- tapOn:
-    text: "+ connect a peer"
-- tapOn:
-    text: "paste a code…"
-- inputText: "azula-mock-peer"
-- tapOn:
-    text: "connect"
-# The fake transport loops chat back and navigates into the conversation.
-- extendedWaitUntil:
-    visible:
-      text: ".*linked over iroh.*"
-    timeout: 8000
+- runFlow:
+    file: subflows/connect-peer.yaml
+    env:
+      APP_ID: app.azula.mock
 - pressKey: Back
 # Still inside azula, back on the home list — not dropped to the launcher.
 - assertVisible: "CONVERSATIONS"

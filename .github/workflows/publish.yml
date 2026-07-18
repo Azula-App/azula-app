@@ -1,12 +1,14 @@
 name: Publish
 
-# Builds and ships whatever v* tag it is triggered by: Android to Play production,
-# iOS to TestFlight, both at the version encoded in the tag. release.yml cuts and
-# pushes that tag; this workflow never invents a version of its own, so re-running
-# it on a tag reproduces exactly the same build.
+# Builds a v* tag: Android AAB + iOS IPA at the version encoded in the tag, signed
+# and validated, both uploaded as workflow artifacts. release.yml cuts and pushes
+# the tag; this workflow never invents a version of its own, so re-running it on a
+# tag reproduces exactly the same build.
 #
-# Can also be dispatched by hand against an existing tag -- to re-run a platform
-# that failed, or (with dry_run) to exercise the whole pipeline without shipping.
+# A tag PUSH builds, signs, and validates but does NOT ship -- store uploads (Play,
+# TestFlight) run only on a manual workflow_dispatch with dry_run=false. Shipping is
+# therefore always a deliberate button-press against an already-built tag, never an
+# automatic consequence of a tag existing; pick the Play track on that dispatch.
 #
 # Deliberately runs no tests: ./kotlin check is known-flaky headlessly (see
 # azula-docs/docs/tech-debt.md), and a flaky gate that fails after one store has
@@ -23,12 +25,12 @@ on:
         required: false
         type: string
       dry_run:
-        description: 'Build and upload artifacts, but do not publish to Play or TestFlight'
+        description: 'Build/validate only; do not upload to Play or TestFlight (a tag push is always effectively this)'
         required: false
         default: false
         type: boolean
       track:
-        description: 'Google Play track to publish to (manual runs only; tag pushes always go to production)'
+        description: 'Google Play track for a manual non-dry release (default production; tag pushes never ship)'
         required: false
         default: production
         type: choice
@@ -181,17 +183,23 @@ jobs:
 
       - name: Generate Google Play credentials
         id: auth
-        if: ${{ !inputs.dry_run }}
+        # Store uploads (this + the two below) run ONLY on a manual dispatch that is
+        # not a dry run. A tag push therefore builds, signs, validates, and uploads
+        # artifacts but never ships -- shipping is always a deliberate workflow_dispatch
+        # with dry_run=false. Decouples "a tag exists" from "release it", and removes
+        # the auto-ship-on-tag-push hazard (a pushed tag could otherwise ship to Play
+        # production before anyone looked at the build).
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
 
-      # track defaults to production: on a tag push inputs.track is empty, and a real
-      # release must go to production. A manual dispatch can override it (e.g. internal
-      # to prove the upload path without shipping to users).
+      # track: chosen by the manual dispatch (default production). It only ever applies
+      # here because this step runs solely on a manual non-dry dispatch (see auth step);
+      # internal/beta/alpha let you prove the upload path without shipping to users.
       - name: Publish to Google Play
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
@@ -306,7 +314,8 @@ jobs:
             --apiIssuer "$ASC_ISSUER_ID"
 
       - name: Upload to TestFlight
-        if: ${{ !inputs.dry_run }}
+        # Same gate as the Play upload: manual non-dry dispatch only, never on a push.
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
         run: |
           xcrun altool --upload-app \
             -f "${{ steps.export.outputs.ipa }}" \

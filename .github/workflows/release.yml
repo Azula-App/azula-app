@@ -1,9 +1,10 @@
 name: Release
 
 # Cuts a release: bumps the latest v* tag by major/minor/patch and pushes the new
-# tag. That push is what triggers publish.yml, which builds and ships Android and
-# iOS from the tag. This workflow deliberately does nothing else -- the tag is the
-# handoff between "decide the version" and "build that version".
+# tag. That push triggers publish.yml, which builds, signs, and VALIDATES both
+# platforms from the tag but does not ship -- actually releasing is a separate manual
+# publish.yml dispatch (dry_run=false, pick a track). This workflow only decides the
+# version; the tag is the handoff between "decide the version" and "build that version".
 
 on:
   workflow_dispatch:
@@ -67,5 +68,6 @@ jobs:
             echo "| Android versionCode | \`$NEW_VERSION_CODE\` |"
             echo "| Commit | \`$GITHUB_SHA\` |"
             echo ""
-            echo "The tag push triggers **Publish**, which builds and ships Android and iOS."
+            echo "The tag push triggers **Publish**, which builds and validates both platforms."
+            echo "To ship, dispatch **Publish** manually with \`dry_run=false\` and a track."
           } >> "$GITHUB_STEP_SUMMARY"

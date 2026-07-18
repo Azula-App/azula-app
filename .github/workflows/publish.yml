@@ -27,6 +27,16 @@ on:
         required: false
         default: false
         type: boolean
+      track:
+        description: 'Google Play track to publish to (manual runs only; tag pushes always go to production)'
+        required: false
+        default: production
+        type: choice
+        options:
+          - production
+          - beta
+          - alpha
+          - internal
 
 concurrency:
   group: publish-${{ inputs.tag || github.ref_name }}
@@ -177,14 +187,17 @@ jobs:
           workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
 
-      - name: Publish to Google Play (production)
+      # track defaults to production: on a tag push inputs.track is empty, and a real
+      # release must go to production. A manual dispatch can override it (e.g. internal
+      # to prove the upload path without shipping to users).
+      - name: Publish to Google Play
         if: ${{ !inputs.dry_run }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
           packageName: app.azula
           releaseFiles: ${{ steps.aab.outputs.path }}
-          track: production
+          track: ${{ inputs.track || 'production' }}
           status: completed
           releaseName: ${{ needs.version.outputs.version }}
 

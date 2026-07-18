@@ -76,7 +76,13 @@ struct iosApp: App {
                 // foreground its host app, so this is the only point a share
                 // actually reaches the running app: the user shares from
                 // another app, then switches to Azula themselves.
-                .onChange(of: scenePhase) { _, newPhase in
+                //
+                // Single-closure-param onChange(of:perform:), not the two-param
+                // onChange(of:initial:_:) -- the latter is iOS 17+, and the
+                // deployment target is 15.0 (IPHONEOS_DEPLOYMENT_TARGET). We only
+                // need the new value, so the older form is a clean fit; it's
+                // deprecated on 17 but the project doesn't treat warnings as errors.
+                .onChange(of: scenePhase) { newPhase in
                     if newPhase == .active {
                         ShareInboxKt.drainShareInbox()
                     }

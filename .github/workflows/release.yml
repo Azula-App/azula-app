@@ -1,10 +1,12 @@
 name: Release
 
 # Cuts a release: bumps the latest v* tag by major/minor/patch and pushes the new
-# tag. That push triggers publish.yml, which builds, signs, and VALIDATES both
-# platforms from the tag but does not ship -- actually releasing is a separate manual
-# publish.yml dispatch (dry_run=false, pick a track). This workflow only decides the
-# version; the tag is the handoff between "decide the version" and "build that version".
+# tag. This workflow only decides the version; the tag is the handoff.
+#
+# It does NOT auto-run publish.yml: a tag pushed by a workflow's GITHUB_TOKEN does not
+# trigger other workflows (GitHub's loop-prevention), so publish.yml's `on: push` never
+# fires from here. After this runs, dispatch publish.yml manually against the new tag --
+# dry_run=true to build + validate, then dry_run=false + a track to ship.
 
 on:
   workflow_dispatch:
@@ -68,6 +70,6 @@ jobs:
             echo "| Android versionCode | \`$NEW_VERSION_CODE\` |"
             echo "| Commit | \`$GITHUB_SHA\` |"
             echo ""
-            echo "The tag push triggers **Publish**, which builds and validates both platforms."
-            echo "To ship, dispatch **Publish** manually with \`dry_run=false\` and a track."
+            echo "Next: dispatch **Publish** against \`$NEW_TAG\` — \`dry_run=true\` to build + validate,"
+            echo "then \`dry_run=false\` with a track to ship. (This tag push does not auto-run Publish.)"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -10,6 +10,11 @@ name: Publish
 # therefore always a deliberate button-press against an already-built tag, never an
 # automatic consequence of a tag existing; pick the Play track on that dispatch.
 #
+# Note: release.yml pushes tags with the default GITHUB_TOKEN, and GitHub does not
+# fire workflow triggers for those, so `on: push` never runs from release.yml. In
+# practice you always dispatch this workflow by hand (dry_run first, then to ship).
+# The `on: push` trigger only fires for a human/PAT tag push -- build+validate only.
+#
 # Deliberately runs no tests: ./kotlin check is known-flaky headlessly (see
 # azula-docs/docs/tech-debt.md), and a flaky gate that fails after one store has
 # already been fed is worse than no gate. Tests belong in PR CI.

@@ -22,6 +22,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Export compliance: matches the host app (see ios-app/src/Info.plist). The
+	     extension ships in the same .ipa, so Apple expects a consistent declaration. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!--
 	  Share-extension declaration. NSExtensionActivationRule uses the plain
 	  dictionary form (not the more powerful NSPredicate-string form): it has no

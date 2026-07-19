@@ -264,42 +264,121 @@ jobs:
       - name: Pre-compile the shared Kotlin framework (iosArm64)
         run: ./kotlin build -m shared -p iosArm64
 
-      - name: Archive
+      # Sign + archive + export in ONE step, all MANUAL. The archive MUST be manually
+      # signed: xcodebuild -exportArchive silently forces signingStyle=automatic when the
+      # archive was automatically signed, ignoring the manual ExportOptions -- and
+      # automatic distribution signing needs cloud-managed assets an App Manager ASC key
+      # can't mint. One step because keychain/identity state doesn't reliably carry across
+      # separate runner steps.
+      - name: Sign, archive, and export the IPA
+        id: export
+        env:
+          DIST_CERT_P12: ${{ secrets.APPLE_DIST_CERT_P12 }}
+          DIST_CERT_PASSWORD: ${{ secrets.APPLE_DIST_CERT_PASSWORD }}
+          PROFILE_APP: ${{ secrets.APPLE_PROFILE_APP_B64 }}
+          PROFILE_EXT: ${{ secrets.APPLE_PROFILE_EXT_B64 }}
         run: |
+          # --- our Apple Distribution cert into a throwaway keychain (no cloud signing:
+          #     an App Manager ASC key can't mint a cloud distribution cert) ---
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KPW=$(openssl rand -base64 24)
+          security create-keychain -p "$KPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KPW" "$KEYCHAIN"
+          echo "$DIST_CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$DIST_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KPW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          # --- the two App Store profiles (Xcode 16+ reads UserData/Provisioning Profiles) ---
+          PROFDIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$PROFDIR"
+          for b64 in "$PROFILE_APP" "$PROFILE_EXT"; do
+            tmp=$(mktemp); echo "$b64" | base64 --decode > "$tmp"
+            uuid=$(security cms -D -i "$tmp" | plutil -extract UUID raw -)
+            cp "$tmp" "$PROFDIR/$uuid.mobileprovision"
+            echo "installed '$(security cms -D -i "$tmp" | plutil -extract Name raw -)' -> $uuid"
+          done
+          # --- name each target's profile in its build settings. xcodebuild takes signing
+          #     settings globally on the command line, but the app and extension need
+          #     DIFFERENT profiles, so inject each per target (CI-only; not committed, so a
+          #     local `./kotlin build` stays automatic). perl, not sed: BSD sed on the
+          #     runner won't expand \n in the replacement. The `app.azula;` regex ends in a
+          #     semicolon so it can't also match `app.azula.AzulaShare;`. ---
+          PBX=ios-app/module.xcodeproj/project.pbxproj
+          perl -i -pe 's{PRODUCT_BUNDLE_IDENTIFIER = app\.azula\.AzulaShare;}{$&\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "azula share app store";}g' "$PBX"
+          perl -i -pe 's{PRODUCT_BUNDLE_IDENTIFIER = app\.azula;}{$&\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "azula app store";}g' "$PBX"
+          # --- archive with MANUAL distribution signing (no -allowProvisioningUpdates, so
+          #     it never reaches for cloud signing) ---
           xcodebuild \
-            -project ios-app/module.xcodeproj \
-            -scheme app \
-            -configuration Release \
+            -project ios-app/module.xcodeproj -scheme app -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/azula.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
             archive
-
-      - name: Export the IPA
-        id: export
-        run: |
-          cp .github/ExportOptions.plist "$RUNNER_TEMP/ExportOptions.plist"
-          /usr/libexec/PlistBuddy -c "Add :teamID string $APPLE_TEAM_ID" "$RUNNER_TEMP/ExportOptions.plist"
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/azula.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-          IPA=$(find "$RUNNER_TEMP/export" -name '*.ipa' | head -n1)
-          if [ -z "$IPA" ]; then
-            echo "No IPA exported."
-            exit 1
+          # --- synthesize ApplicationProperties (Amper omits it) ---
+          # Amper lands the built .app in Products/Applications but leaves the archive's
+          # Info.plist without an ApplicationProperties dict. Without it, xcodebuild
+          # -exportArchive doesn't recognize a distributable app and rejects every App
+          # Store method ("Unknown Distribution Error" / 'expected one {} but found
+          # app-store-connect'). Synthesize it from the built app (values read back from
+          # the app so they can never drift from what was actually built).
+          ARCHIVE="$RUNNER_TEMP/azula.xcarchive"
+          APP=$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -name '*.app' | head -n1)
+          if [ -z "$APP" ]; then echo "No .app in the archive"; exit 1; fi
+          pb() { /usr/libexec/PlistBuddy -c "$1" "$2"; }
+          if ! pb "Print :ApplicationProperties" "$ARCHIVE/Info.plist" >/dev/null 2>&1; then
+            pb "Add :ApplicationProperties dict" "$ARCHIVE/Info.plist"
+            pb "Add :ApplicationProperties:ApplicationPath string Applications/$(basename "$APP")" "$ARCHIVE/Info.plist"
+            pb "Add :ApplicationProperties:CFBundleIdentifier string $(pb 'Print :CFBundleIdentifier' "$APP/Info.plist")" "$ARCHIVE/Info.plist"
+            pb "Add :ApplicationProperties:CFBundleShortVersionString string $(pb 'Print :CFBundleShortVersionString' "$APP/Info.plist")" "$ARCHIVE/Info.plist"
+            pb "Add :ApplicationProperties:CFBundleVersion string $(pb 'Print :CFBundleVersion' "$APP/Info.plist")" "$ARCHIVE/Info.plist"
+            pb "Add :ApplicationProperties:Team string $APPLE_TEAM_ID" "$ARCHIVE/Info.plist"
+            echo "Injected ApplicationProperties:"; pb "Print :ApplicationProperties" "$ARCHIVE/Info.plist"
           fi
+          # xcodebuild -exportArchive ignores signingStyle:manual on Xcode 26.5 -- it
+          # always reverts to automatic (-> cloud signing -> "No profiles found"), no
+          # matter what ExportOptions says. But the archive is already correctly App
+          # Store-signed (distribution cert + our App Store profile embedded; see the
+          # archive output above), so package the IPA by hand instead: zip the signed .app
+          # into Payload/. An iOS 15+ App Store IPA needs no SwiftSupport dir -- the Swift
+          # runtime ships in the OS -- so a Payload-only zip is a valid, uploadable IPA
+          # (altool --validate-app in the next step is the check).
+          codesign --verify --deep --strict "$APP" && echo "app signature verified"
+          rm -rf "$RUNNER_TEMP/export"
+          mkdir -p "$RUNNER_TEMP/export/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/export/Payload/"
+          ( cd "$RUNNER_TEMP/export" && zip -qry azula.ipa Payload && rm -rf Payload )
+          IPA="$RUNNER_TEMP/export/azula.ipa"
+          [ -f "$IPA" ] || { echo "No IPA produced."; exit 1; }
           echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
           ls -la "$IPA"
+
+      # On failure, dump Xcode's distribution log (the real signing/export error, which
+      # the console only summarizes) and upload the archive so it can be re-exported
+      # locally without burning another CI run.
+      - name: iOS export diagnostics
+        if: failure()
+        run: |
+          echo "=== IDEDistribution logs ==="
+          find "$TMPDIR" /var/folders -type d -name '*.xcdistributionlogs' 2>/dev/null | while read -r d; do
+            echo "--- $d"
+            cat "$d"/*.log 2>/dev/null || true
+          done
+          echo "=== xcarchive Info.plist ==="
+          plutil -p "$RUNNER_TEMP/azula.xcarchive/Info.plist" 2>/dev/null || true
+
+      - name: Upload the xcarchive for debugging
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azula-${{ needs.version.outputs.version }}-xcarchive
+          path: ${{ runner.temp }}/azula.xcarchive
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload the IPA as a workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -307,6 +386,15 @@ jobs:
           name: azula-${{ needs.version.outputs.version }}-ipa
           path: ${{ steps.export.outputs.ipa }}
           if-no-files-found: error
+
+      # Hand-packaging the IPA (see the sign/export step) skips xcodebuild's Symbols/
+      # collection, so keep the archive's dSYMs for crash symbolication of this build.
+      - name: Upload dSYMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azula-${{ needs.version.outputs.version }}-dsyms
+          path: ${{ runner.temp }}/azula.xcarchive/dSYMs
+          if-no-files-found: warn
 
       # Apple's full acceptance checks (icons, entitlements, duplicate build number)
       # with no TestFlight side effects -- cheap, and it runs on dry runs too.

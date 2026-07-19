@@ -30,6 +30,24 @@
 	<false/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- App Store validation (error 90474) requires supported orientations to be
+	     declared. The app is universal (iPhone + iPad) and adapts to width (the >=820dp
+	     desktop layout renders on iPad/landscape), so it supports all orientations; iPad
+	     needs all four for multitasking. Upside-down is omitted on iPhone (Apple's
+	     convention). -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- Auto-save received images/video into the Photos library (add-only). -->

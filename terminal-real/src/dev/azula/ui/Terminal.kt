@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -80,6 +79,7 @@ import dev.azula.terminal.encodeMouseReport
 import dev.azula.terminal.rowAt
 import dev.azula.terminal.textInSelection
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -685,9 +685,9 @@ private fun selectionSpanForRow(sel: TermSelection?, abs: Long, cols: Int): IntR
 private fun SelectionActionChip(copied: Boolean, onCopy: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(AzulaShapes.rMd)
             .background(AzulaColors.bg2)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+            .border(1.dp, AzulaColors.border4, AzulaShapes.rMd)
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -703,9 +703,9 @@ private fun SelectionActionChip(copied: Boolean, onCopy: () -> Unit, onCancel: (
 private fun ScrollToBottomChip(onTap: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AzulaShapes.rSm)
             .background(AzulaColors.bg2)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+            .border(1.dp, AzulaColors.border4, AzulaShapes.rSm)
             .pointerInput(Unit) { detectTapGestures { onTap() } }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
@@ -717,7 +717,7 @@ private fun ScrollToBottomChip(onTap: () -> Unit, modifier: Modifier = Modifier)
 @Composable
 private fun ChipLabel(label: String, active: Boolean, onTap: () -> Unit) {
     Box(
-        Modifier.clip(RoundedCornerShape(7.dp))
+        Modifier.clip(AzulaShapes.rSm)
             .pointerInput(Unit) { detectTapGestures { onTap() } }
             .padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,

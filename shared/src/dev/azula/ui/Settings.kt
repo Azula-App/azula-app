@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -44,7 +43,10 @@ import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
 import dev.azula.state.toFrame
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaInputSurface
+import dev.azula.theme.azulaMutedPanel
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -74,13 +76,13 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("YOUR PERSONAS", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text("YOUR PERSONAS", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             Text(
                 "the identity you present when you connect. you choose which one — and which fields — to share each time.",
                 color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
             )
             if (state.personas.isEmpty()) {
-                Text("No personas yet.", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 12.sp)
+                Text("No personas yet.", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
             }
             state.personas.forEach { persona ->
                 PersonaRow(
@@ -92,8 +94,8 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                 )
             }
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
-                    .background(Color(0x14FF2D9B)).border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(11.dp))
+                Modifier.fillMaxWidth().clip(AzulaShapes.rMd)
+                    .background(AzulaColors.primaryWash).border(1.dp, AzulaColors.primaryEdge, AzulaShapes.rMd)
                     .clickable { editing = null; showEditor = true }
                     .padding(vertical = 11.dp)
                     .testTag("new-persona-button"),
@@ -103,10 +105,9 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             }
 
             Spacer(Modifier.height(8.dp))
-            Text("TERMINAL", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text("TERMINAL", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
-                    .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp)).padding(13.dp),
+                Modifier.fillMaxWidth().azulaMutedPanel().padding(13.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
@@ -117,14 +118,14 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                     )
                     Text(
                         "swipe typing, autocorrect, and word suggestions in the terminal. turn off if your keyboard misbehaves.",
-                        color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                        color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
                     )
                 }
                 Switch(checked = state.terminalSmartInput, onCheckedChange = { state.setTerminalSmartInput(it) })
             }
 
             Spacer(Modifier.height(8.dp))
-            Text("BACKUP & RECOVERY", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text("BACKUP & RECOVERY", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             Text(
                 "your identity is a single device key. save your recovery phrase to move it to a new device — or restore it after reinstalling.",
                 color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
@@ -148,8 +149,7 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
 @Composable
 private fun BackupRow(title: String, subtitle: String, tag: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
-            .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().azulaMutedPanel()
             .clickable { onClick() }
             .padding(13.dp)
             .testTag(tag),
@@ -158,7 +158,7 @@ private fun BackupRow(title: String, subtitle: String, tag: String, onClick: () 
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Text(subtitle, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(subtitle, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
         }
         Text("›", color = AzulaColors.textDim, fontSize = 18.sp)
     }
@@ -185,8 +185,7 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
                 )
                 else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
-                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp)).padding(12.dp)
+                        Modifier.fillMaxWidth().azulaInputSurface().padding(12.dp)
                             .testTag("recovery-phrase-text"),
                     ) {
                         Text(phrase, color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 14.sp, lineHeight = 22.sp)
@@ -256,8 +255,7 @@ private fun PersonaRow(
 ) {
     val bitmap = remember(persona.avatarB64) { avatarBitmap(persona.avatarB64) }
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
-            .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().azulaMutedPanel()
             .clickable { onEdit() }
             .padding(11.dp)
             .testTag("persona-row-${persona.id}"),
@@ -269,12 +267,12 @@ private fun PersonaRow(
             Text(persona.name, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Text(
                 persona.description?.takeIf { it.isNotBlank() } ?: "no description",
-                color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
             )
         }
         Box(
-            Modifier.clip(RoundedCornerShape(6.dp))
-                .border(1.dp, if (isDefault) AzulaColors.pink else AzulaColors.border4, RoundedCornerShape(6.dp))
+            Modifier.clip(AzulaShapes.rXs)
+                .border(1.dp, if (isDefault) AzulaColors.pink else AzulaColors.border4, AzulaShapes.rXs)
                 .clickable { onSetDefault() }.padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Text(if (isDefault) "default ✓" else "set default", color = if (isDefault) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 10.sp)
@@ -309,7 +307,7 @@ private fun PersonaEditor(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     AvatarBox(preview, name.firstOrNull()?.uppercaseChar()?.toString() ?: "•", dev.azula.model.ConversationKind.PEER, size = 48.dp)
                     Box(
-                        Modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                        Modifier.clip(AzulaShapes.rSm).border(1.dp, AzulaColors.border4, AzulaShapes.rSm)
                             .clickable { launchPicker() }.padding(horizontal = 11.dp, vertical = 7.dp),
                     ) {
                         Text(if (avatarB64 == null) "pick picture" else "change picture", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 11.sp)
@@ -338,10 +336,9 @@ private fun PersonaEditor(
 @Composable
 private fun EditorField(label: String, value: String, placeholder: String, tag: String? = null, onChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label.uppercase(), color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 9.sp)
+        Text(label.uppercase(), color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 9.sp)
         Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
-                .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp)).padding(horizontal = 11.dp, vertical = 9.dp),
+            Modifier.fillMaxWidth().azulaInputSurface(AzulaShapes.rSm).padding(horizontal = 11.dp, vertical = 9.dp),
         ) {
             BasicTextField(
                 value = value,
@@ -382,15 +379,15 @@ fun PersonaPicker(
     val selected = personas.firstOrNull { it.id == selectedId }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (personas.isEmpty()) {
-            Text("No personas yet — create one in Settings to share a profile.", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.5.sp)
+            Text("No personas yet — create one in Settings to share a profile.", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.5.sp)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 personas.forEach { p ->
                     val on = p.id == selectedId
                     Box(
-                        Modifier.clip(RoundedCornerShape(8.dp))
-                            .background(if (on) Color(0x1FFF2D9B) else Color.Transparent)
-                            .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, RoundedCornerShape(8.dp))
+                        Modifier.clip(AzulaShapes.rSm)
+                            .background(if (on) AzulaColors.primarySelected else Color.Transparent)
+                            .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, AzulaShapes.rSm)
                             .clickable { onSelect(p.id) }.padding(horizontal = 10.dp, vertical = 6.dp),
                     ) {
                         Text(p.name, color = if (on) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 12.sp)

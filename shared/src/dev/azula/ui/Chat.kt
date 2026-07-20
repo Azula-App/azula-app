@@ -31,7 +31,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -79,13 +78,15 @@ import dev.azula.state.AzulaState
 import dev.azula.terminal.allText
 import dev.azula.terminal.screenText
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaInputSurface
 
 @Composable
 fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
     val conv = state.conversationOrNull(convId) ?: run {
         Box(
-            modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1))),
+            modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             Text("Connect a peer to start a conversation.", color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 13.sp)
@@ -93,7 +94,7 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         return
     }
     val focusManager = LocalFocusManager.current
-    Column(modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
+    Column(modifier.fillMaxSize()) {
         ChatHeader(state, conv, onBack)
         val cs = state.conv(convId)
         val termLive = conv.kind == ConversationKind.TERMINAL && cs.online
@@ -209,8 +210,7 @@ internal fun PendingMediaPreview(file: PickedFile, onCancel: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(48.dp).clip(A2uiTokens.rMd)
-                .background(A2uiTokens.inputBg).border(1.dp, A2uiTokens.outline, A2uiTokens.rMd),
+            Modifier.size(48.dp).azulaInputSurface(),
             contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null) {
@@ -222,7 +222,7 @@ internal fun PendingMediaPreview(file: PickedFile, onCancel: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(file.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(humanSize(file.bytes.size.toLong()), color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(humanSize(file.bytes.size.toLong()), color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
         }
         Text("✕", color = A2uiTokens.muted, fontSize = 16.sp, modifier = Modifier.clickable { onCancel() }.padding(8.dp))
     }
@@ -266,8 +266,8 @@ private fun TerminalEndedBar(state: AzulaState, convId: String) {
                 Spacer(Modifier.weight(1f))
                 if (canReconnect) {
                     Box(
-                        Modifier.clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                        Modifier.clip(AzulaShapes.rMd)
+                            .border(1.dp, AzulaColors.border4, AzulaShapes.rMd)
                             .clickable {
                                 cs.termSessionId = null
                                 cs.termExited = false
@@ -290,8 +290,8 @@ private fun TerminalEndedBar(state: AzulaState, convId: String) {
                 Spacer(Modifier.weight(1f))
                 if (canReconnect) {
                     Box(
-                        Modifier.clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                        Modifier.clip(AzulaShapes.rMd)
+                            .border(1.dp, AzulaColors.border4, AzulaShapes.rMd)
                             .clickable { state.reconnectTerminal(convId) }
                             .padding(horizontal = 16.dp, vertical = 9.dp),
                     ) {
@@ -337,7 +337,7 @@ fun ChatHeader(state: AzulaState, conv: Conversation, onBack: (() -> Unit)? = nu
                 Text(sub, color = A2uiTokens.muted, fontFamily = Fonts.mono, fontSize = 11.sp, modifier = Modifier.testTag("chat-status"))
             }
             cs.peerDescription?.takeIf { it.isNotBlank() }?.let { desc ->
-                Text(desc, color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+                Text(desc, color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
             }
         }
         // Spawn a sibling terminal session over the same connection. Only terminals:
@@ -468,14 +468,12 @@ private fun LegacyAttachmentView(att: Attachment) {
                 .padding(top = 6.dp)
                 .heightIn(max = 220.dp)
                 .widthIn(max = 260.dp)
-                .clip(RoundedCornerShape(10.dp)),
+                .clip(AzulaShapes.rMd),
         )
     } else {
         Row(
             Modifier.padding(top = 6.dp)
-                .clip(A2uiTokens.rMd)
-                .background(A2uiTokens.inputBg)
-                .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
+                .azulaInputSurface()
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -485,7 +483,7 @@ private fun LegacyAttachmentView(att: Attachment) {
                 att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
             )
-            Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
         }
     }
 }
@@ -515,13 +513,13 @@ private fun ImageAttachmentView(state: AzulaState, convId: String, att: Attachme
                 modifier = Modifier.padding(top = 6.dp)
                     .widthIn(max = 260.dp).heightIn(max = 220.dp)
                     .aspectRatio(ratio)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(AzulaShapes.rMd)
                     .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
             )
         } else {
             Box(
                 Modifier.padding(top = 6.dp).size(180.dp, 140.dp)
-                    .clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg),
+                    .clip(AzulaShapes.rMd).background(AzulaColors.inputBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("🖼", fontSize = 28.sp, color = AzulaColors.textFaint)
@@ -545,7 +543,7 @@ private fun VideoAttachmentView(state: AzulaState, convId: String, att: Attachme
         Box(
             Modifier.padding(top = 6.dp)
                 .let { if (ratio != null) it.widthIn(max = 260.dp).heightIn(max = 220.dp).aspectRatio(ratio) else it.size(180.dp, 140.dp) }
-                .clip(RoundedCornerShape(10.dp))
+                .clip(AzulaShapes.rMd)
                 .background(AzulaColors.codeBlock)
                 .let { if (att.state == TransferState.Complete) it.clickable { state.showFullscreenMedia(convId, att) } else it },
             contentAlignment = Alignment.Center,
@@ -588,9 +586,7 @@ private fun AudioAttachmentView(state: AzulaState, convId: String, att: Attachme
         // (there's no path to open).
         Row(
             Modifier.padding(top = 6.dp)
-                .clip(A2uiTokens.rLg)
-                .background(A2uiTokens.inputBg)
-                .border(1.dp, A2uiTokens.outline, A2uiTokens.rLg)
+                .azulaInputSurface(AzulaShapes.rLg)
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .widthIn(min = 200.dp, max = 260.dp)
                 .testTag("attachment-complete"),
@@ -619,9 +615,7 @@ private fun AudioAttachmentView(state: AzulaState, convId: String, att: Attachme
     } else {
         Row(
             Modifier.padding(top = 6.dp)
-                .clip(A2uiTokens.rLg)
-                .background(A2uiTokens.inputBg)
-                .border(1.dp, A2uiTokens.outline, A2uiTokens.rLg)
+                .azulaInputSurface(AzulaShapes.rLg)
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .widthIn(min = 200.dp, max = 260.dp)
                 .testTag("attachment-complete"),
@@ -651,9 +645,7 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
     }
     Row(
         Modifier.padding(top = 6.dp)
-            .clip(A2uiTokens.rMd)
-            .background(A2uiTokens.inputBg)
-            .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
+            .azulaInputSurface()
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .testTag("attachment-complete"),
         verticalAlignment = Alignment.CenterVertically,
@@ -664,7 +656,7 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
             att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp),
         )
-        Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        Text(" · ${humanSize(att.size)}", color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
     }
 }
 
@@ -680,9 +672,7 @@ private fun FileAttachmentView(state: AzulaState, convId: String, att: Attachmen
 private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment) {
     Row(
         Modifier.padding(top = 6.dp)
-            .clip(A2uiTokens.rMd)
-            .background(A2uiTokens.inputBg)
-            .border(1.dp, A2uiTokens.outline, A2uiTokens.rMd)
+            .azulaInputSurface()
             .padding(horizontal = 10.dp, vertical = 7.dp)
             .widthIn(max = 260.dp)
             .testTag(attachmentStateTestTag(att.state)),
@@ -717,7 +707,7 @@ private fun TransferChromeRow(state: AzulaState, convId: String, att: Attachment
                     att.name, color = A2uiTokens.contentBright, fontFamily = Fonts.ui, fontSize = 12.5.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
-                Text(humanSize(att.size), color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text(humanSize(att.size), color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
                 Spacer(Modifier.width(9.dp))
                 Text("⬇", color = A2uiTokens.primaryLight, fontSize = 15.sp, modifier = Modifier.clickable { state.startFetch(convId, att.id) })
             }
@@ -792,7 +782,7 @@ fun ChatInput(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("^C", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                Text("^C", color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
         }
         Box(

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
@@ -36,7 +35,9 @@ import dev.azula.link.AzulaLinks
 import dev.azula.link.InviteCodec
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaInputSurface
 import kotlinx.coroutines.launch
 
 private enum class InviteExpiry(val label: String, val seconds: Long?, val summary: String) {
@@ -90,8 +91,7 @@ fun CreateInviteContent(state: AzulaState) {
                 Text(expiry.summary, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             }
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
-                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                Modifier.fillMaxWidth().azulaInputSurface()
                     .clickable { clipboard.setText(AnnotatedString(link)); state.markCopied() }
                     .padding(horizontal = 13.dp, vertical = 11.dp),
                 contentAlignment = Alignment.Center,
@@ -104,7 +104,7 @@ fun CreateInviteContent(state: AzulaState) {
             }
             Text(
                 (if (showRawCode) "raw code ⌄" else "raw code ›"),
-                color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
                 modifier = Modifier.clickable { showRawCode = !showRawCode },
             )
             if (showRawCode) {
@@ -115,14 +115,14 @@ fun CreateInviteContent(state: AzulaState) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("EXPIRES", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
+        Text("EXPIRES", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 10.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             InviteExpiry.entries.forEach { e ->
                 val on = e == expiry
                 Box(
-                    Modifier.clip(RoundedCornerShape(8.dp))
-                        .background(if (on) Color(0x1FFF2D9B) else Color.Transparent)
-                        .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, RoundedCornerShape(8.dp))
+                    Modifier.clip(AzulaShapes.rSm)
+                        .background(if (on) AzulaColors.primarySelected else Color.Transparent)
+                        .border(1.dp, if (on) AzulaColors.pink else AzulaColors.border4, AzulaShapes.rSm)
                         .clickable { expiry = e }.padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
                     Text(e.label, color = if (on) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 12.sp)
@@ -133,7 +133,7 @@ fun CreateInviteContent(state: AzulaState) {
         InviteToggleRow("single-use", "stops working after the first accept", singleUse) { singleUse = it }
         if (error) Text("couldn't create the invite — try again.", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.5.sp)
         Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(PinkButtonBrush)
+            Modifier.fillMaxWidth().clip(AzulaShapes.rMd).background(PinkButtonBrush)
                 .clickable(enabled = !creating) {
                     creating = true
                     error = false
@@ -156,7 +156,7 @@ private fun InviteToggleRow(label: String, subtitle: String, checked: Boolean, o
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(label, color = AzulaColors.text2, fontFamily = Fonts.ui, fontSize = 13.sp)
-            Text(subtitle, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.5.sp)
+            Text(subtitle, color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 10.5.sp)
         }
         Switch(checked = checked, onCheckedChange = onChange)
     }

@@ -18,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,9 +27,13 @@ import dev.azula.theme.Fonts
 
 @Composable
 fun DesktopApp(state: AzulaState) {
-    // bg1 stays full-bleed; the content row is inset for safe areas (iPad notch /
-    // home indicator). On JVM/desktop these insets are empty, so it's a no-op.
-    Box(Modifier.fillMaxSize().background(AzulaColors.bg1)) {
+    // Transparent so the app-root AzulaBrushes.appBackground wash (applied in
+    // App.kt) shows through, matching MobileApp.kt. The content row is inset for
+    // safe areas (iPad notch / home indicator); on JVM/desktop these insets are
+    // empty, so it's a no-op. Sidebar and ChatPane's panes each own their fill
+    // (bgSidebar / SettingsScreen's bg1 / transparent-over-wash), so this Box no
+    // longer needs to paint anything itself.
+    Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Sidebar(state, Modifier.width(248.dp).fillMaxHeight())
             Box(Modifier.width(1.dp).fillMaxHeight().background(AzulaColors.border))
@@ -50,7 +53,7 @@ fun DesktopApp(state: AzulaState) {
 
 @Composable
 private fun ConnectPane(state: AzulaState) {
-    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
+    Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             GlyphBox(GlyphStyle.PINK, "+")
             Spacer(Modifier.width(12.dp))

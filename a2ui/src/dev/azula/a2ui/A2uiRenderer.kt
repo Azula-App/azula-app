@@ -55,7 +55,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import dev.azula.theme.AzulaButtonVariant
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaButtonSurface
+import dev.azula.theme.azulaCard
 import dev.azula.ui.cacheAudioFile
 import dev.azula.ui.decodeImageBitmap
 import dev.azula.ui.rememberAudioPlayer
@@ -287,16 +290,7 @@ private fun RenderCard(
 ) {
     val childId = prop(comp, "child")?.jsonPrimitive?.contentOrNull
     val nested  = prop(comp, "variant")?.jsonPrimitive?.contentOrNull == "nested"
-    val base = if (nested) {
-        Modifier.clip(A2uiTokens.rLg)
-            .border(1.dp, A2uiTokens.outlineStrong, A2uiTokens.rLg)
-    } else {
-        Modifier
-            .shadow(6.dp, A2uiTokens.rLg)
-            .clip(A2uiTokens.rLg)
-            .background(A2uiTokens.surfaceAlt)
-            .border(1.dp, A2uiTokens.outlineSoft, A2uiTokens.rLg)
-    }
+    val base = Modifier.azulaCard(nested = nested)
     Column(base.wrapContentWidth().padding(16.dp)) {
         if (childId != null) RenderComponent(childId, surface, onAction, onDataModelChange)
     }
@@ -427,17 +421,13 @@ private fun RenderButton(
     val actionDef = prop(comp, "action") as? JsonObject
     val compId    = comp["id"]?.jsonPrimitive?.contentOrNull ?: ""
 
-    val fill: Modifier = when (variant) {
-        "primary"    -> Modifier
-            .shadow(10.dp, A2uiTokens.rMd, spotColor = A2uiTokens.primary, ambientColor = A2uiTokens.primary)
-            .clip(A2uiTokens.rMd)
-            .background(A2uiTokens.primaryBrush)
-        "borderless" -> Modifier
-        else         -> Modifier
-            .clip(A2uiTokens.rMd)
-            .background(A2uiTokens.surfaceAlt)
-            .border(1.dp, A2uiTokens.outlineStrong, A2uiTokens.rMd)
-    }
+    val fill: Modifier = Modifier.azulaButtonSurface(
+        when (variant) {
+            "primary"    -> AzulaButtonVariant.Primary
+            "borderless" -> AzulaButtonVariant.Borderless
+            else         -> AzulaButtonVariant.Default
+        },
+    )
     val hPad = if (variant == "borderless") 6.dp else 16.dp
 
     Box(
@@ -633,7 +623,7 @@ private fun RenderChoicePicker(
                         if (multi) TickBox(isSel) else RadioDot(isSel)
                         Column(Modifier.padding(start = 11.dp)) {
                             Text(optLabel, color = if (isSel) A2uiTokens.contentBright else A2uiTokens.content, fontFamily = Fonts.ui, fontSize = 13.5.sp)
-                            if (optDesc != null) Text(optDesc, color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+                            if (optDesc != null) Text(optDesc, color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 11.sp)
                         }
                     }
                 }
@@ -760,7 +750,7 @@ private fun RenderImage(comp: JsonObject, surface: A2uiSurface) {
         mod.background(Brush.linearGradient(listOf(A2uiTokens.pinkFaint, A2uiTokens.blueFaint))),
         contentAlignment = Alignment.Center,
     ) {
-        Text("IMG", color = A2uiTokens.mutedFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
+        Text("IMG", color = A2uiTokens.mutedSmall, fontFamily = Fonts.mono, fontSize = 10.sp)
     }
 }
 
@@ -931,7 +921,7 @@ internal fun PlayTriangle(dim: androidx.compose.ui.unit.Dp, color: Color) {
 private fun FallbackChip(type: String) {
     Text(
         text       = "⚠ $type",
-        color      = A2uiTokens.mutedFaint,
+        color      = A2uiTokens.mutedSmall,
         fontFamily = Fonts.mono,
         fontSize   = 11.sp,
         modifier   = Modifier

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
 
 /**
@@ -84,9 +84,9 @@ fun MarkdownText(source: String, color: Color, mine: Boolean = false) {
 
                 is MdBlock.CodeBlock -> Box(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp)
-                        .clip(RoundedCornerShape(9.dp))
+                        .clip(AzulaShapes.rMd)
                         .background(AzulaColors.codeBlock)
-                        .border(1.dp, AzulaColors.border3, RoundedCornerShape(9.dp))
+                        .border(1.dp, AzulaColors.border3, AzulaShapes.rMd)
                         .horizontalScroll(rememberScrollState())
                         .padding(12.dp),
                 ) {
@@ -95,7 +95,7 @@ fun MarkdownText(source: String, color: Color, mine: Boolean = false) {
 
                 is MdBlock.BlockQuote -> Row(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(AzulaShapes.rXs)
                         .background(AzulaColors.pink.copy(alpha = 0.08f)),
                 ) {
                     Box(Modifier.width(2.dp).background(AzulaColors.pink))

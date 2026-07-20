@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,7 +45,10 @@ import dev.azula.model.ConnectStage
 import dev.azula.state.AzulaState
 import dev.azula.state.toFrame
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaGlowHalo
+import dev.azula.theme.azulaInputSurface
 
 /**
  * [useBottomSheetForCreateInvite] lets the desktop pane opt into an inline
@@ -92,15 +94,13 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("INVITE A PEER", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+        Text("INVITE A PEER", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
         Text(
             "mint a link that lets someone connect to you — set an expiry, sign it, or make it single-use.",
             color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
         )
         Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
-                .background(Brush.linearGradient(listOf(Color(0x33FF2D9B), Color(0x14FF2D9B))))
-                .border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(13.dp))
+            Modifier.fillMaxWidth().azulaGlowHalo()
                 .clickable { showCreateInvite = !showCreateInvite }
                 .padding(12.dp),
             contentAlignment = Alignment.Center,
@@ -108,14 +108,14 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
             Text("+ create invite", color = AzulaColors.pinkLight, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         }
         if (showCreateInvite && !useBottomSheet) {
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(AzulaColors.bg2).padding(14.dp)) {
+            Box(Modifier.fillMaxWidth().clip(AzulaShapes.rLg).background(AzulaColors.bg2).padding(14.dp)) {
                 CreateInviteContent(state)
             }
         }
 
         Text(
             "legacy code" + if (showLegacyCode) " ⌄" else " ›",
-            color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+            color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
             modifier = Modifier.clickable { showLegacyCode = !showLegacyCode },
         )
         if (showLegacyCode) {
@@ -124,8 +124,7 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
                     Text(state.shortCode, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                     Spacer(Modifier.width(10.dp))
                     Box(
-                        Modifier.clip(RoundedCornerShape(8.dp)).background(AzulaColors.inputBg)
-                            .border(1.dp, AzulaColors.border4, RoundedCornerShape(8.dp))
+                        Modifier.azulaInputSurface(AzulaShapes.rSm)
                             .clickable { clipboard.setText(AnnotatedString(state.myCode)); state.markCopied() }
                             .padding(horizontal = 11.dp, vertical = 7.dp),
                     ) {
@@ -151,13 +150,12 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.weight(1f).height(1.dp).background(AzulaColors.border3))
-            Text("or join a peer", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text("or join a peer", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             Box(Modifier.weight(1f).height(1.dp).background(AzulaColors.border3))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(AzulaColors.inputBg)
-                    .border(1.dp, AzulaColors.border4, RoundedCornerShape(10.dp))
+                Modifier.weight(1f).azulaInputSurface()
                     .padding(horizontal = 13.dp, vertical = 11.dp),
             ) {
                 BasicTextField(
@@ -176,7 +174,7 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
                 )
             }
             Box(
-                Modifier.clip(RoundedCornerShape(10.dp)).background(PinkButtonBrush)
+                Modifier.clip(AzulaShapes.rMd).background(PinkButtonBrush)
                     .clickable { beginConnect(state.connectInput) }
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             ) {
@@ -187,7 +185,7 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
         // by default so guest-connecting stays a single paste + tap.
         Text(
             if (showShareOptions) "sharing a profile ⌄" else "share a profile? (optional) ›",
-            color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+            color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
             modifier = Modifier.clickable { showShareOptions = !showShareOptions },
         )
         if (showShareOptions) {
@@ -224,7 +222,7 @@ private fun HolepunchProgress(state: AzulaState) {
         // ── who you're connecting to ──
         if (peerCode != null || peerName != null) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("CONNECTING TO", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
+                Text("CONNECTING TO", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 10.sp)
                 if (peerConv != null) AvatarBox(peerCs?.peerAvatarBitmap, peerConv.glyph, peerConv.kind, size = 52.dp)
                 if (peerName != null) Text(peerName, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 peerCode?.let { Text(it, color = AzulaColors.pink, fontFamily = Fonts.mono, fontWeight = FontWeight.Bold, fontSize = 15.sp) }

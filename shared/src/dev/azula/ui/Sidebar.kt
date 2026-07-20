@@ -50,7 +50,9 @@ import dev.azula.platformName
 import dev.azula.model.Conversation
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaMutedPanel
 
 @Composable
 fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
@@ -78,9 +80,9 @@ fun Sidebar(state: AzulaState, modifier: Modifier = Modifier) {
 @Composable
 fun SettingsRow(active: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+        Modifier.fillMaxWidth().clip(AzulaShapes.rMd)
             .background(if (active) Color(0x14FFFFFF) else Color.Transparent)
-            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, RoundedCornerShape(11.dp))
+            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, AzulaShapes.rMd)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -94,9 +96,9 @@ fun SettingsRow(active: Boolean, onClick: () -> Unit) {
 @Composable
 fun InvitesRow(active: Boolean, pending: Int, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
+        Modifier.fillMaxWidth().clip(AzulaShapes.rMd)
             .background(if (active) Color(0x14FFFFFF) else Color.Transparent)
-            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, RoundedCornerShape(11.dp))
+            .border(1.dp, if (active) AzulaColors.border4 else Color.Transparent, AzulaShapes.rMd)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 9.dp)
             // Stable regardless of the pending count -- unlike this row's own
@@ -156,9 +158,9 @@ fun SectionLabel(text: String) {
 @Composable
 fun ConnectRow(active: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
-            .background(if (active) Color(0x1FFF2D9B) else Color.Transparent)
-            .border(1.dp, if (active) Color(0x99FF2D9B) else Color(0x66FF2D9B), RoundedCornerShape(11.dp))
+        Modifier.fillMaxWidth().clip(AzulaShapes.rMd)
+            .background(if (active) AzulaColors.primarySelected else Color.Transparent)
+            .border(1.dp, if (active) AzulaColors.primaryEdgeStrong else AzulaColors.primaryEdge, AzulaShapes.rMd)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -232,9 +234,9 @@ fun ConversationRow(
     var menuOpen by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .background(if (active) Color(0x1AFF2D9B) else Color.Transparent)
-            .border(1.dp, if (active) Color(0x4DFF2D9B) else Color.Transparent, RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().clip(AzulaShapes.rLg)
+            .background(if (active) AzulaColors.primaryWash else Color.Transparent)
+            .border(1.dp, if (active) AzulaColors.primaryEdge else Color.Transparent, AzulaShapes.rLg)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = if (hasMenu) {
@@ -260,12 +262,12 @@ fun ConversationRow(
                     !description.isNullOrBlank() -> description
                     else -> conv.preview
                 },
-                color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 11.sp,
+                color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         if (online && conv.enabled && rttMs != null) {
-            Text("${rttMs}ms", color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 10.sp)
+            Text("${rttMs}ms", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 10.sp)
         }
         StatusDot(statusDotColor(online, conv.enabled, conv.kind))
         if (hasMenu) {
@@ -286,15 +288,14 @@ fun ConversationRow(
 fun YourCodeBox(state: AzulaState) {
     val clipboard = LocalClipboardManager.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(AzulaColors.bg2)
-            .border(1.dp, AzulaColors.border2, RoundedCornerShape(12.dp)).padding(11.dp),
+        Modifier.fillMaxWidth().azulaMutedPanel().padding(11.dp),
     ) {
         Text("YOUR CODE", color = AzulaColors.textFaint2, fontFamily = Fonts.mono, fontSize = 10.sp)
         Spacer(Modifier.height(5.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(state.shortCode, color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(
-                Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, AzulaColors.border4, RoundedCornerShape(6.dp))
+                Modifier.clip(AzulaShapes.rXs).border(1.dp, AzulaColors.border4, AzulaShapes.rXs)
                     .clickable { clipboard.setText(AnnotatedString(state.myCode)); state.markCopied() }
                     .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {

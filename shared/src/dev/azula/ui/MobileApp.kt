@@ -23,14 +23,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -39,7 +36,9 @@ import androidx.compose.ui.unit.sp
 import dev.azula.state.AzulaState
 import dev.azula.state.MScreen
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
+import dev.azula.theme.azulaGlowHalo
 
 @Composable
 fun MobileApp(state: AzulaState) {
@@ -57,7 +56,7 @@ fun MobileApp(state: AzulaState) {
     PlatformBackHandler(
         enabled = state.pendingShare == null && state.fullscreenMedia == null && state.mScreen != MScreen.HOME,
     ) { state.mobileBack() }
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(AzulaColors.bg2, AzulaColors.bg1)))) {
+    Box(Modifier.fillMaxSize()) {
         // Keep the gradient full-bleed (edge to edge) but inset the content so it
         // clears the status bar / camera cutout / home indicator and the keyboard.
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -114,8 +113,8 @@ private fun MobileHome(state: AzulaState) {
             Spacer(Modifier.height(14.dp))
             if (state.pendingInvites.isNotEmpty()) {
                 Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp))
-                        .background(Color(0x1FFF2D9B)).border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(11.dp))
+                    Modifier.fillMaxWidth().clip(AzulaShapes.rMd)
+                        .background(AzulaColors.primarySelected).border(1.dp, AzulaColors.primaryEdge, AzulaShapes.rMd)
                         .clickable { state.openInvitesMobile() }
                         .padding(horizontal = 13.dp, vertical = 10.dp),
                 ) {
@@ -132,9 +131,7 @@ private fun MobileHome(state: AzulaState) {
             YourCodeBox(state)
             Spacer(Modifier.height(9.dp))
             Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
-                    .background(Brush.linearGradient(listOf(Color(0x33FF2D9B), Color(0x14FF2D9B))))
-                    .border(1.dp, Color(0x66FF2D9B), RoundedCornerShape(13.dp))
+                Modifier.fillMaxWidth().azulaGlowHalo()
                     .clickable { state.openConnectMobile() }
                     .padding(12.dp),
                 contentAlignment = Alignment.Center,

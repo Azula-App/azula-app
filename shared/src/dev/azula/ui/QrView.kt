@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -18,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.azula.link.Qr
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 
 /**
  * A real, scannable QR of [data] — hand-rolled encoder (see [Qr]). Dark modules
@@ -31,8 +31,8 @@ fun QrCode(data: String) {
     val n = modules.size
     val dark = Color(0xFF070709) // brand near-black
     Box(
-        Modifier.size(168.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(12.dp)),
+        Modifier.size(168.dp).clip(AzulaShapes.rLg).background(Color.White)
+            .border(1.dp, AzulaColors.border4, AzulaShapes.rLg),
     ) {
         Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
             // Reserve a quiet zone (~4 modules of white) so the finder patterns read cleanly.

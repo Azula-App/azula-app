@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,6 +23,7 @@ import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.ctrl
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
 
 /**
@@ -62,9 +62,9 @@ fun TerminalKeysBar(session: TerminalSession, convId: String) {
 @Composable
 private fun Keycap(label: String, onTap: () -> Unit) {
     Box(
-        Modifier.clip(RoundedCornerShape(7.dp))
+        Modifier.clip(AzulaShapes.rSm)
             .background(AzulaColors.inputBg)
-            .border(1.dp, AzulaColors.border4, RoundedCornerShape(7.dp))
+            .border(1.dp, AzulaColors.border4, AzulaShapes.rSm)
             .pointerInput(Unit) { detectTapGestures { onTap() } }
             .padding(horizontal = 13.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,

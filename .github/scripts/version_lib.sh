@@ -24,7 +24,7 @@ parse_semver() {
 # would both give 10100, and after that a *higher* version could produce a *lower*
 # code, which Play would reject. Rather than silently paper over it, refuse to cut
 # the release; widening the multipliers later is safe (every code grows), narrowing
-# them is not. See azula-docs/docs/release.md.
+# them is not. See azula-docs/openspec/specs/release/design.md.
 version_code() {
   local major="$1" minor="$2" patch="$3"
   if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then

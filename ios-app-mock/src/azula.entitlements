@@ -8,7 +8,7 @@
 	  the AASA file at https://azula.app/.well-known/apple-app-site-association
 	  to list "<TeamID>.<bundleId>" (served by site/, fill the TeamID). Use
 	  "applinks:azula.app?mode=developer" while testing on a device.
-	  See docs/deeplinks.md.
+	  See azula-docs/openspec/specs/deeplinks/design.md.
 	-->
 	<key>com.apple.developer.associated-domains</key>
 	<array>

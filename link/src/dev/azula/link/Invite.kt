@@ -4,7 +4,7 @@ private const val INVITE_PREFIX = "azi"
 private const val CURRENT_VERSION = 1
 
 // Binary layout offsets/sizes (all integers big-endian) — see
-// azula-docs/docs/invitations.md for the full spec and shared test vectors.
+// azula-docs/openspec/specs/invitations/design.md for the full spec and shared test vectors.
 private const val INVITE_ID_LEN = 8
 private const val HEADER_LEN = 20 // version(1) + flags(1) + inviteId(8) + issuedAt(4) + expiresAt(4) + ticketLen(2)
 private const val SIGNATURE_LEN = 64
@@ -12,7 +12,7 @@ private const val SIGNATURE_LEN = 64
 /**
  * A decoded azula invite: the ticket plus identity (an invite id), a validity
  * window, and optional single-use/signed semantics. See
- * azula-docs/docs/invitations.md for the trust model — the ticket lets a
+ * azula-docs/openspec/specs/invitations/design.md for the trust model — the ticket lets a
  * redeemer dial, but the issuer only ever trusts invites it finds in its own
  * issued-invite store.
  */
@@ -53,7 +53,7 @@ data class InvitePayload(
  * rendered as `"azi" + base32(payload)` (RFC 4648, no padding, lowercase — see
  * [Base32]). Pure layout/parsing only: signing and verifying the signature is
  * the caller's job, via [InvitePayload.signedInputBytes]. See
- * azula-docs/docs/invitations.md for the wire layout and the shared V1/V2 test
+ * azula-docs/openspec/specs/invitations/design.md for the wire layout and the shared V1/V2 test
  * vectors this codec must match byte-for-byte.
  */
 object InviteCodec {

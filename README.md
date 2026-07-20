@@ -52,7 +52,7 @@ across web, apps, and LLMs (full design in `site/URLS.md`):
   speak iroh, so the bridge runs on a host).
 - `/.well-known/apple-app-site-association` + `/.well-known/assetlinks.json` for
   iOS/Android deeplinks (placeholders until the apps are signed — see
-  `docs/deeplinks.md`).
+  `azula-docs/openspec/specs/deeplinks/design.md`).
 
 Deeplinks route into the app's existing connect flow via `dev.azula.link`.
 
@@ -77,8 +77,8 @@ Uses the Amper toolchain wrapper (`./kotlin`). JDK 21+.
 ./kotlin build -m jvm-app        # compile desktop (verified)
 ./kotlin run   -m jvm-app        # run the desktop app
 ./kotlin check -m shared -p jvm  # run unit tests (markdown + protocol codec)
-./kotlin build -m android-app    # see docs/android-iroh.md (needs NDK-built .so)
-./kotlin build -m ios-app        # see docs/ios-iroh.md (add IrohLib in Xcode)
+./kotlin build -m android-app    # see azula-docs/openspec/specs/iroh-kmp/design.md (needs NDK-built .so)
+./kotlin build -m ios-app        # see azula-docs/openspec/specs/iroh-kmp/design.md (add IrohLib in Xcode)
 ```
 
 The Rust server:

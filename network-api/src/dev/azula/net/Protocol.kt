@@ -20,7 +20,7 @@ sealed class Frame {
      * display fallback; a paired bridge identifies us by node id regardless.
      * [invite] is the full encoded invite string (`azi…`, see
      * `dev.azula.link.InviteCodec`), sent by a redeemer dialing a stranger until
-     * the issuer has accepted it (see azula-docs/docs/invitations.md). Known
+     * the issuer has accepted it (see azula-docs/openspec/specs/invitations/design.md). Known
      * peers omit it; old peers ignore it.
      */
     @Serializable

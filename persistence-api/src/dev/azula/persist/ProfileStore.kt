@@ -26,7 +26,7 @@ data class ProfileBook(
     val defaultId: String? = null,
     /** Legacy home of the terminal-input-mode flag, kept only so pre-`SettingsStore`
      *  installs can be migrated (see `dev.azula.persist.SettingsStore` and
-     *  `dev.azula.state.SettingsService`; azula-docs/docs/tech-debt.md §6). The live
+     *  `dev.azula.state.SettingsService`; azula-docs/openspec/changes/settings-store-extraction/). The live
      *  value now lives in `SettingsStore`/`AppSettings.terminalSmartInput` --
      *  `PersonaService` only reads/writes this field to preserve it across persona
      *  saves for old app versions during the transition, it no longer drives the UI. */

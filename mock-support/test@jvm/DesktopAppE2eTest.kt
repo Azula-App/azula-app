@@ -91,7 +91,7 @@ class DesktopAppE2eTest {
         // delayed emit, then a full click -> recompose -> layout -> draw pass for
         // ChatHeader -- so their timeout is CPU-contention headroom, not protocol
         // time. 5s was tight enough to intermittently throw ComposeTimeoutException
-        // under concurrent load (azula-docs/docs/tech-debt.md §7); 15s gives real
+        // under concurrent load (see azula-docs/openspec/specs/testing/design.md, "Known flakes"); 15s gives real
         // margin without masking an actual hang (this conversation is never
         // reconnecting/offline in the mock, so a genuine failure still times out
         // and fails, just slower).
@@ -195,7 +195,7 @@ class DesktopAppE2eTest {
         // hops -- inject -> onMediaOffer -> startFetch -> FakeMediaStream chunks ->
         // Complete -> recompose -- entirely off Dispatchers.Default, so it's the
         // most load-sensitive wait in this suite; 8s still intermittently threw
-        // ComposeTimeoutException under concurrent CPU load (tech-debt.md §7), so
+        // ComposeTimeoutException under concurrent CPU load (see testing/design.md, "Known flakes"), so
         // this uses the same 20s headroom as the other timing-sensitive waits here.
         waitUntilExactlyOneExists(hasTestTag("attachment-complete"), timeoutMillis = 20_000)
     }

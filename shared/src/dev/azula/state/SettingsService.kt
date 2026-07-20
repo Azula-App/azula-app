@@ -13,7 +13,7 @@ import dev.zacsweers.metro.SingleIn
  * Owns small standalone app settings backed by the injected [SettingsStore] --
  * currently just the terminal input mode. Extracted so `terminalSmartInput` has a
  * real dedicated store instead of piggybacking on `ProfileBook` (the personas
- * blob) -- see azula-docs/docs/tech-debt.md §6, "Settings live in ProfileBook".
+ * blob) -- see azula-docs/openspec/changes/settings-store-extraction/, "Settings live in ProfileBook".
  *
  * **Migration.** Pre-`SettingsStore` installs only ever wrote the flag into
  * `ProfileBook.terminalSmartInput` (loaded by [PersonaService]). [load] takes that

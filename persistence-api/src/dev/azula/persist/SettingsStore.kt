@@ -7,7 +7,7 @@ import kotlinx.serialization.json.Json
  * The app's small collection of standalone user settings -- not persona/profile
  * data, not per-conversation history. Currently just the terminal input mode;
  * more flags should land here rather than piggybacking on [ProfileBook] (see
- * azula-docs/docs/tech-debt.md §6, "Settings live in ProfileBook").
+ * azula-docs/openspec/changes/settings-store-extraction/, "Settings live in ProfileBook").
  */
 @Serializable
 data class AppSettings(

@@ -10,7 +10,7 @@ The `-mock` apps launch **pre-populated** (`mock-support`'s `SeededMessageStore`
 (`bu · kite · lyra`, a canned transcript). Row labels for the terminals come from
 `ConversationStore.mnemonicCode`, so changing a demo peer's id renames its row and
 these selectors with it. Keep these flows thin — packaging and platform glue only
-(see `azula-docs/docs/testing.md`); behavioral depth belongs in the JVM Compose
+(see `azula-docs/openspec/specs/testing/design.md`); behavioral depth belongs in the JVM Compose
 suite.
 
 ## Layout: one entry flow per platform, shared journeys in `subflows/`

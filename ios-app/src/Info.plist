@@ -25,7 +25,7 @@
 	<!-- Export compliance: azula's only encryption is iroh's standard QUIC + TLS 1.3
 	     transport (no proprietary crypto), which is exempt. Declaring it here keeps
 	     every TestFlight build out of "Missing Compliance" and needs no annual
-	     self-classification filing. See azula-docs/docs/release.md. -->
+	     self-classification filing. See azula-docs/openspec/specs/release/design.md. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchScreen</key>
@@ -61,7 +61,7 @@
 	<true/>
 	<!-- Custom scheme fallback: azula://connect?code=<token>. Universal links
 	     (https://azula.app/s/<token>) use the Associated Domains entitlement
-	     (azula.entitlements) + the AASA file served by site/. See docs/deeplinks.md. -->
+	     (azula.entitlements) + the AASA file served by site/. See azula-docs/openspec/specs/deeplinks/design.md. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

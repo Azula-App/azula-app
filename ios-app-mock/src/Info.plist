@@ -24,7 +24,7 @@
 	<true/>
 	<!-- Custom scheme fallback: azula://connect?code=<token>. Universal links
 	     (https://azula.app/s/<token>) use the Associated Domains entitlement
-	     (azula.entitlements) + the AASA file served by site/. See docs/deeplinks.md. -->
+	     (azula.entitlements) + the AASA file served by site/. See azula-docs/openspec/specs/deeplinks/design.md. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

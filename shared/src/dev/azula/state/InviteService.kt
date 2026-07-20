@@ -40,7 +40,7 @@ data class PendingConnectionRequest(
  * Owns invitations: minting/revoking invites this device issued, verifying an
  * inbound stranger's `Hello.invite` against the issued store, and the pending
  * accept/decline inbox for strangers whose stream [ConnectService] is holding
- * open. See azula-docs/docs/invitations.md for the full trust model and the
+ * open. See azula-docs/openspec/specs/invitations/design.md for the full trust model and the
  * verification checklist [verifyInbound] implements.
  */
 @Inject
@@ -125,7 +125,7 @@ class InviteService(
 
     /**
      * Verify a stranger's `Hello.invite` against the issued store. Returns the
-     * matching [IssuedInvite] iff every check in azula-docs/docs/invitations.md's
+     * matching [IssuedInvite] iff every check in azula-docs/openspec/specs/invitations/design.md's
      * verification list passes; null on any failure (wrong version, unknown or
      * revoked id, expired, bad/missing signature, already-consumed single-use) --
      * never throws.

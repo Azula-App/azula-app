@@ -133,7 +133,7 @@ class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
      * full stranger-gate path (`ConnectService.handleStrangerConnection` ->
      * `InviteService.enqueuePending` -> `state.pendingInvites` -> the Invites
      * screen / `InviteReviewSheet`) without a second real peer. Kept minimal and
-     * clearly test-oriented (azula-docs/docs/tech-debt.md §5): unlike
+     * clearly test-oriented (azula-docs/openspec/changes/invite-review-ui-test/): unlike
      * [injectIncoming] (which pushes a frame into an *existing* loopback this
      * transport dialed out to), this synthesizes the inbound connection itself,
      * so the caller supplies its own [P2pStream] (e.g. a fresh
@@ -161,7 +161,7 @@ class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
      *  plus "buildbot" (a canned, non-interactive build transcript, [BUILDBOT_GREETING])
      *  when [demoTerminal] is on. Their remoteIds must be pre-seeded as known contacts
      *  via [MockInvitationsStore] -- ConnectService's stranger gate (see
-     *  azula-docs/docs/invitations.md) closes an unknown peer's TERM/LLM stream outright,
+     *  azula-docs/openspec/specs/invitations/design.md) closes an unknown peer's TERM/LLM stream outright,
      *  with no accept path for either.
      *
      *  Their ids must stay distinct **in the first mnemonic segment**, not merely
@@ -251,7 +251,7 @@ private class FakeTerminalStream(
     // eager greeting used to be parsed by the emulator at its default 80-col
     // width and never reflowed on the later resize (resize() is top-anchored,
     // not a reflow) -- corrupting any width-sensitive replayed content. See
-    // azula-docs/docs/tech-debt.md §6, "Mock terminal feeds before resize."
+    // azula-docs/openspec/changes/mock-terminal-resize-greeting/, "Mock terminal feeds before resize."
     private fun greet() {
         if (greeted) return
         greeted = true

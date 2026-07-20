@@ -4,7 +4,7 @@ package dev.azula.terminal
  * Which xterm mouse-tracking DECSET mode is currently active (`?1000`/`1002`/
  * `1003`), `OFF` if none. [TerminalEmulator.mouseTrackingMode] surfaces this so
  * the UI knows whether/what to report -- see `TerminalEmulator.setModes` for how
- * DECSET/DECRST flip it, and azula-docs/docs/tech-debt.md §6 ("Mouse reporting")
+ * DECSET/DECRST flip it, and azula-docs/openspec/changes/terminal-mouse-reporting/ ("Mouse reporting")
  * for the feature this unblocks.
  *
  * `BUTTON_EVENT`/`ANY_EVENT` are surfaced (so a caller can tell them apart from
@@ -38,7 +38,7 @@ private val ESC_CH = 0x1b.toChar()
  * - **SGR** (`ESC [ < Cb ; Cx ; Cy M` for press/motion, the same with a
  *   lowercase final `m` for release): arbitrary terminal sizes, unambiguous
  *   press vs. release, and the real button id is still known on release.
- *   Prioritized per azula-docs/docs/tech-debt.md §6 -- this is what
+ *   Prioritized per azula-docs/openspec/changes/terminal-mouse-reporting/ -- this is what
  *   `TerminalView` actually sends when `?1006` is enabled.
  * - **Legacy X10** (`ESC [ M Cb Cx Cy`, one byte each, value+32): the fallback
  *   when `?1006` isn't enabled. Only correct for `col`/`row` up to 223 (a byte

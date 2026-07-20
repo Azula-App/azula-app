@@ -20,7 +20,7 @@ import kotlin.test.assertEquals
  * the raw invite string to [dev.azula.net.PeerStore] -- not just the bare
  * ticket -- so a later reconnect can keep re-presenting it (see
  * ConnectService.resolveTicket / persistPeer and
- * azula-docs/docs/invitations.md's "keeps re-presenting it on auto-reconnect"
+ * azula-docs/openspec/specs/invitations/design.md's "keeps re-presenting it on auto-reconnect"
  * rule).
  */
 class InviteDialingTest {

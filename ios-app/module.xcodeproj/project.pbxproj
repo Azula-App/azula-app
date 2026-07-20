@@ -243,7 +243,7 @@
 				// extension can never ship different versions (Apple rejects that).
 				CURRENT_PROJECT_VERSION = 1;
 				// Not a secret -- it also has to be published in the AASA as
-				// "<TeamID>.app.azula" (see azula-docs/docs/deeplinks.md). Hardcoded
+				// "<TeamID>.app.azula" (see azula-docs/openspec/specs/deeplinks/design.md). Hardcoded
 				// because Xcode does not read build settings from the environment; CI
 				// additionally passes DEVELOPMENT_TEAM=$APPLE_TEAM_ID on the xcodebuild
 				// command line, and a CLI override wins.

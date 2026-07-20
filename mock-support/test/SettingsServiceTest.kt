@@ -9,7 +9,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Covers `dev.azula.state.SettingsService` (azula-docs/docs/tech-debt.md §6,
+ * Covers `dev.azula.state.SettingsService` (azula-docs/openspec/changes/settings-store-extraction/,
  * "Settings live in ProfileBook") -- the dedicated `SettingsStore` extracted so
  * `terminalSmartInput` no longer piggybacks on the personas blob: the
  * persist/restore round-trip through `AzulaState.terminalSmartInput` /

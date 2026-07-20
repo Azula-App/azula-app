@@ -26,7 +26,7 @@ class PersonaService(private val profileStore: ProfileStore?) {
 
     /** [ProfileBook.terminalSmartInput] as last loaded from/written to disk --
      *  frozen, not live state. `terminalSmartInput` now lives in `SettingsService`
-     *  (see azula-docs/docs/tech-debt.md §6); this snapshot exists only so (a) a
+     *  (see azula-docs/openspec/changes/settings-store-extraction/); this snapshot exists only so (a) a
      *  fresh `SettingsService` can migrate a pre-SettingsStore install's value on
      *  first read ([legacyTerminalSmartInput]), and (b) persona saves round-trip
      *  the field unchanged instead of clobbering it back to the default. */

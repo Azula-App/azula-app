@@ -197,7 +197,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // to a stale snapshot from whenever the coroutine last (re)started -- reading
     // the live State property instead always sees the current frame.
     // Selection/tap-to-focus gestures are suppressed while a mouse-tracking mode
-    // is active (?1000/1002/1003 -- see azula-docs/docs/tech-debt.md §6): a
+    // is active (?1000/1002/1003 -- see azula-docs/openspec/changes/terminal-mouse-reporting/): a
     // mouse-aware TUI (vim, htop, claude's CLI) owns raw pointer events at that
     // point, and AltScreen's own click-reporting pointerInput (below) takes
     // over instead -- without this, both would compete for the same taps/drags.
@@ -280,7 +280,7 @@ internal const val WHEEL_LINES_PER_NOTCH = 3
  *  presses sent to the PTY -- there's no local scrollback to page through on
  *  the alt screen, so the app itself (less/vi/claude/…) has to move.
  *
- *  **Mouse reporting** (azula-docs/docs/tech-debt.md §6, `?1000`/`1002`/`1003`
+ *  **Mouse reporting** (azula-docs/openspec/changes/terminal-mouse-reporting/, `?1000`/`1002`/`1003`
  *  + `?1006`): when [mouseTrackingMode] is anything but `OFF`, the app has
  *  asked for real mouse events, so this composable stops converting
  *  drags/wheel-notches into scrollback arrows and instead reports left-button
@@ -400,7 +400,7 @@ private fun AltScreen(
 }
 
 /** Encodes+sends one mouse-tracking-mode report (see [AltScreen]'s doc comment
- *  and azula-docs/docs/tech-debt.md §6) for a press/release/wheel-notch at
+ *  and azula-docs/openspec/changes/terminal-mouse-reporting/) for a press/release/wheel-notch at
  *  pixel position [pos] -- already in this Column's own local coordinate space
  *  (post-padding; unlike [hitTest]'s outer-Box-relative coordinates, no `padPx`
  *  subtraction needed here). Column/row are 1-based and clamped to the current

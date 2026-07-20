@@ -17,8 +17,8 @@ import kotlin.test.assertEquals
 
 /**
  * Desktop (JVM) Compose UI tests for the security-adjacent Settings dialogs
- * (personas, recovery-phrase reveal/restore) that azula-docs/docs/tech-debt.md
- * §1 flagged as having no UI coverage. Same harness as `DesktopAppE2eTest.kt`
+ * (personas, recovery-phrase reveal/restore) that
+ * azula-docs/openspec/changes/settings-ui-coverage/ flagged as having no UI coverage. Same harness as `DesktopAppE2eTest.kt`
  * ([desktopE2eTest] in `ComposeE2eSupport.kt`): mounts the real [DesktopApp][
  * dev.azula.ui.DesktopApp] over a fresh mock [AzulaState] and drives it with
  * real clicks/typing. "profiles & settings" renders twice once the Settings

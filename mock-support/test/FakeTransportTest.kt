@@ -32,7 +32,7 @@ class FakeTransportTest {
     }
 
     @Test fun terminalStreamHoldsBackTheGreetingUntilTheFirstResize() = runTest {
-        // Regression test for azula-docs/docs/tech-debt.md §6, "Mock terminal
+        // Regression test for azula-docs/openspec/changes/mock-terminal-resize-greeting/, "Mock terminal
         // feeds before resize": the greeting used to be sent from `init`, before
         // the app's real window-size resize ever landed, so the emulator parsed
         // it at its default 80-col width and never reflowed. Typing before any

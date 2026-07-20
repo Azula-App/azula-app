@@ -6,7 +6,7 @@ import kotlinx.serialization.json.Json
 /**
  * An invite this device minted (see [dev.azula.link.InviteCodec]). [id] is the
  * invite's lowercase-hex fingerprint (`InvitePayload.fingerprint`) — the key the
- * accept-side gate looks up in this store (see azula-docs/docs/invitations.md's
+ * accept-side gate looks up in this store (see azula-docs/openspec/specs/invitations/design.md's
  * verification checklist). [flags] mirrors the wire payload's flags byte (bit 0
  * signed, bit 1 single-use). [expiresAt]/[createdAt] are unix seconds; 0 for
  * [expiresAt] means never.

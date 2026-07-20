@@ -6,7 +6,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The shared V1/V2 test vectors from azula-docs/docs/invitations.md. Every
+ * The shared V1/V2 test vectors from azula-docs/openspec/specs/invitations/design.md. Every
  * suite (Kotlin here, Rust `azula-cli`, TS `azula-site`) must decode these
  * byte-for-byte identically and re-encode to the exact same string. The
  * ticket field is 32 opaque ASCII bytes ("azula-test-endpoint-ticket-bytes")

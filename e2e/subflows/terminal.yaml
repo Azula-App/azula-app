@@ -5,7 +5,7 @@ appId: ${APP_ID}
 # APP_ID + PLATFORM (see home.yaml on why APP_ID is injected).
 #
 # The terminal's rows are Canvas-drawn; they are only matchable here because
-# GridRow attaches a per-row contentDescription (see azula-docs/docs/terminal.md,
+# GridRow attaches a per-row contentDescription (see azula-docs/openspec/specs/terminal/design.md,
 # "Accessibility — rows carry their own semantics"). If that ever goes away, these
 # assertions stop matching — the flow goes red, which is the point.
 - tapOn:

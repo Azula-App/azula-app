@@ -46,7 +46,7 @@ data class IncomingConnection(
 
 /**
  * Platform abstraction over an iroh endpoint. All platforms back this with the
- * `app.azula.iroh:iroh-kmp` binding (see azula-docs/docs/iroh-kmp.md). The
+ * `app.azula.iroh:iroh-kmp` binding (see azula-docs/openspec/specs/iroh-kmp/design.md). The
  * `-mock` apps back the UI with a FakeTransport (in the mock-support module)
  * instead, so no real networking is involved.
  */
@@ -87,7 +87,7 @@ interface IrohTransport {
 
     /**
      * Sign [data] with this device's iroh node key (Ed25519), for the
-     * `signed` invite flag (see azula-docs/docs/invitations.md). Null if the
+     * `signed` invite flag (see azula-docs/openspec/specs/invitations/design.md). Null if the
      * endpoint isn't bound or signing is unsupported. Defaults to null so
      * every existing [IrohTransport] implementation stays source-compatible.
      */

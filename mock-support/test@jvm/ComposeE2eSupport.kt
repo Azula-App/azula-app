@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
  * cold-start cost that isn't always fully settled by the time [setContent]
  * returns -- reproduced directly as a "could not find node" failure on a
  * test's very first UI action, but *only* for whichever test happened to run
- * first in the process (azula-docs/docs/tech-debt.md §7). A single
+ * first in the process (see azula-docs/openspec/specs/testing/design.md, "Known flakes"). A single
  * [ComposeUiTest.waitForIdle] call in the same spot was tried first and did
  * NOT reliably clear it (idling settles Compose's own recomposition/snapshot
  * state, but doesn't retry against whatever the cold-start latency actually

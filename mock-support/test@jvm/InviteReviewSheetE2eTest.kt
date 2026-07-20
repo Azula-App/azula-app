@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Desktop (JVM) Compose UI tests for the inbound accept/decline review path
- * flagged with no coverage in azula-docs/docs/tech-debt.md §5:
+ * flagged with no coverage in azula-docs/openspec/changes/invite-review-ui-test/:
  * [dev.azula.ui.InviteReviewSheet]. Driven end to end via
  * [dev.azula.mock.FakeTransport.injectIncomingConnection] -- a test-only hook
  * (see its doc in `mock-support/src/dev/azula/mock/FakeTransport.kt`) that

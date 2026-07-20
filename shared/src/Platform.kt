@@ -10,5 +10,5 @@ expect fun platformName(): String
 expect val platformHasSoftKeyboard: Boolean
 
 /** Current wall-clock time in unix seconds — used for invite issued/expires
- *  timestamps (see azula-docs/docs/invitations.md's payload layout). */
+ *  timestamps (see azula-docs/openspec/specs/invitations/design.md's payload layout). */
 expect fun epochSeconds(): Long

@@ -6,7 +6,7 @@ https://claude.ai/design/p/e03ecee7-3703-4885-89cc-b94752467881?file=azula.dc.ht
 
 ## Palette and tokens
 
-**Normative source: [`azula-docs/docs/design-system.md`](../../azula-docs/docs/design-system.md).**
+**Normative source: [`azula-docs/openspec/specs/design-system/design.md`](../../azula-docs/openspec/specs/design-system/design.md).**
 Don't read tokens out of this file — it used to carry its own copy of the palette
 and drifted. `theme/src/dev/azula/theme/Color.kt` (`AzulaColors`) and
 `a2ui/src/dev/azula/a2ui/A2uiTokens.kt` are the app-side derived copies; §10 of

@@ -93,7 +93,7 @@ class ConversationState(seed: List<Message>) {
     var sourceTicket: String? = null
     /** The full encoded invite string [sourceTicket] was dialed from, if any --
      *  re-presented in Hello on every redial until the issuer accepts us (see
-     *  ConnectService.resolveTicket / azula-docs/docs/invitations.md). */
+     *  ConnectService.resolveTicket / azula-docs/openspec/specs/invitations/design.md). */
     var sourceInvite: String? = null
     /** Last received peer profile (a "persona"): base64 avatar + mime + description. */
     var peerAvatarB64: String? = null

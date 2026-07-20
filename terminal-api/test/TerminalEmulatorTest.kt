@@ -448,7 +448,7 @@ class TerminalEmulatorTest {
         e.feed("${ESC}[?2004h"); assertTrue(e.bracketedPaste)
     }
 
-    // ---- mouse reporting (azula-docs/docs/tech-debt.md §6) ----
+    // ---- mouse reporting (azula-docs/openspec/changes/terminal-mouse-reporting/) ----
 
     @Test
     fun mouseTrackingModeAndSgrEncodingTracked() {

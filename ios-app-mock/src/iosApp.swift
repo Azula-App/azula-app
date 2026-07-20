@@ -3,7 +3,7 @@ import KotlinModules
 
 // The iroh transport is provided by the `app.azula.iroh:iroh-kmp` Kotlin/Native
 // binding (linked into this app via the shared framework); no Swift bridge is
-// needed. See azula-docs/docs/iroh-kmp.md.
+// needed. See azula-docs/openspec/specs/iroh-kmp/design.md.
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> some UIViewController {

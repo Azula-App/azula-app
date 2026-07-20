@@ -62,7 +62,7 @@ class ConnectService(
     var onNavigate: (String) -> Unit = {}
 
     /**
-     * Transition escape hatch (see azula-docs/docs/invitations.md): route
+     * Transition escape hatch (see azula-docs/openspec/specs/invitations/design.md): route
      * invite-less strangers into the pending inbox flagged "unverified" instead
      * of closing the connection outright. Default on for one release.
      */
@@ -167,7 +167,7 @@ class ConnectService(
                     if (!isKnownPeer(inc.remoteId)) {
                         // dialAll races CHAT+LLM+TERM, so a stranger's dial opens all
                         // three. Only CHAT is invite-gateable (see
-                        // azula-docs/docs/invitations.md) -- hold it pending a valid
+                        // azula-docs/openspec/specs/invitations/design.md) -- hold it pending a valid
                         // Hello.invite. LLM/TERM have no accept UX and no legitimate
                         // reason to be opened by a stranger, so just close them; in
                         // particular don't enqueue them as pending too, or whichever
@@ -393,7 +393,7 @@ class ConnectService(
      * earlier this session), a saved [peerStore] entry (a peer we've dialed
      * out to before), or is in [InviteService]'s accepted-contacts list. Known
      * peers connect exactly as before -- no gate (see
-     * azula-docs/docs/invitations.md's verification model).
+     * azula-docs/openspec/specs/invitations/design.md's verification model).
      */
     private fun isKnownPeer(nodeId: String): Boolean =
         convStore.conversationOrNull(nodeId) != null ||

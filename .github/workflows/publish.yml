@@ -16,7 +16,7 @@ name: Publish
 # The `on: push` trigger only fires for a human/PAT tag push -- build+validate only.
 #
 # Deliberately runs no tests: ./kotlin check is known-flaky headlessly (see
-# azula-docs/docs/tech-debt.md), and a flaky gate that fails after one store has
+# azula-docs/openspec/specs/testing/design.md, "Known flakes"), and a flaky gate that fails after one store has
 # already been fed is worse than no gate. Tests belong in PR CI.
 
 on:

@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
  * invite round-trips through [InviteService.verifyInbound] against the issuer's
  * own transport, revoke/expiry/single-use gate it correctly, and accept/decline
  * update the pending list and contacts as documented in
- * azula-docs/docs/invitations.md.
+ * azula-docs/openspec/specs/invitations/design.md.
  */
 class InviteServiceTest {
     private suspend fun boundTransport(): FakeTransport = FakeTransport().also { it.bind(emptyList()) }

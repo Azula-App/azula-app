@@ -339,21 +339,40 @@ jobs:
             pb "Add :ApplicationProperties:Team string $APPLE_TEAM_ID" "$ARCHIVE/Info.plist"
             echo "Injected ApplicationProperties:"; pb "Print :ApplicationProperties" "$ARCHIVE/Info.plist"
           fi
-          # xcodebuild -exportArchive ignores signingStyle:manual on Xcode 26.5 -- it
-          # always reverts to automatic (-> cloud signing -> "No profiles found"), no
-          # matter what ExportOptions says. But the archive is already correctly App
-          # Store-signed (distribution cert + our App Store profile embedded; see the
-          # archive output above), so package the IPA by hand instead: zip the signed .app
-          # into Payload/. An iOS 15+ App Store IPA needs no SwiftSupport dir -- the Swift
-          # runtime ships in the OS -- so a Payload-only zip is a valid, uploadable IPA
-          # (altool --validate-app in the next step is the check).
+          # Export with MANUAL signing via -exportArchive, which (unlike a hand-zip)
+          # runs xcodebuild's Symbols/ collection for App Store crash symbolication.
+          # The ExportOptions is written INLINE here rather than read from
+          # .github/ExportOptions.plist: a repo file comes from the built *tag*, not this
+          # workflow's ref, so a committed manual plist wouldn't reach the runner --
+          # inlining makes it travel with the workflow. (Verified locally that
+          # -exportArchive honours signingStyle:manual once the plist is actually present;
+          # the earlier "reverts to automatic" was the runner reading the tag's automatic
+          # plist.) The heredoc body sits at the run block's indentation so YAML strips it
+          # uniformly, leaving valid XML and the PLIST terminator at column 0.
           codesign --verify --deep --strict "$APP" && echo "app signature verified"
-          rm -rf "$RUNNER_TEMP/export"
-          mkdir -p "$RUNNER_TEMP/export/Payload"
-          cp -R "$APP" "$RUNNER_TEMP/export/Payload/"
-          ( cd "$RUNNER_TEMP/export" && zip -qry azula.ipa Payload && rm -rf Payload )
-          IPA="$RUNNER_TEMP/export/azula.ipa"
-          [ -f "$IPA" ] || { echo "No IPA produced."; exit 1; }
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>method</key><string>app-store-connect</string>
+          <key>signingStyle</key><string>manual</string>
+          <key>signingCertificate</key><string>Apple Distribution</string>
+          <key>provisioningProfiles</key><dict>
+          <key>app.azula</key><string>azula app store</string>
+          <key>app.azula.AzulaShare</key><string>azula share app store</string>
+          </dict>
+          <key>teamID</key><string>$APPLE_TEAM_ID</string>
+          <key>destination</key><string>export</string>
+          <key>manageAppVersionAndBuildNumber</key><false/>
+          <key>uploadSymbols</key><true/>
+          <key>stripSwiftSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+          IPA=$(find "$RUNNER_TEMP/export" -name '*.ipa' | head -n1)
+          [ -n "$IPA" ] || { echo "No IPA exported."; exit 1; }
           echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
           ls -la "$IPA"
 
@@ -387,8 +406,8 @@ jobs:
           path: ${{ steps.export.outputs.ipa }}
           if-no-files-found: error
 
-      # Hand-packaging the IPA (see the sign/export step) skips xcodebuild's Symbols/
-      # collection, so keep the archive's dSYMs for crash symbolication of this build.
+      # Keep the archive's dSYMs as an artifact for local crash symbolication (the IPA
+      # also carries symbols via uploadSymbols, but a downloadable dSYM is handy).
       - name: Upload dSYMs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

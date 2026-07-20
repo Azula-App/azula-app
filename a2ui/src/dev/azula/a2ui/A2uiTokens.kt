@@ -1,10 +1,9 @@
 package dev.azula.a2ui
 
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import dev.azula.theme.AzulaBrushes
 import dev.azula.theme.AzulaColors
+import dev.azula.theme.AzulaShapes
 
 /**
  * The A2UI "neon-glass" design-system tokens — the single source of truth the
@@ -33,7 +32,11 @@ object A2uiTokens {
     val content = AzulaColors.text2           // #D6D6E0
     val contentBright = AzulaColors.textBright // #F3EEF1
     val muted = AzulaColors.muted             // #7A7A8A
-    val mutedFaint = AzulaColors.textFaint    // #6A6A7A
+    val mutedFaint = AzulaColors.textFaint    // #6A6A7A — fails AA (3.8:1 on bg0); >12sp uses only, see design-system.md §11 item 8.
+    /** Accessible stand-in for [mutedFaint] at ≤12sp, where 3.8:1 fails WCAG AA.
+     *  #8A8A9A measures 5.9:1 on bg0. Do not repoint [mutedFaint] itself — that
+     *  would also shift the >12sp call sites that are fine as-is. */
+    val mutedSmall = AzulaColors.textDim2     // #8A8A9A
 
     val success = AzulaColors.online          // #52C98A
     val warning = AzulaColors.warn            // #FFD23F
@@ -50,22 +53,24 @@ object A2uiTokens {
     val videoTop = Color(0xFF160B22)
     val videoBottom = Color(0xFF0A0F1A)
 
-    // ── Shape scale ──
-    val rSm = RoundedCornerShape(7.dp)
-    val rMd = RoundedCornerShape(9.dp)
-    val rLg = RoundedCornerShape(12.dp)
-    val rXl = RoundedCornerShape(16.dp)
-    val rPill = RoundedCornerShape(percent = 50)
+    // ── Shape scale ── delegates to AzulaShapes so there is one definition.
+    // NOTE: this intentionally changes rMd 9→10dp and rLg 12→13dp — see
+    // design-system.md §6.
+    val rSm = AzulaShapes.rSm
+    val rMd = AzulaShapes.rMd
+    val rLg = AzulaShapes.rLg
+    val rXl = AzulaShapes.rXl
+    val rPill = AzulaShapes.rPill
 
     /** Chat-bubble "tail" corners — asymmetric so ME/THEM bubbles read as
      *  speech shapes rather than plain rounded rects. Not part of the
      *  agent-facing A2UI catalog (no renderer/tools.rs touch needed), just the
      *  shared chat-chrome shape used by [dev.azula.ui.MessageBubble] and
      *  [dev.azula.ui.ThinkingIndicator]. */
-    val rBubbleMe = RoundedCornerShape(15.dp, 15.dp, 5.dp, 15.dp)
-    val rBubbleThem = RoundedCornerShape(15.dp, 15.dp, 15.dp, 5.dp)
+    val rBubbleMe = AzulaShapes.rBubbleMe
+    val rBubbleThem = AzulaShapes.rBubbleThem
 
     // ── Gradients ──
     /** Primary Button / play-button fill: pink → deep pink (135° in the spec). */
-    val primaryBrush = Brush.linearGradient(listOf(AzulaColors.pink, AzulaColors.pinkDark))
+    val primaryBrush = AzulaBrushes.primary
 }

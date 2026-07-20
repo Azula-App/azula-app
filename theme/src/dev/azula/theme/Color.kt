@@ -56,4 +56,11 @@ object AzulaColors {
     // Terminal greens
     val termGreen = Color(0xFF9EFFC4)
     val termPromptUser = Color(0xFF52C98A)
+
+    // Translucent accent — the "selected / active" idiom. See design-system.md §3.4.
+    val primaryWash = Color(0x14FF2D9B)        // 8%  — subtle row highlight
+    val primarySelected = Color(0x24FF2D9B)    // 14% — selected row/chip fill
+    val primaryGlowFill = Color(0x33FF2D9B)    // 20% — glow-halo fill
+    val primaryEdge = Color(0x66FF2D9B)        // 40% — default border on any of the above
+    val primaryEdgeStrong = Color(0x99FF2D9B)  // 60% — border on the active/selected item
 }

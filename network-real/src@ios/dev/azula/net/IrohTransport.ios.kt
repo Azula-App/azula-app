@@ -78,6 +78,17 @@ class IosIrohTransport : IrohTransport {
     override fun secretKeyBytes(): ByteArray? =
         runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: loadSecretKey()
 
+    /**
+     * Pre-bind probe for the setup gate (see [IrohTransport.hasPersistedIdentity]):
+     * calls the same [loadSecretKey] the Keychain/legacy-NSUserDefaults read [bind]
+     * uses, without binding, so checking for a persisted identity can't itself mint
+     * one. [loadSecretKey] already wraps its Keychain/NSUserDefaults access in
+     * `runCatching` internally, but this adds an outer guard too so any unexpected
+     * failure reads as "no identity" (shows setup) rather than crashing the gate.
+     */
+    override fun hasPersistedIdentity(): Boolean =
+        runCatching { loadSecretKey() != null }.getOrDefault(false)
+
     override suspend fun importSecretKey(bytes: ByteArray) {
         require(bytes.size == 32) { "secret key must be 32 bytes" }
         runCatching { saveSecretKey(bytes) }

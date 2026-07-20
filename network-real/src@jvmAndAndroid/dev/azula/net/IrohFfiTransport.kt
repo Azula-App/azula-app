@@ -215,6 +215,16 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     override fun secretKeyBytes(): ByteArray? =
         runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: runCatching { keyStore.load() }.getOrNull()
 
+    /**
+     * Pre-bind probe of [keyStore] for the setup gate (see [IrohTransport.hasPersistedIdentity]).
+     * [SecretKeyStore.load] can throw [KeychainUnavailableException] (macOS Keychain locked) —
+     * treated as "no identity" here, so a locked Keychain shows setup once rather than crashing;
+     * harmless per the design's risk note since "create" falls back to the same
+     * keystore-recovery behavior as today, and restore is still available.
+     */
+    override fun hasPersistedIdentity(): Boolean =
+        runCatching { keyStore.load() != null }.getOrDefault(false)
+
     override suspend fun importSecretKey(bytes: ByteArray) {
         require(bytes.size == 32) { "secret key must be 32 bytes" }
         runCatching { keyStore.save(bytes) }

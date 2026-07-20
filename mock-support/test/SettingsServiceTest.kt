@@ -38,7 +38,11 @@ class SettingsServiceTest {
         azulaState.setTerminalSmartInput(false)
 
         assertFalse(azulaState.terminalSmartInput, "state.terminalSmartInput must reflect the change immediately")
-        assertEquals(AppSettings(terminalSmartInput = false), store.load(), "the flip must persist to the SettingsStore")
+        // start() also records the setup gate's decision: FakeTransport reports a
+        // persisted identity but no setupCompleted flag exists, so the "pre-existing
+        // install upgrading" branch writes setupCompleted = true (onboarding D1).
+        // The smart-input flip must round-modify-write that blob, not clobber it.
+        assertEquals(AppSettings(terminalSmartInput = false, setupCompleted = true), store.load(), "the flip must persist to the SettingsStore without clobbering the setup flag")
     }
 
     @Test
@@ -76,7 +80,9 @@ class SettingsServiceTest {
 
         assertFalse(azulaState.terminalSmartInput, "the legacy ProfileBook value must be honored on first read")
         assertEquals(
-            AppSettings(terminalSmartInput = false),
+            // setupCompleted = true: start()'s setup-gate decision marks a mock (which
+            // reports a persisted identity) as already onboarded -- see onboarding D1.
+            AppSettings(terminalSmartInput = false, setupCompleted = true),
             settingsStore.load(),
             "migration must persist into the new SettingsStore so it only runs once",
         )

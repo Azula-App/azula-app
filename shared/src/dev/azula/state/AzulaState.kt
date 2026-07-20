@@ -207,6 +207,31 @@ class AzulaState(
     /** Restore identity from a recovery phrase; false if the phrase is invalid. */
     suspend fun importRecoveryPhrase(phrase: String): Boolean = connectService.importRecoveryPhrase(phrase)
 
+    // ---- first-run setup gate (onboarding) ----
+    /**
+     * The setup-gate signal read by [dev.azula.SetupGate]: null while undecided
+     * (before [start] has evaluated it), true to show the setup flow (a fresh
+     * install), false to go straight to the main app. Decided exactly once, before
+     * the transport binds -- see [start] and the onboarding capability (D1).
+     */
+    var setupRequired by mutableStateOf<Boolean?>(null)
+        private set
+
+    /** Whether the user deferred recovery-phrase backup during setup ("back up
+     *  later") -- persisted, so the app can surface a reminder later. */
+    val backupDeferred get() = settingsService.backupDeferred
+
+    /** Record that the user chose "back up later": persist the deferral flag
+     *  immediately, independent of completing setup. */
+    fun deferBackup() = settingsService.markBackupDeferred(true)
+
+    /** Complete the setup flow (finish or skip of its final step): persist the
+     *  completion flag and drop the gate so the main app shows. */
+    fun completeSetup() {
+        settingsService.markSetupCompleted()
+        setupRequired = false
+    }
+
     /** All live A2UI surfaces, keyed by surfaceId (owned by SurfaceStore). */
     val surfaces get() = surfaceStore.surfaces
 
@@ -259,6 +284,22 @@ class AzulaState(
         val max = persistence.restoreAll(); if (max >= 0) convStore.setIdFloor(max + 1)
         personaService.load()
         settingsService.load(personaService.legacyTerminalSmartInputForMigration)
+        // Decide the setup gate BEFORE binding: bind eagerly mints+persists an
+        // identity key, which would destroy the fresh-vs-upgrade signal
+        // (onboarding capability, D1). Guarded so it runs once even if start() is
+        // called more than once (Android's Application starts the state, then the
+        // composition's SetupGate starts it again) -- the first call, before any
+        // bind, is authoritative.
+        if (setupRequired == null) {
+            setupRequired = when {
+                settingsService.setupCompleted -> false // already onboarded
+                connectService.hasPersistedIdentity() -> { // pre-existing install upgrading
+                    settingsService.markSetupCompleted()
+                    false
+                }
+                else -> true // fresh install: no key, no flag
+            }
+        }
         inviteService.load()
         // Bind the transport and run the connect/receive core.
         connectService.start()

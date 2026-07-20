@@ -1,7 +1,6 @@
 package dev.azula.state
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
@@ -29,9 +28,15 @@ object AppStateHost {
 }
 
 /**
- * Creates the app-wide [AzulaState] once and starts the transport. The scope is
- * tied to the root composition, i.e. the app's lifetime — unless a platform has
- * pre-installed a process-scoped singleton in [AppStateHost] (Android).
+ * Creates the app-wide [AzulaState] once — unless a platform has pre-installed a
+ * process-scoped singleton in [AppStateHost] (Android). The scope is tied to the
+ * root composition, i.e. the app's lifetime.
+ *
+ * Note: this no longer starts the state. `start()` now runs from [dev.azula.SetupGate]
+ * (see the onboarding capability) so the pre-bind setup-gate decision can be made
+ * before the transport binds; the `-mock` apps and tests call `start()` themselves
+ * (see `installMockState` / `testAzulaState`), so this move only affects the
+ * composition-scoped desktop/iOS path, which now starts via the gate.
  */
 @Composable
 fun rememberAzulaState(): AzulaState {
@@ -40,7 +45,7 @@ fun rememberAzulaState(): AzulaState {
     // Composition-scoped path (desktop/iOS): build the flat graph with the real
     // iroh transport + platform default stores. Android pre-installs a process-scoped
     // instance in AppStateHost (AzulaApplication); the -mock apps pre-install one too.
-    val state = remember {
+    return remember {
         createGraphFactory<AppGraph.Factory>().create(
             scope = scope,
             transport = createTransport(),
@@ -54,6 +59,4 @@ fun rememberAzulaState(): AzulaState {
             mediaExporter = platformMediaExporter(),
         ).azulaState
     }
-    LaunchedEffect(Unit) { state.start() }
-    return state
 }

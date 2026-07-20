@@ -113,4 +113,14 @@ interface IrohTransport {
      * away. Defaults to null.
      */
     var onCameOnline: (() -> Unit)?
+
+    /**
+     * Whether a previously persisted identity key exists, read WITHOUT binding
+     * (bind would eagerly mint+persist a key and destroy this signal). The setup
+     * gate reads this once, before start(), to tell a fresh install (no key) from
+     * an upgrade of an existing install (key present) — see the onboarding
+     * capability's gate decision. Defaults to true so unknown/test transports skip
+     * setup; the real transports override with a pre-bind key-store probe.
+     */
+    fun hasPersistedIdentity(): Boolean = true
 }

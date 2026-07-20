@@ -37,12 +37,28 @@ import kotlin.random.Random
  * share this transport -- every test that reasons about "the terminal
  * conversation" would otherwise have to disambiguate a second one it never
  * asked for.
+ *
+ * [hasPersistedIdentity] backs [IrohTransport.hasPersistedIdentity] for the setup
+ * gate (see azula-docs/openspec/changes/initial-setup-flow/design.md, decision D1):
+ * tests pass `hasPersistedIdentity = false` to force the setup flow (a "fresh
+ * install"), while the default `true` keeps `-mock`/demo apps skipping it, same as
+ * every other [FakeTransport] caller today.
  */
-class FakeTransport(private val demoTerminal: Boolean = false) : IrohTransport {
+class FakeTransport(
+    private val demoTerminal: Boolean = false,
+    hasPersistedIdentity: Boolean = true,
+) : IrohTransport {
     override var nodeId: String? = null
         private set
 
     override var onCameOnline: (() -> Unit)? = null
+
+    // Backing value for the overridden hasPersistedIdentity() below, named
+    // differently from the constructor parameter of the same name so the
+    // property doesn't shadow (and read as recursing into) the method.
+    private val persistedIdentity: Boolean = hasPersistedIdentity
+
+    override fun hasPersistedIdentity(): Boolean = persistedIdentity
 
     /**
      * In-memory blob bodies keyed by id, served by `connect(ticket, Alpns.MEDIA)`

@@ -125,6 +125,12 @@ class ConnectService(
         return true
     }
 
+    /** Whether a persisted identity key already exists, probed WITHOUT binding
+     *  (bind eagerly mints+persists a key). The setup gate reads this once, before
+     *  [start], to tell a fresh install from an upgrade -- see the onboarding
+     *  capability's gate decision (D1). */
+    fun hasPersistedIdentity(): Boolean = transport.hasPersistedIdentity()
+
     // ---- lifecycle ----
 
     suspend fun start() {

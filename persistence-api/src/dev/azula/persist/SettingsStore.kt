@@ -14,6 +14,13 @@ data class AppSettings(
     /** Whether the terminal uses the rearchitected smart input (swipe typing,
      *  autocorrect, suggestions) or the legacy raw sentinel-reset fallback. */
     val terminalSmartInput: Boolean = true,
+    /** Whether the first-run setup flow has been completed (finish or skip of
+     *  its final step); gates whether setup is shown — see the onboarding
+     *  capability. */
+    val setupCompleted: Boolean = false,
+    /** Whether the user chose "back up later" in setup, deferring the
+     *  recovery-phrase backup; lets the app surface a reminder later. */
+    val backupDeferred: Boolean = false,
 )
 
 /**

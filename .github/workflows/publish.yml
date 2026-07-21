@@ -200,9 +200,12 @@ jobs:
           workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
 
-      # track: chosen by the manual dispatch (default production). It only ever applies
+      # tracks: chosen by the manual dispatch (default production). It only ever applies
       # here because this step runs solely on a manual non-dry dispatch (see auth step);
       # internal/beta/alpha let you prove the upload path without shipping to users.
+      # The action's singular `track` is deprecated (it warns, and will be removed); its
+      # replacement `tracks` is a COMMA-SEPARATED string, so a single track passes through
+      # unchanged. Never set both -- the action hard-errors if you do.
       - name: Publish to Google Play
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
@@ -210,7 +213,7 @@ jobs:
           serviceAccountJson: ${{ steps.auth.outputs.credentials_file_path }}
           packageName: app.azula
           releaseFiles: ${{ steps.aab.outputs.path }}
-          track: ${{ inputs.track || 'production' }}
+          tracks: ${{ inputs.track || 'production' }}
           status: completed
           releaseName: ${{ needs.version.outputs.version }}
 

@@ -25,6 +25,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -83,6 +84,13 @@ class ConnectService(
     /** True when the transport failed to bind — we stay offline (no auto-reconnect). */
     private var offline = false
 
+    /** The live inbound-accept loop, so a re-bind can replace it (see [startIncomingLoop]). */
+    private var incomingJob: Job? = null
+
+    /** True once the first [bind] attempt has been made; gates re-bind-only handling
+     *  in `onCameOnline` (the first bind's loop is started by [start] itself). */
+    private var bound = false
+
     fun resetConnect() {
         if (connectStage != ConnectStage.DIALING) {
             connectStage = ConnectStage.IDLE
@@ -119,7 +127,25 @@ class ConnectService(
      *  malformed or its checksum doesn't verify (nothing changes in that case). */
     suspend fun importRecoveryPhrase(phrase: String): Boolean {
         val key = RecoveryPhrase.decode(phrase) ?: return false
-        transport.importSecretKey(key) // persists + rebinds; onCameOnline refreshes nodeId + reconnects
+        // persists + rebinds; onCameOnline refreshes nodeId, restarts the accept
+        // loop and reconnects.
+        //
+        // A failing re-bind must degrade exactly like the initial bind does
+        // (below) rather than propagate: the callers are UI coroutines on
+        // `rememberCoroutineScope()`, which has no exception handler, so anything
+        // thrown here killed the process. It still reports success, because
+        // importSecretKey persists the key BEFORE it re-binds -- the restore did
+        // commit, and the restored identity comes up on the next bind. Reporting
+        // false would show "that isn't a valid recovery phrase", which is a lie
+        // about a phrase that decoded fine.
+        try {
+            transport.importSecretKey(key)
+            offline = false
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            offline = true
+        }
         nodeId = transport.nodeId
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
         return true
@@ -148,7 +174,15 @@ class ConnectService(
                 }
             }
         }
-        transport.onCameOnline = { nodeId = transport.nodeId; scope.launch { reconnectSaved() } }
+        transport.onCameOnline = {
+            nodeId = transport.nodeId
+            // Only for a RE-bind (recovery-phrase restore, Android foreground
+            // resume). The first bind's loop is started by this function below --
+            // and the test fakes' `bind` never invokes this callback at all, so
+            // starting it here alone would leave them with no accept loop.
+            if (bound) startIncomingLoop()
+            scope.launch { reconnectSaved() }
+        }
         try {
             // MEDIA is bind-only (an accept target for on-demand fetch dials), never
             // part of the outbound ALL dial race -- see Alpns.MEDIA's doc.
@@ -157,9 +191,29 @@ class ConnectService(
             // Binding unavailable (e.g. missing native lib) — stay offline.
             offline = true
         }
+        bound = true
         nodeId = transport.nodeId
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
-        scope.launch {
+        startIncomingLoop()
+        // Register the deeplink handler AFTER bind so a buffered/cold-start token
+        // dials an already-bound transport rather than racing the bind.
+        DeepLinkBus.setHandler { token -> connectPeer(token) }
+    }
+
+    /**
+     * (Re)start the inbound-accept loop.
+     *
+     * [IrohTransport.incoming] binds to whichever endpoint was current when it was
+     * collected, so every new endpoint needs a fresh collection. A restore (or an
+     * Android foreground re-bind) tears the old endpoint down, at which point its
+     * `acceptNext` reports a clean close, the flow completes, and — before this
+     * existed — nothing ever collected again: the app accepted no inbound
+     * connection until it was relaunched. Cancelling the previous job first keeps
+     * a single consumer on the accept queue, which is what the transport requires.
+     */
+    private fun startIncomingLoop() {
+        incomingJob?.cancel()
+        incomingJob = scope.launch {
             runCatching {
                 transport.incoming().collect { inc ->
                     if (inc.alpn == Alpns.MEDIA) {
@@ -190,9 +244,6 @@ class ConnectService(
                 }
             }
         }
-        // Register the deeplink handler AFTER bind so a buffered/cold-start token
-        // dials an already-bound transport rather than racing the bind.
-        DeepLinkBus.setHandler { token -> connectPeer(token) }
     }
 
     // ---- outbound connect ----

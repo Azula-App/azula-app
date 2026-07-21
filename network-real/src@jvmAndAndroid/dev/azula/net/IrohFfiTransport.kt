@@ -174,8 +174,15 @@ object IrohConfig {
 
 /**
  * Real iroh transport for JVM desktop and Android, over the `app.azula.iroh:iroh-kmp`
- * binding. Unlike the published JNA artifact, this Gobley/JNI binding's async calls
- * complete on Android, so [IrohEndpoint.bind] returns and the node comes online.
+ * binding. Unlike the published `computer.iroh:iroh` artifact, this Gobley binding's
+ * async calls complete on Android, so [IrohEndpoint.bind] returns and the node comes
+ * online.
+ *
+ * Gobley's bindings still call through **JNA** on jvm + android (this comment used to
+ * claim JNI, which sent a release-build FFI failure hunt down the wrong path). That
+ * matters because JNA resolves fields and symbols from native code by their literal
+ * names, so R8 will break the whole FFI layer unless the keep rules the SDK ships in
+ * its AAR are applied — see `iroh-kmp/docs/gobley-consumer-proguard-gap.md`.
  */
 class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

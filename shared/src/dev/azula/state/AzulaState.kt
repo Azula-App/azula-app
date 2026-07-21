@@ -50,6 +50,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 
 enum class MScreen { HOME, CONNECT, CHAT, SETTINGS, INVITES }
@@ -277,7 +279,21 @@ class AzulaState(
 
     // ---- lifecycle ----
 
-    suspend fun start() {
+    private val startMutex = Mutex()
+    private var started = false
+
+    /**
+     * Idempotent: Android calls this twice (the Application starts the state in
+     * `obtainState()`, then the composition's `SetupGate` starts it again), and
+     * every step below is once-per-process. Before this guard existed the second
+     * call re-ran [ConnectService.start] and bound a SECOND endpoint on the same
+     * secret key -- two nodes sharing one node id, the first orphaned along with
+     * its accept loop. The mutex (not a bare flag) because the two callers arrive
+     * on different dispatchers.
+     */
+    suspend fun start() = startMutex.withLock {
+        if (started) return@withLock
+        started = true
         // Restore persisted conversation history from the injected MessageStore
         // (shipping build: the real on-disk store; the `-mock` apps: mock-support's
         // read-only SeededMessageStore). Restored A2UI surfaces render frozen.
@@ -286,19 +302,14 @@ class AzulaState(
         settingsService.load(personaService.legacyTerminalSmartInputForMigration)
         // Decide the setup gate BEFORE binding: bind eagerly mints+persists an
         // identity key, which would destroy the fresh-vs-upgrade signal
-        // (onboarding capability, D1). Guarded so it runs once even if start() is
-        // called more than once (Android's Application starts the state, then the
-        // composition's SetupGate starts it again) -- the first call, before any
-        // bind, is authoritative.
-        if (setupRequired == null) {
-            setupRequired = when {
-                settingsService.setupCompleted -> false // already onboarded
-                connectService.hasPersistedIdentity() -> { // pre-existing install upgrading
-                    settingsService.markSetupCompleted()
-                    false
-                }
-                else -> true // fresh install: no key, no flag
+        // (onboarding capability, D1).
+        setupRequired = when {
+            settingsService.setupCompleted -> false // already onboarded
+            connectService.hasPersistedIdentity() -> { // pre-existing install upgrading
+                settingsService.markSetupCompleted()
+                false
             }
+            else -> true // fresh install: no key, no flag
         }
         inviteService.load()
         // Bind the transport and run the connect/receive core.

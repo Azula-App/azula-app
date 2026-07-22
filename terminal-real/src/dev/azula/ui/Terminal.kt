@@ -8,6 +8,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -68,6 +70,7 @@ import dev.azula.terminal.ATTR_UNDERLINE
 import dev.azula.terminal.ATTR_WIDE_LEAD
 import dev.azula.terminal.ATTR_WIDE_TRAIL
 import dev.azula.terminal.MouseButton
+import dev.azula.terminal.MouseCell
 import dev.azula.terminal.MouseTrackingMode
 import dev.azula.terminal.Row
 import dev.azula.terminal.TermFrame
@@ -76,6 +79,8 @@ import dev.azula.terminal.TermSeq
 import dev.azula.terminal.TerminalSession
 import dev.azula.terminal.codePointToString
 import dev.azula.terminal.encodeMouseReport
+import dev.azula.terminal.mouseCellAt
+import dev.azula.terminal.reportsDragMotion
 import dev.azula.terminal.rowAt
 import dev.azula.terminal.textInSelection
 import dev.azula.theme.AzulaColors
@@ -197,7 +202,7 @@ private fun LiveTerminalView(session: TerminalSession, convId: String, live: Boo
     // to a stale snapshot from whenever the coroutine last (re)started -- reading
     // the live State property instead always sees the current frame.
     // Selection/tap-to-focus gestures are suppressed while a mouse-tracking mode
-    // is active (?1000/1002/1003 -- see azula-docs/openspec/changes/terminal-mouse-reporting/): a
+    // is active (?1000/1002/1003 -- see [AltScreen]'s doc comment): a
     // mouse-aware TUI (vim, htop, claude's CLI) owns raw pointer events at that
     // point, and AltScreen's own click-reporting pointerInput (below) takes
     // over instead -- without this, both would compete for the same taps/drags.
@@ -280,17 +285,21 @@ internal const val WHEEL_LINES_PER_NOTCH = 3
  *  presses sent to the PTY -- there's no local scrollback to page through on
  *  the alt screen, so the app itself (less/vi/claude/…) has to move.
  *
- *  **Mouse reporting** (azula-docs/openspec/changes/terminal-mouse-reporting/, `?1000`/`1002`/`1003`
- *  + `?1006`): when [mouseTrackingMode] is anything but `OFF`, the app has
- *  asked for real mouse events, so this composable stops converting
- *  drags/wheel-notches into scrollback arrows and instead reports left-button
- *  press/release ("click") + wheel notches as SGR (or legacy X10) mouse-report
- *  bytes -- see [sendMouseReport]. Scoped to the alt screen deliberately: every
- *  TUI that actually turns mouse tracking on (vim, htop, claude's own CLI)
- *  already runs full-screen there, so the primary/scrollback screen doesn't
- *  need it too. Continuous drag/hover **motion** reporting (what `?1002`/
- *  `?1003` add over plain `?1000`) is a deferred follow-up -- only discrete
- *  press/release/click/wheel are wired up today. */
+ *  **Mouse reporting** (`openspec/specs/terminal/design.md`, "Mouse reporting";
+ *  `?1000`/`1002`/`1003` + `?1006`): when [mouseTrackingMode] is anything but
+ *  `OFF`, the app has asked for real mouse events, so this composable stops
+ *  converting drags/wheel-notches into scrollback arrows and instead reports
+ *  left-button press/release ("click"), drag motion under `?1002`/`?1003`, and
+ *  wheel notches as SGR (or legacy X10) mouse-report bytes -- see
+ *  [sendMouseReport]. Scoped to the alt screen deliberately: every TUI that
+ *  actually turns mouse tracking on (vim, htop, claude's own CLI) already runs
+ *  full-screen there, so the primary/scrollback screen doesn't need it too.
+ *
+ *  Two deliberate gaps, both documented in that design section: only the
+ *  primary/left button is reported (touch has no others, and the desktop wheel
+ *  is the only non-left source plumbed here), and button-less **hover** motion
+ *  -- the part `?1003` adds over `?1002` -- isn't reported at all, since touch
+ *  has no hover and no desktop move events reach this composable. */
 @Composable
 private fun AltScreen(
     session: TerminalSession,
@@ -363,19 +372,48 @@ private fun AltScreen(
     } else {
         // Mouse-tracking mode owns the pointer now: report a press, then the
         // matching release once the finger/button lifts -- xterm's "click" is
-        // just that pair, there's no separate click event on the wire. Only the
-        // primary/left button is reported (right/middle -- and continuous drag
-        // motion for ?1002/?1003 -- are a deferred follow-up; see this
-        // function's doc comment).
+        // just that pair, there's no separate click event on the wire -- with
+        // drag-motion reports in between under ?1002/?1003 (see
+        // [MouseTrackingMode.reportsDragMotion]). Raw awaitEachGesture rather
+        // than detectTapGestures: a tap detector discards the intermediate
+        // moves entirely, and reports its release at the *press* position, so a
+        // drag would land on the wrong cell.
         Modifier.pointerInput(convId, mouseTrackingMode) {
-            detectTapGestures(
-                onPress = { pos ->
+            val reportsMotion = mouseTrackingMode.reportsDragMotion()
+            awaitEachGesture {
+                // Reads currentFrame per call, not once per gesture: a resize
+                // mid-drag (IME show/hide) changes the clamp bounds under us.
+                fun cellAt(p: Offset): MouseCell {
                     val f = currentFrame.value
-                    sendMouseReport(session, convId, MouseButton.LEFT, pos, pressed = true, cellW, rowHeightPx, f.cols, f.rows)
-                    tryAwaitRelease()
-                    sendMouseReport(session, convId, MouseButton.LEFT, pos, pressed = false, cellW, rowHeightPx, f.cols, f.rows)
-                },
-            )
+                    return mouseCellAt(p.x, p.y, cellW.toFloat(), rowHeightPx, f.cols, f.rows)
+                }
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                var pos = down.position
+                var cell = cellAt(pos)
+                sendMouseReport(session, convId, MouseButton.LEFT, cell, pressed = true)
+                while (true) {
+                    // The gesture ends when this pointer lifts or vanishes from
+                    // the event (cancelled, e.g. the view scrolled out).
+                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                    pos = change.position
+                    if (!change.pressed) break
+                    // One report per *cell* crossed, not per touch sample: a
+                    // report per pixel of travel would flood the PTY, and xterm
+                    // itself only emits on a cell change.
+                    if (reportsMotion) {
+                        val moved = cellAt(pos)
+                        if (moved != cell) {
+                            cell = moved
+                            sendMouseReport(session, convId, MouseButton.LEFT, cell, pressed = true, motion = true)
+                        }
+                    }
+                    change.consume()
+                }
+                // Always pair the press with a release, including on a cancelled
+                // gesture: a TUI left holding a phantom button-down stays stuck.
+                sendMouseReport(session, convId, MouseButton.LEFT, cellAt(pos), pressed = false)
+            }
         }
     }
     val wheelMod = Modifier.altScreenWheelScroll { lines, pos ->
@@ -385,7 +423,8 @@ private fun AltScreen(
             } else {
                 val button = if (lines > 0) MouseButton.WHEEL_UP else MouseButton.WHEEL_DOWN
                 val f = currentFrame.value
-                sendMouseReport(session, convId, button, pos, pressed = true, cellW, rowHeightPx, f.cols, f.rows)
+                val cell = mouseCellAt(pos.x, pos.y, cellW.toFloat(), rowHeightPx, f.cols, f.rows)
+                sendMouseReport(session, convId, button, cell, pressed = true)
             }
         }
     }
@@ -400,27 +439,24 @@ private fun AltScreen(
 }
 
 /** Encodes+sends one mouse-tracking-mode report (see [AltScreen]'s doc comment
- *  and azula-docs/openspec/changes/terminal-mouse-reporting/) for a press/release/wheel-notch at
- *  pixel position [pos] -- already in this Column's own local coordinate space
- *  (post-padding; unlike [hitTest]'s outer-Box-relative coordinates, no `padPx`
- *  subtraction needed here). Column/row are 1-based and clamped to the current
- *  grid size, matching the wire format. Reads [TerminalEmulator.mouseSgrEncoding]
- *  fresh at send time to pick SGR vs. legacy X10 (see [encodeMouseReport]). */
+ *  and `openspec/specs/terminal/design.md`, "Mouse reporting") for a press,
+ *  release, drag-motion sample, or wheel notch at 1-based grid [cell] -- see
+ *  [mouseCellAt] for the pixel→cell mapping, whose input is this Column's own
+ *  local coordinate space (post-padding; unlike [hitTest]'s outer-Box-relative
+ *  coordinates, no `padPx` subtraction needed there). Reads
+ *  [TerminalEmulator.mouseSgrEncoding] fresh at send time to pick SGR vs. legacy
+ *  X10 (see [encodeMouseReport]). */
 private fun sendMouseReport(
     session: TerminalSession,
     convId: String,
     button: MouseButton,
-    pos: Offset,
+    cell: MouseCell,
     pressed: Boolean,
-    cellW: Int,
-    rowHeightPx: Float,
-    cols: Int,
-    rows: Int,
+    motion: Boolean = false,
 ) {
     val emu = session.terminalScreen(convId)
-    val col = (if (cellW > 0) (pos.x / cellW).toInt() + 1 else 1).coerceIn(1, cols.coerceAtLeast(1))
-    val row = (if (rowHeightPx > 0f) (pos.y / rowHeightPx).toInt() + 1 else 1).coerceIn(1, rows.coerceAtLeast(1))
-    session.terminalRaw(convId, encodeMouseReport(button, col, row, pressed, sgr = emu.mouseSgrEncoding))
+    val seq = encodeMouseReport(button, cell.col, cell.row, pressed, sgr = emu.mouseSgrEncoding, motion = motion)
+    session.terminalRaw(convId, seq)
 }
 
 /** Interactive shell: scrollback + the live grid in a lazily-rendered scroller. */

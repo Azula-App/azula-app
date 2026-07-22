@@ -360,9 +360,13 @@ private fun SetupField(
 private fun SetupPrimaryButton(label: String, tag: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         Modifier
+            // `alpha` is a graphicsLayer: it only dims the content and the
+            // modifiers to its right, so it has to lead the chain to reach the
+            // fill and glow. Behind `azulaButtonSurface` it faded the label
+            // alone and left a full-strength CTA looking enabled.
+            .alpha(if (enabled) 1f else 0.45f)
             .azulaButtonSurface(AzulaButtonVariant.Primary)
             .clickable(enabled = enabled) { onClick() }
-            .alpha(if (enabled) 1f else 0.45f)
             .padding(horizontal = 20.dp, vertical = 12.dp)
             .testTag(tag),
         contentAlignment = Alignment.Center,

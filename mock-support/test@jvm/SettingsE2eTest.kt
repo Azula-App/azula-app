@@ -9,11 +9,18 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.waitUntilDoesNotExist
+import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
+import dev.azula.ui.PickedFile
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * Desktop (JVM) Compose UI tests for the security-adjacent Settings dialogs
@@ -97,4 +104,155 @@ class SettingsE2eTest {
         // just present.
         waitUntilDoesNotExist(hasText("Restore from recovery phrase"), timeoutMillis = 10_000)
     }
+
+    @Test
+    fun restorePhraseDialogRejectsAnInvalidPhraseAndStaysOpen() = desktopE2eTest { state, _, _ ->
+        val phraseBefore = state.exportRecoveryPhrase()
+        openSettings()
+        onNodeWithTag("restore-phrase-row").performClick()
+
+        // 24 well-formed-looking but non-BIP39 words: exercises the failure branch
+        // (importRecoveryPhrase returns false) rather than the blank-input guard,
+        // which merely leaves the button disabled.
+        onNodeWithTag("restore-phrase-input").performTextInput(List(24) { "zzzz" }.joinToString(" "))
+        onNodeWithTag("restore-phrase-confirm").performClick()
+
+        waitUntilAtLeastOneExists(hasText("That isn't a valid recovery phrase."), timeoutMillis = 10_000)
+        // The dialog must stay open so the user can correct the paste, and the
+        // identity must be untouched.
+        onNodeWithText("Restore from recovery phrase").assertIsDisplayed()
+        assertEquals(phraseBefore, state.exportRecoveryPhrase(), "a rejected phrase must not replace the identity")
+    }
+
+    @Test
+    fun settingDefaultOnASecondPersonaMovesTheDefault() = desktopE2eTest { state, _, _ ->
+        // PersonaService.upsert auto-defaults the *first* persona, so a lone
+        // persona renders "default ✓" and has no "set default" chip to click --
+        // moving the default is only observable with two.
+        val first = state.newPersonaId()
+        state.upsertPersona(Persona(id = first, name = "Ivy"))
+        val second = state.newPersonaId()
+        state.upsertPersona(Persona(id = second, name = "Wren"))
+        assertEquals(first, state.defaultPersonaId, "the first persona is the implicit default")
+
+        openSettings()
+        waitUntilAtLeastOneExists(hasText("set default"), timeoutMillis = 10_000)
+        onNode(hasText("set default")).performClick()
+
+        waitUntil(timeoutMillis = 10_000) { state.defaultPersonaId == second }
+        assertEquals(second, state.defaultPersonaId)
+    }
+
+    @Test
+    fun editingAPersonaFromItsRowRenamesItInPlace() = desktopE2eTest { state, _, _ ->
+        val id = state.newPersonaId()
+        state.upsertPersona(Persona(id = id, name = "Ivy"))
+        openSettings()
+
+        // Clicking the row (not "+ new persona") must open the editor seeded with
+        // the existing persona -- the "Edit persona" title proves `initial` was
+        // threaded through rather than a blank New-persona sheet.
+        waitUntilAtLeastOneExists(hasTestTag("persona-row-$id"), timeoutMillis = 10_000)
+        onNodeWithTag("persona-row-$id").performClick()
+        onNodeWithText("Edit persona").assertIsDisplayed()
+
+        onNodeWithTag("persona-name-input").performTextReplacement("Ivy Renamed")
+        onNodeWithTag("persona-editor-save").performClick()
+
+        waitUntilAtLeastOneExists(hasText("Ivy Renamed"), timeoutMillis = 10_000)
+        // Upserted in place, not appended as a second persona.
+        assertEquals(1, state.personas.size, "editing must upsert onto the same id, not create a new persona")
+        assertEquals("Ivy Renamed", state.personas.single().name)
+        assertEquals(id, state.personas.single().id)
+    }
+
+    @Test
+    fun deletingAPersonaRemovesItFromState() = desktopE2eTest { state, _, _ ->
+        val id = state.newPersonaId()
+        state.upsertPersona(Persona(id = id, name = "Ivy"))
+        openSettings()
+
+        waitUntilAtLeastOneExists(hasTestTag("persona-row-$id"), timeoutMillis = 10_000)
+        // The row's overflow ("⋮") -> "Delete" menu item -> confirm dialog.
+        onNode(hasText("⋮")).performClick()
+        waitUntilAtLeastOneExists(hasText("Delete"), timeoutMillis = 10_000)
+        onNode(hasText("Delete") and hasClickAction()).performClick()
+
+        // ConvOverflowMenu is shared with conversation rows, so the confirm dialog
+        // reads "Delete conversation?" even for a persona -- waiting on that title
+        // is how we know the menu item fired and the confirm step is up. (The copy
+        // is wrong for personas; tracked separately, not asserted as correct here.)
+        waitUntilAtLeastOneExists(hasText("Delete conversation?"), timeoutMillis = 10_000)
+        onNode(hasText("Delete") and hasClickAction()).performClick()
+
+        waitUntilDoesNotExist(hasTestTag("persona-row-$id"), timeoutMillis = 10_000)
+        assertEquals(0, state.personas.size)
+    }
+
+    @Test
+    fun pickingAnImageInThePersonaEditorSetsTheAvatar() {
+        val picked = PickedFile(name = "avatar.png", mime = "image/png", bytes = onePixelPng())
+        desktopE2eTest(filePicker = { onPicked -> onPicked(picked) }) { state, _, _ ->
+            openSettings()
+            onNodeWithTag("new-persona-button").performClick()
+            onNodeWithTag("persona-name-input").performTextInput("Ivy")
+
+            onNodeWithText("pick picture").performClick()
+            // The label flips only once encodeAvatar() actually decoded, scaled and
+            // re-encoded the bytes -- so this asserts the whole seam, not just that
+            // the picker fired.
+            waitUntilAtLeastOneExists(hasText("change picture"), timeoutMillis = 10_000)
+            onNodeWithText("remove").assertIsDisplayed()
+
+            onNodeWithTag("persona-editor-save").performClick()
+            waitUntilAtLeastOneExists(hasText("Ivy"), timeoutMillis = 10_000)
+            assertNotNull(state.personas.single().avatarB64, "a picked image must be saved onto the persona")
+            assertEquals("image/jpeg", state.personas.single().mime, "avatars are re-encoded to JPEG by scaleImageForAvatar")
+        }
+    }
+
+    @Test
+    fun cancellingThePickerLeavesTheAvatarUnset() {
+        // A picker that never calls onPicked is exactly what a cancelled native
+        // dialog does.
+        desktopE2eTest(filePicker = { /* user cancelled */ }) { state, _, _ ->
+            openSettings()
+            onNodeWithTag("new-persona-button").performClick()
+            onNodeWithTag("persona-name-input").performTextInput("Ivy")
+
+            onNodeWithText("pick picture").performClick()
+            waitForIdle()
+            onNodeWithText("pick picture").assertIsDisplayed()
+
+            onNodeWithTag("persona-editor-save").performClick()
+            waitUntilAtLeastOneExists(hasText("Ivy"), timeoutMillis = 10_000)
+            assertNull(state.personas.single().avatarB64, "a cancelled pick must leave the avatar unset")
+        }
+    }
+
+    @Test
+    fun pickingANonImageIsRejected() {
+        val picked = PickedFile(name = "notes.txt", mime = "text/plain", bytes = "hello".encodeToByteArray())
+        desktopE2eTest(filePicker = { onPicked -> onPicked(picked) }) { state, _, _ ->
+            openSettings()
+            onNodeWithTag("new-persona-button").performClick()
+            onNodeWithTag("persona-name-input").performTextInput("Ivy")
+
+            onNodeWithText("pick picture").performClick()
+            waitForIdle()
+            // Settings.kt guards on mime.startsWith("image/"), so the label must not flip.
+            onNodeWithText("pick picture").assertIsDisplayed()
+
+            onNodeWithTag("persona-editor-save").performClick()
+            waitUntilAtLeastOneExists(hasText("Ivy"), timeoutMillis = 10_000)
+            assertNull(state.personas.single().avatarB64, "a non-image pick must be ignored")
+        }
+    }
 }
+
+/** Smallest valid PNG (1x1) -- enough for `Image.makeFromEncoded` to decode and
+ *  `scaleImageForAvatar` to re-encode, without checking a fixture into the repo. */
+@OptIn(ExperimentalEncodingApi::class)
+private fun onePixelPng(): ByteArray = Base64.decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+)

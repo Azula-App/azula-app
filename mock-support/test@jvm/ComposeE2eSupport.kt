@@ -1,10 +1,13 @@
 @file:OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import dev.azula.mock.FakeTransport
+import dev.azula.ui.FilePicker
+import dev.azula.ui.LocalFilePicker
 import dev.azula.mock.InMemoryBlobStore
 import dev.azula.mock.MockInvitationsStore
 import dev.azula.state.AzulaState
@@ -43,14 +46,23 @@ import kotlinx.coroutines.launch
  * which does. Every test using this harness gets this for free instead of
  * each one needing its own defensive wait before its first interaction.
  */
-internal fun desktopE2eTest(block: ComposeUiTest.(state: AzulaState, transport: FakeTransport, scope: CoroutineScope) -> Unit) {
+internal fun desktopE2eTest(
+    filePicker: FilePicker? = null,
+    block: ComposeUiTest.(state: AzulaState, transport: FakeTransport, scope: CoroutineScope) -> Unit,
+) {
     val transport = FakeTransport()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     try {
         runComposeUiTest {
             val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore(), invitationsStore = MockInvitationsStore())
             scope.launch { state.start() }
-            setContent { AzulaTheme { DesktopApp(state) } }
+            // A [filePicker] override replaces the platform picker, which is a
+            // native modal no UI test can drive -- see [LocalFilePicker].
+            setContent {
+                CompositionLocalProvider(LocalFilePicker provides filePicker) {
+                    AzulaTheme { DesktopApp(state) }
+                }
+            }
             waitUntilAtLeastOneExists(hasText("azula"), timeoutMillis = 30_000)
             block(state, transport, scope)
         }

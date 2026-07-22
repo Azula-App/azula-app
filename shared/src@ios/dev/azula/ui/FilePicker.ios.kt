@@ -5,7 +5,7 @@ import androidx.compose.runtime.remember
 import platform.darwin.NSObject
 
 @Composable
-actual fun rememberFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
+actual fun rememberPlatformFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
     return remember {
         var activeDelegate: NSObject? = null
         {

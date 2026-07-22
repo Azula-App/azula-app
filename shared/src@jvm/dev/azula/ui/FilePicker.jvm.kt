@@ -10,7 +10,7 @@ import java.io.File
 import java.nio.file.Files
 
 @Composable
-actual fun rememberFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
+actual fun rememberPlatformFilePicker(onPicked: (PickedFile) -> Unit): () -> Unit {
     val scope = rememberCoroutineScope()
     return remember {
         {

@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,11 +47,14 @@ import dev.azula.theme.azulaGlowHalo
 import dev.azula.theme.azulaInputSurface
 import dev.azula.theme.azulaMutedPanel
 import dev.azula.ui.AvatarBox
+import dev.azula.ui.PhraseSaveResult
 import dev.azula.ui.decodeImageBitmap
 import dev.azula.ui.rememberFilePicker
+import dev.azula.ui.rememberPhraseSaver
 import dev.azula.ui.scaleImageForAvatar
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -178,6 +182,16 @@ internal fun BackupStepContent(
     val phrase = state.exportRecoveryPhrase()
     val clipboard = LocalClipboardManager.current
     var confirmed by remember { mutableStateOf(false) }
+    // The save button's own feedback. Deliberately not `state.copied` (which the
+    // copy button uses): that's a single app-wide flash shared with Settings,
+    // Connect, Sidebar and the invite sheet, so hanging both buttons off it made
+    // tapping "copy" light up "✓ saved" too. Cleared on the same 1400 ms cadence
+    // `markCopied()` uses.
+    var saveResult by remember { mutableStateOf<PhraseSaveResult?>(null) }
+    LaunchedEffect(saveResult) {
+        if (saveResult != null) { delay(1400); saveResult = null }
+    }
+    val savePhrase = rememberPhraseSaver()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("back up your recovery phrase", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Text(
@@ -200,13 +214,30 @@ internal fun BackupStepContent(
                     tag = "setup-backup-copy",
                     onClick = { clipboard.setText(AnnotatedString(phrase)); state.markCopied() },
                 )
-                // TODO(onboarding): Android/iOS share-sheet integration is a follow-up --
-                // desktop/JVM has no share sheet, so "save to password manager" falls back
-                // to the same clipboard copy as above (design D5's minimal v1 scope).
                 SetupLinkButton(
-                    label = if (state.copied) "✓ saved" else "save to password manager",
+                    label = when (saveResult) {
+                        PhraseSaveResult.SAVED -> "✓ saved"
+                        // Says "copied", not "saved" -- the phrase went to the
+                        // clipboard, and claiming it reached a vault would leave the
+                        // user believing the identity key is backed up when it isn't.
+                        PhraseSaveResult.UNAVAILABLE -> "✓ copied instead"
+                        // CANCELLED falls through to the idle label: the user dismissed
+                        // the sheet, so there's nothing to report.
+                        else -> "save to password manager"
+                    },
                     tag = "setup-backup-save",
-                    onClick = { clipboard.setText(AnnotatedString(phrase)); state.markCopied() },
+                    onClick = {
+                        savePhrase(phrase) { result ->
+                            // Only the no-provider/error case falls back to the
+                            // clipboard. A user who dismissed the sheet declined to
+                            // store the phrase; copying it anyway would put the
+                            // identity key somewhere they didn't ask for.
+                            if (result == PhraseSaveResult.UNAVAILABLE) {
+                                clipboard.setText(AnnotatedString(phrase))
+                            }
+                            saveResult = result
+                        }
+                    },
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -125,12 +125,18 @@ fun rememberImeVisible(): Boolean {
  * [onRename] (with [currentName] pre-filling the field) enables a "Rename" item
  * that opens a small dialog: Save calls `onRename(newName)`; "Reset to default"
  * calls `onRename(null)` to clear the local rename back to the shared/mnemonic name.
+ *
+ * The menu is also reused for non-conversation rows (e.g. personas in settings);
+ * those pass [deleteTitle]/[deleteBody] to replace the conversation-specific
+ * confirm copy.
  */
 @Composable
 fun ConvOverflowMenu(
     enabled: Boolean,
     onToggleEnabled: (() -> Unit)?,
     onDelete: (() -> Unit)?,
+    deleteTitle: String = "Delete conversation?",
+    deleteBody: String = "This removes its history and saved connection. This can't be undone.",
     onCopyScreen: (() -> Unit)? = null,
     onCopyAll: (() -> Unit)? = null,
     currentName: String? = null,
@@ -187,8 +193,8 @@ fun ConvOverflowMenu(
     if (confirmDelete && onDelete != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete conversation?") },
-            text = { Text("This removes its history and saved connection. This can't be undone.") },
+            title = { Text(deleteTitle) },
+            text = { Text(deleteBody) },
             confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )

@@ -2,6 +2,7 @@
 
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.waitUntilDoesNotExist
+import androidx.compose.ui.test.waitUntilExactlyOneExists
 import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
 import dev.azula.ui.PickedFile
@@ -173,16 +175,32 @@ class SettingsE2eTest {
         openSettings()
 
         waitUntilAtLeastOneExists(hasTestTag("persona-row-$id"), timeoutMillis = 10_000)
-        // The row's overflow ("⋮") -> "Delete" menu item -> confirm dialog.
-        onNode(hasText("⋮")).performClick()
-        waitUntilAtLeastOneExists(hasText("Delete"), timeoutMillis = 10_000)
+        // Wait until the sidebar's seeded conversation has landed too, so this
+        // test always runs in the *ambiguous* regime rather than racing it.
+        // FakeTransport.incoming() emits that conversation on a 300ms delay, and
+        // it carries its own ConvOverflowMenu "⋮" -- so an idle machine used to
+        // get here first and see one node, while a loaded one arrived second and
+        // saw two, failing with "Expected exactly '1' node but found '2'" (a real
+        // 1-in-6 failure caught while measuring the baseline for
+        // stabilize-headless-test-flakes). Forcing two makes the anchoring below
+        // the thing under test instead of a coin flip.
+        waitUntil(timeoutMillis = 10_000) {
+            onAllNodes(hasText("⋮")).fetchSemanticsNodes().size >= 2
+        }
+        // Scope the overflow to *this persona's row*; a bare hasText("⋮") is
+        // ambiguous exactly as described above.
+        onNode(hasText("⋮") and hasAnyAncestor(hasTestTag("persona-row-$id"))).performClick()
+        waitUntilExactlyOneExists(hasText("Delete") and hasClickAction(), timeoutMillis = 10_000)
         onNode(hasText("Delete") and hasClickAction()).performClick()
 
-        // ConvOverflowMenu is shared with conversation rows, so the confirm dialog
-        // reads "Delete conversation?" even for a persona -- waiting on that title
-        // is how we know the menu item fired and the confirm step is up. (The copy
-        // is wrong for personas; tracked separately, not asserted as correct here.)
-        waitUntilAtLeastOneExists(hasText("Delete conversation?"), timeoutMillis = 10_000)
+        // ConvOverflowMenu is shared with conversation rows, but PersonaRow passes
+        // persona-specific confirm copy -- waiting on that title is how we know the
+        // menu item fired and the confirm step is up.
+        waitUntilAtLeastOneExists(hasText("Delete persona?"), timeoutMillis = 10_000)
+        // Wait out the dropdown's dismiss animation: until it finishes, both the
+        // menu item and the dialog's confirm button match "Delete", and the onNode
+        // below would throw the same "found '2'" assertion.
+        waitUntilExactlyOneExists(hasText("Delete") and hasClickAction(), timeoutMillis = 10_000)
         onNode(hasText("Delete") and hasClickAction()).performClick()
 
         waitUntilDoesNotExist(hasTestTag("persona-row-$id"), timeoutMillis = 10_000)

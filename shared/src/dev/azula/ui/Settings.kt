@@ -277,7 +277,14 @@ private fun PersonaRow(
         ) {
             Text(if (isDefault) "default ✓" else "set default", color = if (isDefault) AzulaColors.pinkLight else AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 10.sp)
         }
-        ConvOverflowMenu(enabled = true, onToggleEnabled = null, onDelete = onDelete)
+        ConvOverflowMenu(
+            enabled = true,
+            onToggleEnabled = null,
+            onDelete = onDelete,
+            deleteTitle = "Delete persona?",
+            deleteBody = "This removes the profile from this device and can't be undone. " +
+                "Conversations you already started aren't affected.",
+        )
     }
 }
 

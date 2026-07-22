@@ -1,0 +1,157 @@
+#!/bin/bash
+#
+# Serialized front door for `./kotlin check`.
+#
+# Two problems this exists to solve, both documented in
+# azula-docs/openspec/specs/testing/design.md ("Known flakes (headless test harness)"):
+#
+#  1. Concurrent runs. Two `./kotlin check` invocations at once (typically the
+#     Stop hook's queued check racing a manual/background verify) collide.
+#     Measured, not theorized -- all three of these were observed while
+#     implementing stabilize-headless-test-flakes:
+#       - CoreSimulator error 405, "Unable to boot device in current state:
+#         Booted": one build boots the sim, the other trips over it;
+#       - a ~36x slowdown: ~30s uncontended vs 1110s with a second check alive;
+#       - Amper's own "Internal error: java.io.IOException: Resource deadlock
+#         avoided", which fails the build outright.
+#     This script takes an exclusive lock so the second caller waits. That is
+#     also *faster*: two concurrent runs took 45s serialized vs 53s unlocked,
+#     because contention wastes more than the parallelism buys.
+#
+#  2. Post-PASSED simulator exits. The IOS_SIMULATOR_ARM64 target intermittently
+#     exits non-zero *after* every native test reports [ PASSED ] -- seen as exit
+#     code 149 (teardown, SIGTTOU-class) and as "Simulator boot timeout". The
+#     tests themselves passed; it's the sim runner. This script recognizes that
+#     exact shape and reports success, while still failing loudly on anything
+#     else.
+#
+# Suppression is deliberately conservative (see tasks 1.2/1.3 of the
+# stabilize-headless-test-flakes change): it requires *positive evidence that
+# tests ran and passed*. A compile error produces no success marker at all, so
+# it can never be suppressed -- the failure mode we care most about avoiding.
+#
+# Usage: ./check [-m module]...   (arguments are passed through to `kotlin check`)
+#        ./check --no-lock ...    (skip locking; for a deliberate concurrent run)
+#        KOTLIN_CHECK_STRICT=1 ./check ...   (report the simulator exit as a failure)
+
+set -u
+
+# ── Classifier ──────────────────────────────────────────────────────────────
+# Decides the exit code to report, given a run's log and its raw exit code.
+# Echoes the decision so it can be unit-tested in isolation:
+#     ./check --classify <logfile> <exitcode>
+# See test/check-classify-test.sh, which is what task 1.3 of
+# stabilize-headless-test-flakes ("don't over-suppress") is verified by.
+classify() {
+  local log=$1 code=$2
+  [ "$code" -eq 0 ] && { echo 0; return; }
+
+  # Success markers: gtest's "[  PASSED  ] N tests." (native) and the JUnit
+  # summary's "[ N tests successful ]" (jvm). Requiring one of these is the
+  # safety property that makes suppression sound: a compile error produces
+  # neither, so a build that never ran a test can never be suppressed.
+  local successes
+  successes=$(grep -cE '\[ *PASSED *\]|\[ *[0-9]+ tests successful *\]' "$log")
+
+  # Failure markers: an actually-failing test, either runner. The JUnit summary
+  # always prints a "tests failed" line even when the count is zero, so its
+  # *number* is what matters -- hence the awk rather than a bare grep.
+  local failed_tests junit_failed
+  failed_tests=$(grep -cE '\[ *FAILED *\]|^Failed ' "$log")
+  junit_failed=$(grep -oE '\[ *[0-9]+ tests failed *\]' "$log" \
+    | grep -oE '[0-9]+' | awk '{ s += $1 } END { print s + 0 }')
+
+  # The known-benign simulator signatures. "Unable to boot device in current
+  # state: Booted" (CoreSimError 405) is what a *concurrent* run looks like from
+  # the losing side -- captured directly while measuring the baseline for this
+  # change, on a run that took 1110s against a 31s uncontended one. The lock is
+  # what actually prevents it; this is belt-and-braces for a run that bypassed
+  # the lock (--no-lock, or a build started outside this script).
+  local sim_signature=0
+  if [ "$code" -eq 149 ] \
+    || grep -qE 'Simulator boot timeout|simulator .*(boot|teardown) (timed out|failed)' "$log" \
+    || grep -qE 'Unable to boot device in current state|com\.apple\.CoreSimulator\.SimError' "$log"; then
+    sim_signature=1
+  fi
+
+  if [ "$successes" -gt 0 ] && [ "$failed_tests" -eq 0 ] && [ "$junit_failed" -eq 0 ] && [ "$sim_signature" -eq 1 ]; then
+    if [ "${KOTLIN_CHECK_STRICT:-0}" = "1" ]; then
+      echo "check: exit $code matches the known post-PASSED simulator flake, but" >&2
+      echo "check: KOTLIN_CHECK_STRICT=1 is set, so reporting it as a failure." >&2
+      echo "$code"; return
+    fi
+    echo >&2
+    echo "check: ignoring exit code $code -- every test reported passing and the failure" >&2
+    echo "check: matches the known post-PASSED iOS-simulator exit (see testing/design.md," >&2
+    echo "check: \"Known flakes\"). Set KOTLIN_CHECK_STRICT=1 to surface it instead." >&2
+    echo 0; return
+  fi
+
+  echo "$code"
+}
+
+if [ "${1:-}" = "--classify" ]; then
+  classify "$2" "$3"
+  exit 0
+fi
+
+here="$(cd "$(dirname "$0")" && pwd)"
+lock_dir="${TMPDIR:-/tmp}/azula-kotlin-check.lock"
+lock_timeout=1800   # give up waiting after 30min; a check is minutes, not hours
+use_lock=1
+
+args=()
+for a in "$@"; do
+  if [ "$a" = "--no-lock" ]; then use_lock=0; else args+=("$a"); fi
+done
+
+# ── Lock ────────────────────────────────────────────────────────────────────
+# mkdir is atomic on every filesystem we care about, and unlike `flock(1)` it
+# exists on macOS. The pid file inside lets us reclaim a lock whose owner died
+# (a killed check would otherwise wedge every later run).
+acquired=0
+# Always returns 0: this runs from an EXIT trap, and a non-zero last command
+# there can leak into the script's reported status on some shells.
+release_lock() { [ "$acquired" = 1 ] && rm -rf "$lock_dir"; return 0; }
+
+if [ "$use_lock" = 1 ]; then
+  waited=0
+  announced=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    owner=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      echo "check: reclaiming lock from dead pid $owner" >&2
+      rm -rf "$lock_dir"
+      continue
+    fi
+    if [ "$announced" = 0 ]; then
+      echo "check: another kotlin check (pid ${owner:-?}) is running; waiting for it to finish…" >&2
+      announced=1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+    if [ "$waited" -ge "$lock_timeout" ]; then
+      echo "check: gave up waiting for the lock after ${lock_timeout}s (holder pid ${owner:-?})." >&2
+      echo "check: if that process is gone, remove $lock_dir and retry." >&2
+      exit 1
+    fi
+  done
+  acquired=1
+  echo $$ >"$lock_dir/pid"
+  trap 'release_lock' EXIT INT TERM
+fi
+
+# ── Run ─────────────────────────────────────────────────────────────────────
+log=$(mktemp "${TMPDIR:-/tmp}/azula-check-XXXXXX.log")
+cleanup() { rm -f "$log"; release_lock; }
+trap 'cleanup' EXIT INT TERM
+
+cd "$here" || exit 1
+if [ "${#args[@]}" -eq 0 ]; then
+  ./kotlin check 2>&1 | tee "$log"
+else
+  ./kotlin check "${args[@]}" 2>&1 | tee "$log"
+fi
+code=${PIPESTATUS[0]}
+
+exit "$(classify "$log" "$code")"

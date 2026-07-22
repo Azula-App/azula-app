@@ -6,12 +6,15 @@ import dev.azula.terminal.ATTR_UNDERLINE
 import dev.azula.terminal.ATTR_WIDE_LEAD
 import dev.azula.terminal.ATTR_WIDE_TRAIL
 import dev.azula.terminal.MouseButton
+import dev.azula.terminal.MouseCell
 import dev.azula.terminal.MouseTrackingMode
 import dev.azula.terminal.PredictedCell
 import dev.azula.terminal.PredictionEngine
 import dev.azula.terminal.TermSeq
 import dev.azula.terminal.TerminalEmulator
 import dev.azula.terminal.encodeMouseReport
+import dev.azula.terminal.mouseCellAt
+import dev.azula.terminal.reportsDragMotion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -448,7 +451,7 @@ class TerminalEmulatorTest {
         e.feed("${ESC}[?2004h"); assertTrue(e.bracketedPaste)
     }
 
-    // ---- mouse reporting (azula-docs/openspec/changes/terminal-mouse-reporting/) ----
+    // ---- mouse reporting (openspec/specs/terminal/design.md, "Mouse reporting") ----
 
     @Test
     fun mouseTrackingModeAndSgrEncodingTracked() {
@@ -532,6 +535,50 @@ class TerminalEmulatorTest {
         // A wheel notch is never a "motion" report even if the flag is passed.
         val wheel = encodeMouseReport(MouseButton.WHEEL_UP, col = 1, row = 1, pressed = true, sgr = true, motion = true)
         assertEquals("$ESC[<64;1;1M", wheel)
+    }
+
+    @Test
+    fun legacyX10MotionReportAddsThirtyTwoToTheButtonCode() {
+        // The +32 motion flag applies to the X10 fallback too -- Cb 0+32, then
+        // the wire's own +32 offset on every byte, so the Cb byte is 64.
+        val drag = encodeMouseReport(MouseButton.LEFT, col = 2, row = 3, pressed = true, sgr = false, motion = true)
+        assertEquals("$ESC[M" + (32 + 32).toChar() + (2 + 32).toChar() + (3 + 32).toChar(), drag)
+    }
+
+    @Test
+    fun onlyButtonAndAnyEventModesReportDragMotion() {
+        // ?1000 reports button transitions only; ?1002/?1003 add motion while a
+        // button is held. This is what gates the drag-motion reports the alt
+        // screen's pointer gesture sends.
+        assertFalse(MouseTrackingMode.OFF.reportsDragMotion())
+        assertFalse(MouseTrackingMode.NORMAL.reportsDragMotion())
+        assertTrue(MouseTrackingMode.BUTTON_EVENT.reportsDragMotion())
+        assertTrue(MouseTrackingMode.ANY_EVENT.reportsDragMotion())
+    }
+
+    @Test
+    fun mouseCellMapsPixelsToOneBasedCells() {
+        // 10px wide, 20px tall cells on an 80x24 grid. The origin pixel is cell
+        // (1,1), and anywhere inside a cell maps to that same cell -- the
+        // property the drag-motion path relies on to only report on a real
+        // cell crossing.
+        assertEquals(MouseCell(1, 1), mouseCellAt(0f, 0f, 10f, 20f, 80, 24))
+        assertEquals(MouseCell(1, 1), mouseCellAt(9.9f, 19.9f, 10f, 20f, 80, 24))
+        assertEquals(MouseCell(2, 2), mouseCellAt(10f, 20f, 10f, 20f, 80, 24))
+        assertEquals(MouseCell(4, 3), mouseCellAt(35f, 55f, 10f, 20f, 80, 24))
+    }
+
+    @Test
+    fun mouseCellClampsOutOfGridPositionsToARealCell() {
+        // Past the last column/row (a touch in the padding, or a drag that ran
+        // off the edge) clamps instead of naming a cell the program can't have.
+        assertEquals(MouseCell(80, 24), mouseCellAt(10_000f, 10_000f, 10f, 20f, 80, 24))
+        // Negative coordinates (a drag off the top-left) clamp to the origin.
+        assertEquals(MouseCell(1, 1), mouseCellAt(-50f, -50f, 10f, 20f, 80, 24))
+        // Cell not measured yet: fall back to the origin, don't divide by zero.
+        assertEquals(MouseCell(1, 1), mouseCellAt(35f, 55f, 0f, 0f, 80, 24))
+        // A degenerate grid still yields a valid 1-based cell.
+        assertEquals(MouseCell(1, 1), mouseCellAt(35f, 55f, 10f, 20f, 0, 0))
     }
 
     @Test

@@ -108,11 +108,15 @@ fun ChatPane(state: AzulaState, convId: String, modifier: Modifier = Modifier, o
         }
         when {
             termLive -> {
-                // Type directly in the terminal — no input bar, just the compact key row.
-                // Desktop has no soft keyboard (a live terminal there is captured via
-                // the hardware keyboard) so the bar stays always-on while live; on a
-                // platform with a soft keyboard it's tied to the keyboard's visibility.
-                val showKeys = if (platformHasSoftKeyboard) rememberImeVisible() else true
+                // Type directly in the terminal — no input bar, just the compact key
+                // row, and only where a soft keyboard makes it necessary. The row
+                // exists to supply keys a soft keyboard lacks (Esc, Tab, the Ctrl
+                // chords, arrows); a hardware keyboard already has them, so desktop
+                // shows nothing and gives the space back to the grid. Desktop's paste
+                // moved into RawTerminalInput.jvm.kt (Cmd-V) when this stopped being
+                // shown — the row's Paste key had been the only route to
+                // terminalPaste there.
+                val showKeys = platformHasSoftKeyboard && rememberImeVisible()
                 if (showKeys) TerminalKeysBar(state, convId)
             }
             // A terminal whose shell exited: show a closed/reconnect bar.

@@ -182,6 +182,59 @@ class DeviceLinkProtocolTest {
         assertEquals(bundle, granted.bundle)
     }
 
+    // -- task 6.7: the dialer (root-holding side) writes one priming blank line right after
+    // opening the QUIC stream (ConnectService.beginGrantDial), because the acceptor's
+    // accept_bi() only fires once the dialer has written bytes -- so every frame read on
+    // this ALPN must skip blank lines, exactly like Rust proto.rs::read_frame. These two
+    // tests pin that down on both reading sides; the QUIC-semantics half (that the priming
+    // write is what unblocks the acceptor at all) can only be shown over a real transport,
+    // which azula-cli's `link_handshake_completes_over_a_real_quic_connection` covers.
+
+    @Test
+    fun newDeviceSessionSkipsThePrimingBlankLineBeforeTheReply() = runTest {
+        val (newDeviceEnd, grantingDeviceEnd) = streamPair()
+        val newDevicePk = fakePublicKey(fixedKey(0x33)).toHex()
+        val bundle = sampleBundle()
+
+        // Simulate the fixed dialer: its priming blank line lands in the new device's
+        // inbox ahead of the granting session's actual reply.
+        grantingDeviceEnd.sendLine("")
+        val grantingJob = async {
+            DeviceLinkProtocol.runGrantingSession(grantingDeviceEnd) { _, _, _ ->
+                DeviceLinkProtocol.GrantDecision.Grant("azd-granted", bundle)
+            }
+        }
+        val outcome = DeviceLinkProtocol.runNewDeviceSession(newDeviceEnd, newDevicePk, "phone", 0)
+
+        assertEquals(DeviceLinkProtocol.GrantSessionResult.GRANTED, grantingJob.await())
+        val granted = assertIs<DeviceLinkProtocol.LinkOutcome.Granted>(outcome)
+        assertEquals("azd-granted", granted.cert)
+        assertEquals(bundle, granted.bundle)
+    }
+
+    @Test
+    fun grantingSessionSkipsBlankLinesBeforeTheHello() = runTest {
+        val (newDeviceEnd, grantingDeviceEnd) = streamPair()
+        val newDevicePk = fakePublicKey(fixedKey(0x34)).toHex()
+
+        // Blank lines ahead of the hello must be skipped, not decoded as a malformed frame
+        // (Rust read_frame skips blanks on *every* read, so the Kotlin reader must too) --
+        // two of them, to prove the reader loops rather than skipping exactly one.
+        newDeviceEnd.sendLine("")
+        newDeviceEnd.sendLine("")
+        val grantingJob = async {
+            DeviceLinkProtocol.runGrantingSession(grantingDeviceEnd) { devicePkHex, name, _ ->
+                assertEquals(newDevicePk, devicePkHex)
+                assertEquals("phone", name)
+                DeviceLinkProtocol.GrantDecision.Reject("hello made it through the blanks")
+            }
+        }
+        val outcome = DeviceLinkProtocol.runNewDeviceSession(newDeviceEnd, newDevicePk, "phone", 0)
+
+        assertEquals(DeviceLinkProtocol.GrantSessionResult.REJECTED, grantingJob.await())
+        assertIs<DeviceLinkProtocol.LinkOutcome.Rejected>(outcome)
+    }
+
     @Test
     fun grantingSessionWithNoHelloSendsNothing() = runTest {
         val (newDeviceEnd, grantingDeviceEnd) = streamPair()

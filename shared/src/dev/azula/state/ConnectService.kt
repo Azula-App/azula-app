@@ -1342,7 +1342,29 @@ class ConnectService(
         grantStage = GrantStage.DIALING
         grantPeerTicket = ticket
         grantJob = scope.launch {
-            val stream = runCatching { transport.connect(ticket, Alpns.LINK) }.getOrNull()
+            val stream = runCatching {
+                transport.connect(ticket, Alpns.LINK).also {
+                    // Priming write (task 6.7) -- looks like a no-op, is load-bearing.
+                    // QUIC does not surface a freshly opened bi-stream to the peer until
+                    // the *dialer* writes bytes on it: the accept side's accept_bi()
+                    // blocks until then (azula-cli's term.rs documents this exact gotcha:
+                    // "`accept_bi`, which blocks until the client sends data"). But
+                    // azula/link/0's first real frame (LinkHello) comes from the
+                    // *accepting* new device -- so without this write the two sides
+                    // deadlock: we block awaiting a hello the peer can never send because
+                    // its accept never fires. This was the on-device linking hang of
+                    // 2026-07-24. One raw newline unblocks the peer's accept and is
+                    // skipped by every link frame reader (Rust proto.rs::read_frame's
+                    // "Skip blank keepalive lines"; Kotlin DeviceLinkProtocol.
+                    // receiveFrameLine). Deliberately sendBytes, not sendLine(""): the
+                    // priming write lives below the frame layer (it is transport
+                    // plumbing, not a frame), and the mock LoopbackStream treats any
+                    // sendLine as chat activity while its sendBytes is a no-op -- on the
+                    // real streams both calls emit the identical single "\n". Do not
+                    // remove it.
+                    it.sendBytes("\n".encodeToByteArray())
+                }
+            }.getOrNull()
             if (stream == null) {
                 grantFailReason = "couldn't connect to that device"
                 grantStage = GrantStage.FAILED

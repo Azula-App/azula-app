@@ -40,6 +40,26 @@ import dev.azula.sync.decodeDeviceRevokeBody
  */
 object DeviceLinkProtocol {
 
+    /**
+     * Next non-blank line from [stream], or null at end-of-stream -- this protocol's
+     * counterpart of the Rust reference's `proto.rs::read_frame`, which skips blank lines
+     * before decoding every frame. Blank lines are not hypothetical here (task 6.7):
+     * `azula/link/0`'s first real frame ([Frame.LinkHello]) is sent by the *accepting*
+     * side, but QUIC never even surfaces a freshly opened bi-stream to the acceptor until
+     * the dialer writes bytes on it -- so the dialing (root-holding) side writes one
+     * priming blank line immediately after opening the stream (see
+     * `ConnectService.beginGrantDial` and azula-cli `link.rs`'s `LINK_ALPN` transport
+     * note). Every read on this ALPN must therefore skip blank lines, or that priming
+     * line would be decoded as a malformed frame; app-to-app linking makes the same
+     * Kotlin code both the writer and the reader of that line.
+     */
+    private suspend fun receiveFrameLine(stream: P2pStream): String? {
+        while (true) {
+            val line = stream.receiveLine() ?: return null
+            if (line.isNotBlank()) return line
+        }
+    }
+
     /** What the new-device side of one `azula/link/0` session ends with. */
     sealed class LinkOutcome {
         data class Granted(val cert: String, val bundle: IdentityBundle) : LinkOutcome()
@@ -60,7 +80,7 @@ object DeviceLinkProtocol {
      */
     suspend fun runNewDeviceSession(stream: P2pStream, devicePkHex: String, name: String, roles: Int): LinkOutcome {
         stream.sendLine(FrameCodec.encode(Frame.LinkHello(devicePkHex, name, roles)))
-        val line = stream.receiveLine()
+        val line = receiveFrameLine(stream)
             ?: return LinkOutcome.Rejected("connection closed before granting or rejecting")
         return when (val frame = runCatching { FrameCodec.decode(line) }.getOrNull()) {
             is Frame.LinkGrant -> LinkOutcome.Granted(frame.cert, frame.bundle)
@@ -98,7 +118,7 @@ object DeviceLinkProtocol {
         stream: P2pStream,
         decide: suspend (devicePkHex: String, name: String, roles: Int) -> GrantDecision,
     ): GrantSessionResult {
-        val line = stream.receiveLine() ?: return GrantSessionResult.NO_HELLO
+        val line = receiveFrameLine(stream) ?: return GrantSessionResult.NO_HELLO
         val hello = runCatching { FrameCodec.decode(line) }.getOrNull() as? Frame.LinkHello
             ?: return GrantSessionResult.NO_HELLO
         return when (val decision = decide(hello.devicePk, hello.name, hello.roles)) {

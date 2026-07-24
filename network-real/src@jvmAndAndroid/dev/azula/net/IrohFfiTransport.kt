@@ -68,8 +68,8 @@ interface SecretKeyStore {
  * load/save/migrate logic.
  */
 class LayeredSecretKeyStore(
-    private val node: SingleSlotKeyStore,
-    private val root: SingleSlotKeyStore,
+    internal val node: SingleSlotKeyStore,
+    internal val root: SingleSlotKeyStore,
 ) : SecretKeyStore {
     override fun loadNodeKey(): ByteArray? = node.load()
     override fun saveNodeKey(bytes: ByteArray) = node.save(bytes)
@@ -447,10 +447,27 @@ private class IrohP2pStream(private val stream: IrohStream) : P2pStream {
 actual fun createTransport(): IrohTransport =
     IrohFfiTransport(IrohConfig.keyStore ?: defaultDesktopKeyStore())
 
-private fun defaultKeyPath(fileName: String): String {
-    val home = System.getProperty("user.home") ?: "."
-    return home + File.separator + ".azula" + File.separator + fileName
-}
+/**
+ * The effective home directory for azula desktop's on-disk state: the
+ * `AZULA_DATA_DIR` override when set, otherwise the real `user.home` exactly
+ * as before. The override lets a developer stand up a second, fully isolated
+ * desktop instance -- files *and* keys, see [defaultDesktopKeyStore] -- against
+ * the real network without mutating `~/.azula` or the macOS Keychain identity
+ * of their primary install; documented in
+ * `azula-docs/openspec/specs/testing/design.md`. Unset (the default for every
+ * real user) resolves identically to before this override existed -- that's
+ * the load-bearing safety property, not just a convenience default.
+ *
+ * `env` is overridable so tests can exercise both branches deterministically:
+ * the JVM has no supported way to set an env var for the running process, so
+ * production code always calls this with the default (`System::getenv`) and
+ * tests inject a fake lookup instead of mutating real process state.
+ */
+internal fun azulaHomeDir(env: (String) -> String? = System::getenv): String =
+    env("AZULA_DATA_DIR")?.takeIf { it.isNotBlank() } ?: (System.getProperty("user.home") ?: ".")
+
+private fun defaultKeyPath(fileName: String, env: (String) -> String? = System::getenv): String =
+    azulaHomeDir(env) + File.separator + ".azula" + File.separator + fileName
 
 /**
  * Default store when nothing is injected via [IrohConfig.keyStore] — i.e. JVM
@@ -462,26 +479,45 @@ private fun defaultKeyPath(fileName: String): String {
  * therefore its node id -- is read back unchanged; the root entry (`root.key` /
  * `root_secret`) is new and starts absent, which is exactly what triggers the
  * migration in [IrohFfiTransport.maybeAdoptRootSecret] on first launch.
+ *
+ * When `AZULA_DATA_DIR` overrides the desktop home (see [azulaHomeDir]), key
+ * storage *always* falls back to file-based storage under the scratch dir --
+ * even on macOS -- instead of touching the real Keychain. This is deliberate,
+ * not a shortcut: an isolated/test instance must never be able to read or
+ * write the primary install's real `app.azula.identity` Keychain entries, and
+ * routing it through the actual Keychain instead would (a) prompt for
+ * Keychain unlock/access on every isolated run, and (b) leave orphaned
+ * Keychain entries behind that deleting the scratch dir can't clean up. A
+ * scratch instance must be fully contained: `rm -rf $AZULA_DATA_DIR` has to
+ * remove *everything* it touched, which file-based fallback guarantees and
+ * a namespaced Keychain service would not.
+ *
+ * `env`/`isMac` are overridable for the same reason as [azulaHomeDir]: tests
+ * exercise the override branch deterministically on any OS without mutating
+ * real process state.
  */
-private fun defaultDesktopKeyStore(): SecretKeyStore {
-    val isMac = System.getProperty("os.name")?.lowercase()?.contains("mac") == true
-    return if (isMac) {
+internal fun defaultDesktopKeyStore(
+    env: (String) -> String? = System::getenv,
+    isMac: Boolean = System.getProperty("os.name")?.lowercase()?.contains("mac") == true,
+): SecretKeyStore {
+    val overridden = env("AZULA_DATA_DIR")?.isNotBlank() == true
+    return if (isMac && !overridden) {
         LayeredSecretKeyStore(
             node = MacKeychainSecretKeyStore(
                 service = "app.azula.identity",
                 account = "endpoint_key",
-                fallback = FileSecretKeyStore(defaultKeyPath("endpoint.key")),
+                fallback = FileSecretKeyStore(defaultKeyPath("endpoint.key", env)),
             ),
             root = MacKeychainSecretKeyStore(
                 service = "app.azula.identity",
                 account = "root_secret",
-                fallback = FileSecretKeyStore(defaultKeyPath("root.key")),
+                fallback = FileSecretKeyStore(defaultKeyPath("root.key", env)),
             ),
         )
     } else {
         LayeredSecretKeyStore(
-            node = FileSecretKeyStore(defaultKeyPath("endpoint.key")),
-            root = FileSecretKeyStore(defaultKeyPath("root.key")),
+            node = FileSecretKeyStore(defaultKeyPath("endpoint.key", env)),
+            root = FileSecretKeyStore(defaultKeyPath("root.key", env)),
         )
     }
 }

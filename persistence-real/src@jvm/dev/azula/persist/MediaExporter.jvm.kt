@@ -5,17 +5,17 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * Desktop media export: copy every received file into `~/Downloads/Azula/`,
- * where the OS file managers already surface it. No gallery concept on desktop,
- * so images/video land in the same folder as everything else. Collision-safe:
- * `report.pdf` -> `report (1).pdf` -> `report (2).pdf` …
+ * Desktop media export: copy every received file into `~/Downloads/Azula/`
+ * (or `$AZULA_DATA_DIR/Downloads/Azula/` when the isolation override is set --
+ * see [azulaHomeDir]), where the OS file managers already surface it. No
+ * gallery concept on desktop, so images/video land in the same folder as
+ * everything else. Collision-safe: `report.pdf` -> `report (1).pdf` ->
+ * `report (2).pdf` …
  */
 actual fun platformMediaExporter(): MediaExporter? = JvmMediaExporter()
 
 class JvmMediaExporter : MediaExporter {
-    private val dir: File by lazy {
-        File(File(System.getProperty("user.home") ?: "."), "Downloads/Azula").also { it.mkdirs() }
-    }
+    private val dir: File by lazy { mediaExportDir().also { it.mkdirs() } }
 
     override suspend fun export(path: String, name: String, mime: String): String? {
         val src = File(path)
@@ -27,6 +27,11 @@ class JvmMediaExporter : MediaExporter {
         }.getOrNull()
     }
 }
+
+/** `$AZULA_DATA_DIR/Downloads/Azula` when the isolation override is set (see
+ *  [azulaHomeDir]), else `~/Downloads/Azula` as before. */
+internal fun mediaExportDir(env: (String) -> String? = System::getenv): File =
+    File(azulaHomeDir(env), "Downloads/Azula")
 
 /** Returns a not-yet-existing [File] in [dir] for [name], inserting ` (n)` before
  *  the extension on collision (`a.png` -> `a (1).png`, extension-less -> `a (1)`). */

@@ -13,4 +13,6 @@ actual fun platformInvitationsStore(): InvitationsStore? = RawInvitationsStore(
     },
 )
 
-private fun invitationsFile() = File(System.getProperty("user.home"), ".azula/invitations.json")
+/** `$AZULA_DATA_DIR/.azula/invitations.json` when the isolation override is set
+ *  (see [azulaHomeDir]), else `~/.azula/invitations.json` as before. */
+internal fun invitationsFile(env: (String) -> String? = System::getenv) = File(azulaHomeDir(env), ".azula/invitations.json")

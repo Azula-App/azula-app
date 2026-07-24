@@ -1,3 +1,4 @@
+import dev.azula.core.Ed25519
 import dev.azula.di.AppGraph
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
@@ -13,6 +14,7 @@ import dev.azula.persist.AppSettings
 import dev.azula.persist.ProfileStore
 import dev.azula.persist.SettingsStore
 import dev.azula.state.AzulaState
+import dev.azula.sync.EventLogStore
 import dev.zacsweers.metro.createGraphFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -34,6 +36,14 @@ internal fun testAzulaState(
     mediaExporter: MediaExporter? = null,
     settingsStore: SettingsStore? = null,
     profileStore: ProfileStore? = null,
+    // multi-device-identity tasks 4.4/4.5: null by default (no behavior change for
+    // any existing test), but a test that wants to exercise the real event-log
+    // append/fold/rebuild path end-to-end can supply both -- see
+    // AccountSyncWiringTest.kt for why that needs its own identity-consistent
+    // IrohTransport rather than the shared FakeTransport (whose nodeId isn't real
+    // key material paired with any Ed25519).
+    eventLogStore: EventLogStore? = null,
+    ed25519: Ed25519? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -46,6 +56,8 @@ internal fun testAzulaState(
         blobStore = blobStore,
         invitationsStore = invitationsStore,
         mediaExporter = mediaExporter,
+        eventLogStore = eventLogStore,
+        ed25519 = ed25519,
     ).azulaState
 
 /** An in-memory [PeerStore], so a test can inspect exactly what ConnectService persisted. */

@@ -20,7 +20,7 @@ import dev.azula.state.AzulaState
  * [BACKUP] entirely, and both [FORK] and [RESTORE] map to the same "identity"
  * rail stage (see `railIndexFor` in `SetupShells.kt`).
  */
-enum class SetupStep { FORK, RESTORE, BACKUP, PERSONA }
+enum class SetupStep { FORK, RESTORE, LINK, BACKUP, PERSONA }
 
 /**
  * The first-run setup flow (see the onboarding capability): identity fork ->
@@ -50,10 +50,20 @@ fun SetupFlow(state: AzulaState) {
                 SetupStep.FORK -> ForkStepContent(
                     onCreate = { step = SetupStep.BACKUP },
                     onRestore = { step = SetupStep.RESTORE },
+                    onLink = { step = SetupStep.LINK },
                 )
                 SetupStep.RESTORE -> RestoreStepContent(
                     state = state,
                     onRestored = { step = SetupStep.PERSONA },
+                    onBack = { step = SetupStep.FORK },
+                )
+                // A QR-linked device holds no root secret (multi-device-identity: "a
+                // QR-linked device SHALL NOT receive the root secret"), so it has no
+                // recovery phrase to back up -- success skips BACKUP entirely, exactly
+                // like a successful RESTORE does.
+                SetupStep.LINK -> DeviceLinkStepContent(
+                    state = state,
+                    onLinked = { step = SetupStep.PERSONA },
                     onBack = { step = SetupStep.FORK },
                 )
                 SetupStep.BACKUP -> BackupStepContent(

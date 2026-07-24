@@ -2,10 +2,15 @@ package dev.azula.net
 
 import app.azula.iroh.IrohEndpoint
 import app.azula.iroh.IrohStream
+import app.azula.iroh.ed25519PublicFromSecret
+import app.azula.iroh.ed25519Sign
+import app.azula.iroh.ed25519Verify
 import app.azula.iroh.nodeIdFromTicket
 import app.azula.iroh.ticketBytes as irohTicketBytes
 import app.azula.iroh.ticketFromBytes as irohTicketFromBytes
 import app.azula.iroh.verifySignature as irohVerifySignature
+import dev.azula.core.Ed25519
+import dev.azula.core.RootIdentityMigration
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -29,10 +34,13 @@ import platform.CoreFoundation.CFTypeRefVar
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
+import platform.Foundation.NSDate
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.create
+import platform.Foundation.timeIntervalSince1970
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
+import platform.Security.SecItemDelete
 import platform.Security.SecItemUpdate
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessible
@@ -70,13 +78,72 @@ class IosIrohTransport : IrohTransport {
         endpoint = ep
         nodeId = ep.nodeId()
         runCatching { saveSecretKey(ep.secretKeyBytes()) }
+        runCatching { maybeAdoptRootSecret(ep) }
         onCameOnline?.invoke()
+    }
+
+    /**
+     * multi-device-identity design.md Migration Plan step 2: if this device has no root
+     * secret yet, its node secret becomes the root secret unchanged and a self-certificate
+     * (`device_pk == root_pk`) is issued -- mirrors [IrohFfiTransport]'s
+     * `maybeAdoptRootSecret`/`adoptRootSecretIfNeeded`. Covers both an existing
+     * single-device identity's first post-upgrade launch and a fresh install (no separate
+     * "link to an existing identity" flow exists yet -- task 6). The node key itself is
+     * never touched here.
+     *
+     * multi-device-identity task 3.4, closed: this module still cannot depend on
+     * `sync-real`, so the certificate computed below is still discarded here -- but
+     * `ConnectService.start()` (in `shared`) independently recomputes the identical
+     * certificate via `AccountSyncService.ensureSelfCertified` and durably logs its
+     * `device_add`; see [IrohFfiTransport.adoptRootSecretIfNeeded]'s kdoc for the full
+     * explanation (mirrored here).
+     */
+    private fun maybeAdoptRootSecret(ep: IrohEndpoint) {
+        if (runCatching { loadRootSecret() }.getOrNull() != null) return
+        val nodeSecret = ep.secretKeyBytes()
+        val devicePk = runCatching { ed25519PublicFromSecret(nodeSecret) }.getOrNull() ?: return
+        runCatching { RootIdentityMigration.selfCertify(nodeSecret, devicePk, epochSecondsNow(), IrohKmpEd25519) }
+        runCatching { saveRootSecret(nodeSecret) }
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
 
     override fun secretKeyBytes(): ByteArray? =
         runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: loadSecretKey()
+
+    /** The current 32-byte identity root secret, if this device holds one -- independent
+     *  of the node key. Null on a QR-linked device, or before any root secret is known. */
+    override fun rootSecretBytes(): ByteArray? = runCatching { loadRootSecret() }.getOrNull()
+
+    /**
+     * Persists [bytes] as this device's root secret, independent of the node key -- used by
+     * the recovery-phrase import flow. Unlike [importSecretKey] this never rebinds the
+     * transport itself: the node id is unaffected by a root-secret change under the
+     * multi-device-identity model. The rest of enrollment (self-issued certificate,
+     * `device_add` log entry, second-confirmation-on-overwrite, and a conditional
+     * [rebind] for a genuinely different identity) is orchestrated by
+     * `ConnectService.importRecoveryPhrase` (multi-device-identity task 3.4).
+     */
+    override fun importRootSecret(bytes: ByteArray) {
+        require(bytes.size == 32) { "root secret must be 32 bytes" }
+        runCatching { saveRootSecret(bytes) }
+    }
+
+    /** See [IrohTransport.forgetRootSecret] -- clears the Keychain root-secret entry and its
+     *  NSUserDefaults fallback only, never the node key/id. */
+    override fun forgetRootSecret() {
+        runCatching { clearRootSecretStorage() }
+    }
+
+    override fun publicKeyFor(secret: ByteArray): ByteArray? =
+        runCatching { ed25519PublicFromSecret(secret) }.getOrNull()
+
+    override suspend fun rebind() {
+        if (alpns.isEmpty()) return // never bound; nothing to re-bind
+        runCatching { endpoint?.shutdown() }
+        endpoint = null
+        bind(alpns)
+    }
 
     /**
      * Pre-bind probe for the setup gate (see [IrohTransport.hasPersistedIdentity]):
@@ -220,6 +287,55 @@ private fun saveSecretKey(bytes: ByteArray) {
     }
 }
 
+// --- Root-secret persistence (identity root, distinct from the node key above) ---
+//
+// A second, independent Keychain entry (per the `identity` capability's Per-Platform
+// Key-at-Rest Storage requirement -- "the root secret and node key SHALL be stored under
+// distinct entries"). Unlike the node key, there is no legacy plaintext value to migrate
+// here: this entry didn't exist before multi-device-identity, so a Keychain failure just
+// falls back to a second NSUserDefaults key, the same resilience posture as the node key.
+
+private const val ROOT_KEYCHAIN_ACCOUNT = "root_secret"
+private const val ROOT_SECRET_PREF = "azula_root_secret_key"
+
+private fun loadRootSecret(): ByteArray? =
+    runCatching { keychainLoad(KEYCHAIN_SERVICE, ROOT_KEYCHAIN_ACCOUNT) }.getOrNull()
+        ?: NSUserDefaults.standardUserDefaults.stringForKey(ROOT_SECRET_PREF)?.hexToBytesOrNull()
+
+private fun saveRootSecret(bytes: ByteArray) {
+    val savedToKeychain = runCatching { keychainSave(KEYCHAIN_SERVICE, ROOT_KEYCHAIN_ACCOUNT, bytes) }.getOrDefault(false)
+    if (savedToKeychain) {
+        runCatching { NSUserDefaults.standardUserDefaults.removeObjectForKey(ROOT_SECRET_PREF) }
+    } else {
+        NSUserDefaults.standardUserDefaults.setObject(bytes.toHex(), ROOT_SECRET_PREF)
+    }
+}
+
+/** Deletes both the Keychain root-secret entry and its NSUserDefaults fallback -- see
+ *  [IosIrohTransport.forgetRootSecret]. Best-effort on both; the end state ("no root secret
+ *  readable") is what matters, and a delete of an already-absent entry is harmless. */
+private fun clearRootSecretStorage() {
+    runCatching { keychainDelete(KEYCHAIN_SERVICE, ROOT_KEYCHAIN_ACCOUNT) }
+    runCatching { NSUserDefaults.standardUserDefaults.removeObjectForKey(ROOT_SECRET_PREF) }
+}
+
+/** Epoch seconds for the migration self-cert's `issued_at` -- iOS has no `System.currentTimeMillis`. */
+private fun epochSecondsNow(): Long = NSDate().timeIntervalSince1970.toLong()
+
+/**
+ * [Ed25519] wired to iroh-kmp's real Ed25519 free functions -- mirrors
+ * `IrohFfiTransport.kt`'s `IrohKmpEd25519` (duplicated rather than shared: this module has
+ * no fully-common source set between jvmAndAndroid and iOS to hang a single copy off of).
+ */
+object IrohKmpEd25519 : Ed25519 {
+    override fun sign(secret: ByteArray, data: ByteArray): ByteArray = ed25519Sign(secret, data)
+
+    override fun verify(publicKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
+        runCatching { ed25519Verify(publicKey, data, signature) }.getOrDefault(false)
+}
+
+actual fun platformEd25519(): Ed25519 = IrohKmpEd25519
+
 private fun ByteArray.toHex(): String =
     joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
@@ -252,6 +368,11 @@ private fun keychainLoad(service: String, account: String): ByteArray? {
         if (status != errSecSuccess) return@memScoped null
         (CFBridgingRelease(result.value) as? NSData)?.toByteArrayOrNull()
     }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun keychainDelete(service: String, account: String) {
+    SecItemDelete(keychainQuery(service, account))
 }
 
 @OptIn(ExperimentalForeignApi::class)

@@ -1,0 +1,31 @@
+# sync-real — the concrete per-device JSONL event-log store: one base64
+# LogEntry per line, one file per device public key (`<hex>.jsonl`), matching
+# azula-cli's Rust `sync::LogStore` on-disk shape (house style: the same
+# convention as `mailbox.rs`'s JSONL files, one level up from `persistence-real`'s
+# FileMessageStore/FileBlobStore). JVM and Android share the java.io.File-backed
+# implementation (jvmAndAndroid alias); iOS uses NSFileManager (see
+# persistence-real's BlobStore.ios.kt for the precedent -- MessageStore/ProfileStore
+# there use NSUserDefaults, unsuited to an append-only log). Android's platform
+# default is null here (needs a Context) -- see `AndroidEventLogStore()`, to be wired
+# in once a caller needs it, same pattern as persistence-real's AndroidMessageStore().
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+aliases:
+  - jvmAndAndroid: [jvm, android]
+
+dependencies:
+  - ../sync-api: exported
+  # For SyncSession.kt: the `azula/sync/0` session runner talks Frame/P2pStream
+  # (network-api's transport contract) against EventLogStore (sync-api) -- see that
+  # file's kdoc. Exported so the assembler (which already depends on both directly)
+  # doesn't need anything extra, matching how network-real exports network-api.
+  - ../network-api: exported
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    serialization: json

@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.azula.di.AppGraph
 import dev.azula.net.createTransport
+import dev.azula.net.platformEd25519
 import dev.azula.notify.platformNotifier
 import dev.azula.persist.platformBlobStore
 import dev.azula.persist.platformInvitationsStore
@@ -13,6 +14,8 @@ import dev.azula.persist.platformMessageStore
 import dev.azula.persist.platformProfileStore
 import dev.azula.persist.platformSettingsStore
 import dev.azula.net.platformPeerStore
+import dev.azula.sync.platformEventLogStore
+import dev.azula.sync.toHexLower
 import dev.zacsweers.metro.createGraphFactory
 import kotlin.concurrent.Volatile
 
@@ -46,9 +49,11 @@ fun rememberAzulaState(): AzulaState {
     // iroh transport + platform default stores. Android pre-installs a process-scoped
     // instance in AppStateHost (AzulaApplication); the -mock apps pre-install one too.
     return remember {
+        val ed25519 = platformEd25519()
+        val transport = createTransport()
         createGraphFactory<AppGraph.Factory>().create(
             scope = scope,
-            transport = createTransport(),
+            transport = transport,
             notifier = platformNotifier(),
             messageStore = platformMessageStore(),
             profileStore = platformProfileStore(),
@@ -57,6 +62,24 @@ fun rememberAzulaState(): AzulaState {
             blobStore = platformBlobStore(),
             invitationsStore = platformInvitationsStore(),
             mediaExporter = platformMediaExporter(),
+            // The root pk isn't known yet -- transport hasn't bound -- so this is a
+            // LAZY supplier, evaluated only once ConnectService.start() has actually
+            // bound the transport (see platformEventLogStore's kdoc). Namespaces by the
+            // identity's actual root public key (task 4.6), NOT this device's own node
+            // id: before multi-device-identity task 3.4 those always coincided (every
+            // device was root-holding by construction), but a phrase-enrolled device now
+            // keeps its own node key while adopting a *different* root secret -- keying
+            // by node id there would reuse the same on-disk directory across an identity
+            // switch, silently reopening the exact cross-identity history leak task 4.6
+            // fixed. transport.publicKeyFor derives the root secret's actual public key;
+            // see IrohTransport.publicKeyFor's kdoc.
+            eventLogStore = platformEventLogStore(ed25519) {
+                val rootSecret = transport.rootSecretBytes()
+                    ?: error("event log store accessed before this device holds a root secret")
+                transport.publicKeyFor(rootSecret)?.toHexLower()
+                    ?: error("transport cannot derive the root public key from its root secret")
+            },
+            ed25519 = ed25519,
         ).azulaState
     }
 }

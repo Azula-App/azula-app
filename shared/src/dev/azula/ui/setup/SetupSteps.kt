@@ -34,9 +34,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.link.AzulaLinks
 import dev.azula.model.ConversationKind
 import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
+import dev.azula.state.ConnectService
 import dev.azula.theme.AzulaButtonVariant
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.AzulaShapes
@@ -48,6 +50,7 @@ import dev.azula.theme.azulaInputSurface
 import dev.azula.theme.azulaMutedPanel
 import dev.azula.ui.AvatarBox
 import dev.azula.ui.PhraseSaveResult
+import dev.azula.ui.QrCode
 import dev.azula.ui.decodeImageBitmap
 import dev.azula.ui.rememberFilePicker
 import dev.azula.ui.rememberPhraseSaver
@@ -67,7 +70,7 @@ import kotlinx.coroutines.launch
 // ---------------------------------------------------------------------------
 
 @Composable
-internal fun ForkStepContent(onCreate: () -> Unit, onRestore: () -> Unit) {
+internal fun ForkStepContent(onCreate: () -> Unit, onRestore: () -> Unit, onLink: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("set up your identity", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -114,6 +117,20 @@ internal fun ForkStepContent(onCreate: () -> Unit, onRestore: () -> Unit) {
                 )
             }
         }
+        Box(
+            Modifier.fillMaxWidth().azulaCard()
+                .clickable { onLink() }
+                .padding(20.dp)
+                .testTag("setup-fork-link"),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Link to existing identity", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    "scan a code shown on another device instead of typing a recovery phrase. this device joins without holding the identity's root secret.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+        }
     }
 }
 
@@ -135,7 +152,7 @@ internal fun RestoreStepContent(state: AzulaState, onRestored: () -> Unit, onBac
         )
         Text("restore from a recovery phrase", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Text(
-            "paste your 24-word recovery phrase. this replaces the identity just created for this device.",
+            "paste your 24-word recovery phrase. this device joins that identity, keeping its own device key — your other devices carry on unaffected.",
             color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
         )
         SetupField(
@@ -163,6 +180,108 @@ internal fun RestoreStepContent(state: AzulaState, onRestored: () -> Unit, onBac
                 val ok = state.importRecoveryPhrase(input)
                 working = false
                 if (ok) onRestored() else error = true
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LINK -- reached only from FORK; new-device side of a QR-link enrollment
+// (multi-device-identity task 6.1). Success skips BACKUP entirely, same as a
+// successful RESTORE: a QR-linked device holds no recovery phrase.
+// ---------------------------------------------------------------------------
+
+@Composable
+internal fun DeviceLinkStepContent(state: AzulaState, onLinked: () -> Unit, onBack: () -> Unit) {
+    var name by remember { mutableStateOf("My device") }
+    val clipboard = LocalClipboardManager.current
+
+    fun backOut() {
+        state.cancelDeviceLink()
+        state.resetDeviceLink()
+        onBack()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            "‹ back",
+            color = AzulaColors.textDim, fontFamily = Fonts.mono, fontSize = 12.sp,
+            modifier = Modifier.clickable { backOut() },
+        )
+        Text("link to an existing identity", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+        Text(
+            "scan a code shown on the device that already holds your identity — no need to type a recovery phrase. this device joins without ever holding its root secret.",
+            color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+        )
+        when (state.deviceLinkStage) {
+            ConnectService.DeviceLinkStage.IDLE -> {
+                SetupField(
+                    label = "name shown to the other device",
+                    value = name,
+                    placeholder = "e.g. my laptop",
+                    tag = "setup-link-name",
+                    onChange = { name = it },
+                )
+                SetupPrimaryButton(label = "Generate code", tag = "setup-link-generate") {
+                    state.beginDeviceLink(name.ifBlank { "My device" })
+                }
+            }
+
+            ConnectService.DeviceLinkStage.WAITING_FOR_SCAN -> {
+                state.deviceLinkPayload?.let { payload ->
+                    // multi-device-identity task 6.6: the QR encodes the deeplink URL, not the
+                    // bare payload -- a bare azl… string is just inert text to a phone's camera
+                    // app, but the wrapped https://azula.app/l/<payload> link is scannable and
+                    // opens azula directly. The copyable string below stays the bare payload
+                    // (still the paste-path fallback, and shorter to read/type).
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.deviceLinkUrl(payload)) }
+                    Box(
+                        Modifier.fillMaxWidth().azulaInputSurface(AzulaShapes.rMd).padding(12.dp).testTag("setup-link-payload"),
+                    ) {
+                        Text(payload, color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    SetupLinkButton(
+                        label = if (state.copied) "✓ copied" else "copy to clipboard",
+                        tag = "setup-link-copy",
+                        onClick = { clipboard.setText(AnnotatedString(payload)); state.markCopied() },
+                    )
+                }
+                Text("Waiting for it to connect…", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+            }
+
+            ConnectService.DeviceLinkStage.VERIFYING -> {
+                Text(
+                    "Confirm these four words match what's shown on the other device, then wait for it to confirm.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                Box(
+                    Modifier.fillMaxWidth().azulaInputSurface(AzulaShapes.rMd).padding(14.dp).testTag("setup-link-words"),
+                ) {
+                    Text(
+                        state.deviceLinkWords.joinToString("  ·  "),
+                        color = AzulaColors.text0, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                    )
+                }
+            }
+
+            ConnectService.DeviceLinkStage.GRANTED -> {
+                Text(
+                    "Linked! This device now holds a certificate for the identity.",
+                    color = AzulaColors.onlineBright, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    modifier = Modifier.testTag("setup-link-granted"),
+                )
+                SetupPrimaryButton(label = "Continue", tag = "setup-link-continue") { onLinked() }
+            }
+
+            ConnectService.DeviceLinkStage.REJECTED, ConnectService.DeviceLinkStage.FAILED -> {
+                Text(
+                    "Couldn't link this device${state.deviceLinkRejectReason?.let { ": $it" } ?: "."}",
+                    color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 12.sp,
+                    modifier = Modifier.testTag("setup-link-error"),
+                )
+                SetupPrimaryButton(label = "Try again", tag = "setup-link-retry") {
+                    state.resetDeviceLink()
+                }
             }
         }
     }

@@ -11,10 +11,12 @@ import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.OutgoingFile
 import dev.azula.net.sendFile
+import dev.azula.sync.toHexLower
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 /**
  * The chat feature carved out of AzulaState: sending text/file messages on a live
@@ -33,20 +35,51 @@ class ChatService(
     // Chunk/End wire frames below are unaffected. One-directional dependency:
     // MediaService never depends on ChatService.
     private val mediaService: MediaService,
+    private val accountSyncService: AccountSyncService,
 ) {
     /** True while the remote assistant is composing a reply. */
     var thinking by mutableStateOf(false)
         private set
     fun updateThinking(on: Boolean) { thinking = on }
 
-    /** Append a chat message locally, persist, then ship it on the live stream. */
+    /**
+     * Set by AzulaState (multi-device-identity task 7.4): when [send] has no live
+     * stream to ship over, attempt to reach one of the contact's other known devices
+     * instead -- dial order (most-recently-seen, then any mailbox-role device), first
+     * success wins -- reusing the same wire `Chat.id` on every attempt so a receiver
+     * that saw an earlier ambiguous delivery still dedupes it (spec: "Delivery to Any
+     * Device Counts for the Identity"). Not a constructor dependency: ChatService must
+     * not depend on ConnectService (which already depends on FrameDispatcher, which
+     * depends on ChatService -- a direct dependency the other way would be circular),
+     * so this follows the same post-construction-callback convention as
+     * [dev.azula.state.ConnectService.onNavigate]/[FrameDispatcher.foreground]. Defaults
+     * to a no-op: the `-mock` apps, most tests, and any conversation with no other known
+     * devices are entirely unaffected -- exactly the pre-7.4 behavior of just logging
+     * `message_out` and doing nothing further. */
+    var dialKnownDeviceAndSend: (convId: String, frame: Frame.Chat) -> Unit = { _, _ -> }
+
+    /** Append a chat message locally, persist, log it, then ship it on the live stream. */
     fun send(convId: String, txt: String) {
         val cs = convStore.conv(convId)
         cs.draft = ""
         cs.messages.add(Message(convStore.nextId("u"), Role.ME, text = txt))
         persistence.save(convId)
-        cs.stream?.let { stream ->
-            scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.Chat(txt))) } }
+        // multi-device-identity task 4.5: message_out is recorded regardless of
+        // delivery outcome (spec: "Delivery to Any Device Counts for the Identity"),
+        // so this runs unconditionally -- whether or not a stream is even open below --
+        // rather than being gated on the send succeeding. The same random id rides on
+        // the wire Chat frame, so a retry against a sibling device (task 7.4) reuses it
+        // and dedupes at fold time.
+        val id = randomChatId()
+        accountSyncService.appendMessageOut(convId, txt, id)
+        val frame = Frame.Chat(txt, id)
+        val stream = cs.stream
+        if (stream != null) {
+            scope.launch { runCatching { stream.sendLine(FrameCodec.encode(frame)) } }
+        } else {
+            // multi-device-identity task 7.4: no live stream -- try this contact's other
+            // known devices before giving up to the ordinary reconnect behavior.
+            dialKnownDeviceAndSend(convId, frame)
         }
     }
 
@@ -66,3 +99,7 @@ class ChatService(
         }
     }
 }
+
+/** A fresh 16-random-byte lowercase-hex id for the wire `Chat.id` field (spec:
+ *  "Chat Message Ids Deduplicate Retries" -- "16 random bytes, lowercase hex"). */
+private fun randomChatId(): String = Random.nextBytes(16).toHexLower()

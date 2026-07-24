@@ -13,6 +13,7 @@ import dev.azula.persist.InvitationsBook
 import dev.azula.persist.InvitationsStore
 import dev.azula.persist.IssuedInvite
 import dev.azula.persist.PendingInvite
+import dev.azula.sync.toHexLower
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,14 @@ data class PendingConnectionRequest(
     val stream: P2pStream,
     val alpn: String,
     val receivedAt: Long,
+    /** multi-device-identity task 7.2: the presented certificate's root public key, if
+     *  this stranger's `Hello` carried one that verified, bound to this connection, and
+     *  wasn't revoked -- whether or not that root was already a known contact (a
+     *  KnownByRoot peer never reaches the pending inbox at all -- see
+     *  ConnectService.handleCertOrStrangerConnection -- so this is only ever set for a
+     *  genuine "certified stranger"). Accepting pins the contact by this root instead of
+     *  by [nodeId] (invitations spec: "Accepting a certified stranger pins the root"). */
+    val certifiedRootPk: ByteArray? = null,
 )
 
 /**
@@ -88,6 +97,26 @@ class InviteService(
     /** True if [nodeIdHex] is a peer we've already accepted (the "known peer,
      *  connect with no gate" branch of the verification model). */
     fun isKnown(nodeIdHex: String): Boolean = nodeIdHex in contacts
+
+    /** multi-device-identity task 7.2: the full known-contacts set, exposed read-only so
+     *  a presented certificate's root public key (hex) can be checked against it too --
+     *  [contacts] holds root pk hexes exactly like node id hexes (see [accept]/
+     *  [pinContactRoot]), so no separate root-contacts store exists or is needed. */
+    fun knownContactIds(): Set<String> = contacts.toSet()
+
+    /**
+     * Directly pins [idHex] (a root public key hex, per multi-device-identity) as a
+     * known contact -- used when an already-known peer's stream first presents a valid
+     * device certificate (ConnectService's node-id-to-root-pk conversation merge) to
+     * promote its identifier without going through the accept flow: there is no pending
+     * request here, the peer was already known by node id. Returns false (no-op) if
+     * already known.
+     */
+    fun pinContactRoot(idHex: String): Boolean {
+        if (!contacts.add(idHex)) return false
+        persist()
+        return true
+    }
 
     /**
      * Mint a new invite embedding this device's own ticket. Null if the
@@ -152,25 +181,36 @@ class InviteService(
      * pending an accept/decline decision. Posts one batched notification --
      * sentinel conversation id "invites" -- rather than one per request.
      */
-    fun enqueuePending(nodeId: String, inviteId: String?, peerCode: String, stream: P2pStream, alpn: String, unverified: Boolean) {
+    fun enqueuePending(
+        nodeId: String,
+        inviteId: String?,
+        peerCode: String,
+        stream: P2pStream,
+        alpn: String,
+        unverified: Boolean,
+        certifiedRootPk: ByteArray? = null,
+    ) {
         if (pending.any { it.nodeId == nodeId }) {
             scope.launch { runCatching { stream.close() } } // already have one from this peer
             return
         }
-        pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn, epochSeconds()))
+        pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn, epochSeconds(), certifiedRootPk))
         persist()
         if (!foreground()) {
             notifier?.postConnectionRequest(pending.size, peerCode)
         }
     }
 
-    /** Accept [req]: adds the peer to contacts, marks a single-use invite
-     *  consumed, and wires the held stream via [onAccept] -- optionally sharing
-     *  [profile] back over it (guest accept never requires one; this is purely
-     *  the "share your name back" opt-in). */
+    /** Accept [req]: adds the peer to contacts -- by its certified root public key
+     *  (multi-device-identity task 7.2's "Accepting a certified stranger pins the
+     *  root") when [PendingConnectionRequest.certifiedRootPk] is set, by node id
+     *  otherwise, exactly as before -- marks a single-use invite consumed, and wires
+     *  the held stream via [onAccept] -- optionally sharing [profile] back over it
+     *  (guest accept never requires one; this is purely the "share your name back"
+     *  opt-in). */
     fun accept(req: PendingConnectionRequest, profile: Frame.Profile? = null) {
         if (!pending.remove(req)) return
-        contacts.add(req.nodeId)
+        contacts.add(req.certifiedRootPk?.toHexLower() ?: req.nodeId)
         req.inviteId?.let { id ->
             val idx = issued.indexOfFirst { it.id == id }
             if (idx >= 0 && (issued[idx].flags and 0x02) != 0) issued[idx] = issued[idx].copy(consumed = true)

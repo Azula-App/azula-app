@@ -38,6 +38,7 @@ class FrameDispatcher(
     private val persistence: PersistenceCoordinator,
     private val chatService: ChatService,
     private val mediaService: MediaService,
+    private val accountSyncService: AccountSyncService,
     private val notifier: Notifier?,
 ) {
     /** Set by AzulaState: whether the app is currently in the foreground. */
@@ -61,6 +62,12 @@ class FrameDispatcher(
             is Frame.Hello -> Unit
             is Frame.Chat -> {
                 cs.messages.add(Message(convStore.nextId("p"), Role.THEM, text = frame.text))
+                // multi-device-identity task 4.5: this identity's own devices log
+                // message_in for both certified and legacy peers alike (spec: "Legacy
+                // Peers Are Unaffected"). No cert-based sender device key exists yet
+                // (task 7.3/6.x), so fromDevicePk falls back to the peer's node id --
+                // the same value convId already is for a legacy contact.
+                accountSyncService.appendMessageIn(convId, fromDevicePk = convId, text = frame.text, id = frame.id)
                 notify(convId, frame.text)
             }
             is Frame.Term -> scope.launch(terminalDispatcher) { cs.termScreen.feed(frame.line) }
@@ -111,6 +118,14 @@ class FrameDispatcher(
             is Frame.Input, is Frame.Resize, is Frame.TermAttach -> Unit
             is Frame.FileBegin, is Frame.FileChunk, is Frame.FileEnd, is Frame.Profile -> Unit
             is Frame.MediaOffer -> mediaService.onMediaOffer(convId, frame)
+            // Sync/link ALPN frames (multi-device-identity task 5.1's Protocol.kt addition)
+            // never reach this dispatcher today -- ConnectService only routes CHAT/LLM/TERM
+            // conversation streams here, and the sync session (task 5.2) / link flow
+            // (task 6.x) that would produce or consume these are still unimplemented. No-op
+            // placeholder purely to keep this `when` exhaustive; not a real handler.
+            is Frame.SyncHello, is Frame.SyncVector, is Frame.SyncEntries, is Frame.SyncAck,
+            is Frame.LinkHello, is Frame.LinkGrant, is Frame.LinkReject,
+            -> Unit
         }
         if (frame !is Frame.Token || frame.done) persistence.save(convId)
     }

@@ -48,9 +48,13 @@ import kotlinx.coroutines.launch
  */
 internal fun desktopE2eTest(
     filePicker: FilePicker? = null,
+    // Defaults to a fresh, ordinary root-holding transport, same as every existing
+    // caller got before this parameter existed. A test that needs a specific transport
+    // shape (e.g. FakeTransport(rootless = true) for the reveal-phrase rootless-copy
+    // scenario) supplies its own instance instead.
+    transport: FakeTransport = FakeTransport(),
     block: ComposeUiTest.(state: AzulaState, transport: FakeTransport, scope: CoroutineScope) -> Unit,
 ) {
-    val transport = FakeTransport()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     try {
         runComposeUiTest {

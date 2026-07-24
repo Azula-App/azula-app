@@ -43,10 +43,17 @@ import kotlin.random.Random
  * tests pass `hasPersistedIdentity = false` to force the setup flow (a "fresh
  * install"), while the default `true` keeps `-mock`/demo apps skipping it, same as
  * every other [FakeTransport] caller today.
+ *
+ * [rootless] models a QR-linked device (see the `identity` capability's "QR-linked
+ * device stores no root secret" / "Device keys have no phrase" scenarios): `true` makes
+ * [rootSecretBytes] permanently null while [nodeId]/[secretKeyBytes] stay normal, so a
+ * UI test can drive the reveal-recovery-phrase flow's rootless copy without a second,
+ * bespoke transport. Default `false` keeps every existing caller root-holding, as before.
  */
 class FakeTransport(
     private val demoTerminal: Boolean = false,
     hasPersistedIdentity: Boolean = true,
+    private val rootless: Boolean = false,
 ) : IrohTransport {
     override var nodeId: String? = null
         private set
@@ -114,6 +121,28 @@ class FakeTransport(
     override fun secretKeyBytes(): ByteArray = ByteArray(32) { (it + 1).toByte() }
 
     override suspend fun importSecretKey(bytes: ByteArray) { /* mock: no-op */ }
+
+    /**
+     * Mirrors [secretKeyBytes]: the mock's throwaway identity is root-holding by default,
+     * same as any single-device install that hasn't linked a second device (see
+     * multi-device-identity's migration -- root and node coincide until a device is
+     * linked). `-mock` apps persist nothing either way, so there's no real root/node
+     * distinction to model here -- except when [rootless] opts into modeling a QR-linked
+     * device instead (permanently no root secret, node key unaffected).
+     */
+    override fun rootSecretBytes(): ByteArray? = if (rootless || rootForgotten) null else secretKeyBytes()
+
+    override fun importRootSecret(bytes: ByteArray) { /* mock: no-op, same as importSecretKey */ }
+
+    /** Backing flag for [forgetRootSecret] (multi-device-identity task 6.1's QR-link
+     *  flow): lets a test model "this device's bind() already raced in a root secret,
+     *  then the link flow forgot it" without a second, bespoke transport -- mirrors
+     *  [rootless] (permanently rootless from construction) but toggle-able at any point. */
+    private var rootForgotten = false
+
+    override fun forgetRootSecret() {
+        rootForgotten = true
+    }
 
     override suspend fun connect(ticket: String, alpn: String): P2pStream = when (alpn) {
         Alpns.TERM -> FakeTerminalStream()

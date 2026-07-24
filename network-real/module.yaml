@@ -12,10 +12,11 @@ aliases:
 # iroh-kmp resolves from Maven Central (app.azula.iroh:iroh-kmp), a default repo.
 dependencies:
   - ../network-api: exported
+  - ../core
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
 
 dependencies@jvmAndAndroid:
-  - app.azula.iroh:iroh-kmp:0.1.1
+  - app.azula.iroh:iroh-kmp:0.1.2
 
 dependencies@ios:
-  - app.azula.iroh:iroh-kmp:0.1.1
+  - app.azula.iroh:iroh-kmp:0.1.2

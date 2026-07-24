@@ -21,6 +21,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,9 +39,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.azula.core.ROLE_MAILBOX
+import dev.azula.link.AzulaLinks
 import dev.azula.net.Frame
 import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
+import dev.azula.state.ConnectService
 import dev.azula.state.toFrame
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.AzulaShapes
@@ -65,6 +69,9 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
     var showEditor by remember { mutableStateOf(false) }
     var showReveal by remember { mutableStateOf(false) }
     var showRestore by remember { mutableStateOf(false) }
+    var showDeviceLink by remember { mutableStateOf(false) }
+    var showGrantLink by remember { mutableStateOf(false) }
+    var showDeviceManagement by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(AzulaColors.bg1)) {
         Row(
             Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 14.dp),
@@ -127,11 +134,25 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             Spacer(Modifier.height(8.dp))
             Text("BACKUP & RECOVERY", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
             Text(
-                "your identity is a single device key. save your recovery phrase to move it to a new device — or restore it after reinstalling.",
+                "your identity is a 24-word recovery phrase shared across your devices. save it to add another device to this identity — or restore it here to enroll this one.",
                 color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
             )
             BackupRow("Reveal recovery phrase", "24 words · store in a password manager", tag = "reveal-phrase-row") { showReveal = true }
-            BackupRow("Restore from a phrase", "replace this device's identity", tag = "restore-phrase-row") { showRestore = true }
+            BackupRow("Restore from a phrase", "join this device to another identity", tag = "restore-phrase-row") { showRestore = true }
+
+            Spacer(Modifier.height(8.dp))
+            Text("DEVICE LINKING", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(
+                "link this device to an identity by scanning a code instead of typing a recovery phrase — it joins without holding the identity's root secret.",
+                color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            BackupRow("Link to existing identity", "show a code for another device to scan", tag = "device-link-row") { showDeviceLink = true }
+            // Only a root-holding device can grant a link (device-linking spec: "a device
+            // without one cannot be the granting side and the UI must not offer it").
+            if (state.canGrantDeviceLinks()) {
+                BackupRow("Link a new device", "paste a code shown on the new device", tag = "grant-link-row") { showGrantLink = true }
+            }
+            BackupRow("Manage devices", "rename or revoke devices on this identity", tag = "device-management-row") { showDeviceManagement = true }
         }
     }
     if (showEditor) {
@@ -144,6 +165,9 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
     }
     if (showReveal) RevealPhraseDialog(state) { showReveal = false }
     if (showRestore) RestorePhraseDialog(state) { showRestore = false }
+    if (showDeviceLink) DeviceLinkDialog(state) { showDeviceLink = false }
+    if (showGrantLink) GrantDeviceLinkDialog(state) { showGrantLink = false }
+    if (showDeviceManagement) DeviceManagementDialog(state) { showDeviceManagement = false }
 }
 
 @Composable
@@ -164,17 +188,42 @@ private fun BackupRow(title: String, subtitle: String, tag: String, onClick: () 
     }
 }
 
-/** Reveal the 24-word recovery phrase, gated behind a secret-warning step. */
+/**
+ * Reveal the 24-word recovery phrase, gated behind a secret-warning step. A device that
+ * holds no root secret (QR-linked -- see the identity capability's MODIFIED "24-Word
+ * BIP-39 Recovery Phrase Encoding" requirement, "Device keys have no phrase" scenario)
+ * never has a phrase to show, permanently, unlike the transient "not bound yet" case --
+ * [rootless] distinguishes the two so each gets its own explanation.
+ */
 @Composable
 private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
     var revealed by remember { mutableStateOf(false) }
     val phrase = remember { state.exportRecoveryPhrase() }
+    // exportRecoveryPhrase() is built directly from the transport's independently-nullable
+    // root-secret entry (ConnectService.exportRecoveryPhrase) -- `phrase == null` IS "no
+    // root secret", not something inferred from another signal. Paired with a known node
+    // id, that's the permanent QR-linked case rather than "not bound yet".
+    val rootless = remember { phrase == null && state.nodeId != null }
     val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text(if (revealed) "Your recovery phrase" else "Reveal recovery phrase?") },
+        title = {
+            Text(
+                when {
+                    rootless -> "No recovery phrase on this device"
+                    revealed -> "Your recovery phrase"
+                    else -> "Reveal recovery phrase?"
+                },
+            )
+        },
         text = {
             when {
+                rootless -> Text(
+                    "This device joined the identity via a QR link, so the recovery phrase was " +
+                        "never stored here — it lives only on devices that were set up with it, or " +
+                        "that restored it. Check the phrase on one of those instead.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
                 !revealed -> Text(
                     "These 24 words are your identity key. Anyone who has them can take over your identity — only store them in a password manager, and never share them.",
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
@@ -200,27 +249,75 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            if (!revealed && phrase != null) TextButton(onClick = { revealed = true }, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Reveal") }
-            else TextButton(onClick = onClose, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Done") }
+            if (!rootless && !revealed && phrase != null) {
+                TextButton(onClick = { revealed = true }, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Reveal") }
+            } else {
+                TextButton(onClick = onClose, modifier = Modifier.testTag("reveal-phrase-confirm")) { Text("Done") }
+            }
         },
-        dismissButton = { if (!revealed) TextButton(onClick = onClose) { Text("Cancel") } },
+        dismissButton = { if (!rootless && !revealed) TextButton(onClick = onClose) { Text("Cancel") } },
     )
 }
 
-/** Paste a recovery phrase to replace this device's identity (destructive). */
+/**
+ * Paste a recovery phrase to enroll this device into the identity it encodes
+ * (multi-device-identity task 3.4: restore no longer replaces anything in place -- it
+ * keeps this device's own node key and joins the identity as another device). Overwriting
+ * an already-held *different* identity's root secret is the one genuinely destructive
+ * case, so it's gated behind a second confirmation step (task 3.5a) -- detected via
+ * [AzulaState.isDifferentIdentityRestore] before ever committing. A fresh device (nothing
+ * held yet) or re-entering this identity's own phrase stays a single tap.
+ */
 @Composable
 private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
+    var confirmingReplace by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    fun commit() {
+        working = true
+        scope.launch {
+            val ok = state.importRecoveryPhrase(input)
+            working = false
+            confirmingReplace = false
+            if (ok) onClose() else error = true
+        }
+    }
+
+    if (confirmingReplace) {
+        AlertDialog(
+            onDismissRequest = { confirmingReplace = false },
+            title = { Text("Replace this device's identity?") },
+            text = {
+                Text(
+                    "This device already holds a different identity. Restoring this phrase discards " +
+                        "its root secret — that can't be undone without that identity's own recovery phrase.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !working,
+                    onClick = { commit() },
+                    modifier = Modifier.testTag("restore-phrase-confirm-replace"),
+                ) { Text(if (working) "Replacing…" else "Replace it") }
+            },
+            dismissButton = { TextButton(onClick = { confirmingReplace = false }) { Text("Cancel") } },
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Restore from recovery phrase") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Paste your 24-word recovery phrase. This replaces the identity on this device — back up the current one first if you still need it.",
+                    "Paste your 24-word recovery phrase. This device joins that identity as another " +
+                        "device — it keeps its own key. If this device already holds a different identity, " +
+                        "you'll be asked to confirm before its root secret is replaced.",
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
                 )
                 EditorField("recovery phrase", input, "word word word …", tag = "restore-phrase-input") { input = it; error = false }
@@ -231,11 +328,10 @@ private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
             TextButton(
                 enabled = input.isNotBlank() && !working,
                 onClick = {
-                    working = true
-                    scope.launch {
-                        val ok = state.importRecoveryPhrase(input)
-                        working = false
-                        if (ok) onClose() else error = true
+                    if (state.isDifferentIdentityRestore(input) == true) {
+                        confirmingReplace = true
+                    } else {
+                        commit()
                     }
                 },
                 modifier = Modifier.testTag("restore-phrase-confirm"),
@@ -243,6 +339,318 @@ private fun RestorePhraseDialog(state: AzulaState, onClose: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
     )
+}
+
+/**
+ * New-device side of a QR-link enrollment (multi-device-identity task 6.1, spec's
+ * "QR-Link Enrollment Grants a Certificate Without Root Authority"): generates this
+ * device's `azl…` payload, shows it as a QR + copyable string, then the four
+ * verification words the instant a root-holding device dials in -- before any grant is
+ * possible, per the spec -- and finally the grant/reject outcome. This device never
+ * holds the root secret afterward regardless of outcome (`ConnectService.beginDeviceLink`).
+ */
+@Composable
+private fun DeviceLinkDialog(state: AzulaState, onClose: () -> Unit) {
+    var name by remember { mutableStateOf("My device") }
+    val clipboard = LocalClipboardManager.current
+
+    fun closeAndReset() {
+        state.cancelDeviceLink()
+        state.resetDeviceLink()
+        onClose()
+    }
+
+    AlertDialog(
+        onDismissRequest = ::closeAndReset,
+        title = { Text("Link to existing identity") },
+        text = {
+            when (state.deviceLinkStage) {
+                ConnectService.DeviceLinkStage.IDLE -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Scan the code this generates on the device that already holds your identity. " +
+                            "This device joins without ever holding its root secret.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                    EditorField("name shown to the other device", name, "e.g. my laptop", tag = "device-link-name") { name = it }
+                }
+
+                ConnectService.DeviceLinkStage.WAITING_FOR_SCAN -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    state.deviceLinkPayload?.let { payload ->
+                        // multi-device-identity task 6.6: the QR encodes the deeplink URL, not
+                        // the bare payload -- a bare azl… string is just inert text to a phone's
+                        // camera app, but the wrapped https://azula.app/l/<payload> link is
+                        // scannable and opens azula directly. The copyable string below stays
+                        // the bare payload (still the paste-path fallback).
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.deviceLinkUrl(payload)) }
+                        Box(Modifier.fillMaxWidth().azulaInputSurface().padding(12.dp).testTag("device-link-payload")) {
+                            Text(payload, color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 11.sp, lineHeight = 15.sp)
+                        }
+                        Text(
+                            if (state.copied) "✓ copied" else "copy to clipboard",
+                            color = if (state.copied) AzulaColors.onlineBright else AzulaColors.pinkLight,
+                            fontFamily = Fonts.mono, fontSize = 12.sp,
+                            modifier = Modifier.clickable { clipboard.setText(AnnotatedString(payload)); state.markCopied() },
+                        )
+                    }
+                    Text("Waiting for it to connect…", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+                }
+
+                ConnectService.DeviceLinkStage.VERIFYING -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Confirm these four words match what's shown on the other device, then wait for it to confirm.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                    Box(Modifier.fillMaxWidth().azulaInputSurface().padding(14.dp).testTag("device-link-words")) {
+                        Text(
+                            state.deviceLinkWords.joinToString("  ·  "),
+                            color = AzulaColors.text0, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        )
+                    }
+                }
+
+                ConnectService.DeviceLinkStage.GRANTED -> Text(
+                    "Linked! This device now holds a certificate for the identity.",
+                    color = AzulaColors.onlineBright, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    modifier = Modifier.testTag("device-link-granted"),
+                )
+
+                ConnectService.DeviceLinkStage.REJECTED -> Text(
+                    "Link request was declined${state.deviceLinkRejectReason?.let { ": $it" } ?: "."}",
+                    color = AzulaColors.error, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+
+                ConnectService.DeviceLinkStage.FAILED -> Text(
+                    "Couldn't link this device${state.deviceLinkRejectReason?.let { ": $it" } ?: "."}",
+                    color = AzulaColors.error, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
+        },
+        confirmButton = {
+            when (state.deviceLinkStage) {
+                ConnectService.DeviceLinkStage.IDLE -> TextButton(
+                    onClick = { state.beginDeviceLink(name.ifBlank { "My device" }) },
+                    modifier = Modifier.testTag("device-link-generate"),
+                ) { Text("Generate code") }
+                ConnectService.DeviceLinkStage.GRANTED,
+                ConnectService.DeviceLinkStage.REJECTED,
+                ConnectService.DeviceLinkStage.FAILED,
+                -> TextButton(onClick = ::closeAndReset, modifier = Modifier.testTag("device-link-done")) { Text("Done") }
+                else -> Unit
+            }
+        },
+        dismissButton = {
+            if (state.deviceLinkStage == ConnectService.DeviceLinkStage.WAITING_FOR_SCAN ||
+                state.deviceLinkStage == ConnectService.DeviceLinkStage.VERIFYING ||
+                state.deviceLinkStage == ConnectService.DeviceLinkStage.IDLE
+            ) {
+                TextButton(onClick = ::closeAndReset) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+/**
+ * Root-holding side of a QR-link enrollment (multi-device-identity task 6.2): paste the
+ * new device's `azl…` code, dial it, then show the same four verification words plus the
+ * requested roles (bit 0 = mailbox) for explicit confirmation -- only that confirmation
+ * ever produces a certificate; cancelling sends `LinkReject` (`ConnectService.confirmGrantLink`/
+ * `cancelGrantLink`). Not offered at all unless [AzulaState.canGrantDeviceLinks] is true --
+ * issuing requires the root secret.
+ */
+@Composable
+private fun GrantDeviceLinkDialog(state: AzulaState, onClose: () -> Unit) {
+    var input by remember { mutableStateOf("") }
+
+    fun closeAndReset() {
+        state.cancelGrantLink()
+        state.resetGrantLink()
+        onClose()
+    }
+
+    AlertDialog(
+        onDismissRequest = ::closeAndReset,
+        title = { Text("Link a new device") },
+        text = {
+            when (state.grantStage) {
+                ConnectService.GrantStage.IDLE -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Paste the code shown on the device you want to link.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                    EditorField("link code", input, "azl…", tag = "grant-link-input") { input = it }
+                }
+
+                ConnectService.GrantStage.DIALING, ConnectService.GrantStage.AWAITING_HELLO -> Text(
+                    "Connecting…", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp,
+                )
+
+                ConnectService.GrantStage.CONFIRMING -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Confirm these four words match what's shown on \"${state.grantPeerName}\", " +
+                            "then grant it access" +
+                            (if ((state.grantPeerRoles and ROLE_MAILBOX) != 0) " — including the mailbox role" else "") +
+                            ".",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    )
+                    Box(Modifier.fillMaxWidth().azulaInputSurface().padding(14.dp).testTag("grant-link-words")) {
+                        Text(
+                            state.grantWords.joinToString("  ·  "),
+                            color = AzulaColors.text0, fontFamily = Fonts.mono, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                        )
+                    }
+                }
+
+                ConnectService.GrantStage.GRANTED -> Text(
+                    "Linked! \"${state.grantPeerName}\" now holds a certificate for this identity.",
+                    color = AzulaColors.onlineBright, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                    modifier = Modifier.testTag("grant-link-granted"),
+                )
+
+                ConnectService.GrantStage.REJECTED -> Text(
+                    "Declined — nothing was granted.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+
+                ConnectService.GrantStage.FAILED -> Text(
+                    "Couldn't link that device${state.grantFailReason?.let { ": $it" } ?: "."}",
+                    color = AzulaColors.error, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            }
+        },
+        confirmButton = {
+            when (state.grantStage) {
+                ConnectService.GrantStage.IDLE -> TextButton(
+                    enabled = input.isNotBlank(),
+                    onClick = { state.beginGrantDial(input.trim()) },
+                    modifier = Modifier.testTag("grant-link-connect"),
+                ) { Text("Connect") }
+                ConnectService.GrantStage.CONFIRMING -> TextButton(
+                    onClick = { state.confirmGrantLink() },
+                    modifier = Modifier.testTag("grant-link-confirm"),
+                ) { Text("Grant") }
+                ConnectService.GrantStage.GRANTED,
+                ConnectService.GrantStage.REJECTED,
+                ConnectService.GrantStage.FAILED,
+                -> TextButton(onClick = ::closeAndReset, modifier = Modifier.testTag("grant-link-done")) { Text("Done") }
+                else -> Unit
+            }
+        },
+        dismissButton = {
+            if (state.grantStage != ConnectService.GrantStage.GRANTED) {
+                TextButton(onClick = ::closeAndReset) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+/**
+ * Device management screen (multi-device-identity task 6.3): lists the identity's current
+ * device set from the fold ([AzulaState.devices]/[AzulaState.refreshDevices]), lets the user
+ * rename any device *locally only* (never mints a certificate -- [AzulaState.renameDeviceLocally]),
+ * and -- only when this device holds the root secret ([AzulaState.canRevokeDevices], the same
+ * requirement [GrantDeviceLinkDialog] gates on) -- revoke another device, appending a
+ * `device_revoke` entry. A QR-linked device sees every row but no "revoke" control at all: it
+ * holds no root secret and the device-linking spec requires the UI not offer one.
+ */
+@Composable
+private fun DeviceManagementDialog(state: AzulaState, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { state.refreshDevices() }
+    var editingHex by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf("") }
+    var revokingHex by remember { mutableStateOf<String?>(null) }
+    val canRevoke = state.canRevokeDevices()
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Devices") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.devices.isEmpty()) {
+                    Text("No devices yet.", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 12.sp)
+                }
+                state.devices.forEach { row ->
+                    DeviceManagementRow(
+                        row = row,
+                        canRevoke = canRevoke && !row.isSelf,
+                        onRename = { editingHex = row.devicePkHex; editingName = row.localName ?: row.certName },
+                        onRevoke = { revokingHex = row.devicePkHex },
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose, modifier = Modifier.testTag("device-management-done")) { Text("Done") } },
+    )
+
+    editingHex?.let { hex ->
+        AlertDialog(
+            onDismissRequest = { editingHex = null },
+            title = { Text("Rename device") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "This name is local to this device only — it never changes the device's certificate.",
+                        color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
+                    )
+                    EditorField("display name", editingName, "e.g. my laptop", tag = "device-rename-input") { editingName = it }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { state.renameDeviceLocally(hex, editingName); editingHex = null },
+                    modifier = Modifier.testTag("device-rename-save"),
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editingHex = null }) { Text("Cancel") } },
+        )
+    }
+
+    revokingHex?.let { hex ->
+        AlertDialog(
+            onDismissRequest = { revokingHex = null },
+            title = { Text("Revoke this device?") },
+            text = {
+                Text(
+                    "It will no longer be able to sync, send, or receive as this identity. This can't be undone.",
+                    color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { scope.launch { state.revokeDevice(hex); revokingHex = null } },
+                    modifier = Modifier.testTag("device-revoke-confirm"),
+                ) { Text("Revoke") }
+            },
+            dismissButton = { TextButton(onClick = { revokingHex = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun DeviceManagementRow(row: ConnectService.DeviceRow, canRevoke: Boolean, onRename: () -> Unit, onRevoke: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().azulaMutedPanel().padding(11.dp).testTag("device-row-${row.devicePkHex}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            val label = (row.localName ?: row.certName).ifBlank { row.devicePkHex.take(8) } +
+                (if (row.isSelf) "  ·  this device" else "") +
+                (if (row.isMailbox) "  ·  mailbox" else "")
+            Text(label, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(row.devicePkHex.take(16) + "…", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+        }
+        Text(
+            "rename", color = AzulaColors.pinkLight, fontFamily = Fonts.mono, fontSize = 11.sp,
+            modifier = Modifier.clickable { onRename() }.testTag("device-rename-${row.devicePkHex}"),
+        )
+        if (canRevoke) {
+            Text(
+                "revoke", color = AzulaColors.error, fontFamily = Fonts.mono, fontSize = 11.sp,
+                modifier = Modifier.clickable { onRevoke() }.testTag("device-revoke-${row.devicePkHex}"),
+            )
+        }
+    }
 }
 
 @Composable

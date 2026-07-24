@@ -81,6 +81,17 @@ fun Persona.toFrame(shareName: Boolean, sharePic: Boolean, shareDesc: Boolean): 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal val terminalDispatcher = Dispatchers.Default.limitedParallelism(1)
 
+/**
+ * One entry in [ConversationState.knownDevices] -- multi-device-identity task 7.4's
+ * per-contact dial address book. [ticket] is the address to redial this specific
+ * device, when known -- null if this device has only ever been seen as an INBOUND
+ * connection (which leaves no ticket to redial, the same rule
+ * [ConversationState.sourceTicket] already follows for a legacy peer); an entry with no
+ * ticket is kept purely for [lastSeenMs]/[isMailbox] bookkeeping and is never a dial
+ * candidate. [isMailbox] mirrors the presented certificate's own role bit.
+ */
+data class KnownContactDevice(val ticket: String?, val lastSeenMs: Long, val isMailbox: Boolean)
+
 /** Per-conversation mutable state: the thread, the draft, and any live stream. */
 class ConversationState(seed: List<Message>) {
     val messages = mutableStateListOf<Message>().also { it.addAll(seed) }
@@ -127,6 +138,15 @@ class ConversationState(seed: List<Message>) {
      *  flow (the OS share sheet) can pre-fill a composer. A list to support
      *  sharing multiple items at once; today's UI only ever holds one. */
     val pendingMedia = mutableStateListOf<PickedFile>()
+    /** multi-device-identity task 7.4: this certified contact's other known devices,
+     *  keyed by device public key hex -- populated by ConnectService's receive loop as
+     *  each device's valid, bound, unrevoked certificate is seen. Used purely as a dial
+     *  address book for [ConnectService.dialKnownDeviceForSend]'s send-time fallback;
+     *  stays empty for a legacy (node-id-keyed) conversation, since there's no second
+     *  device to know about. Session-scoped (not persisted) -- rebuilt naturally as
+     *  devices reconnect and re-present their `Hello.cert`, same posture as [rttMs]/
+     *  [reconnecting] elsewhere on this class. */
+    val knownDevices = mutableMapOf<String, KnownContactDevice>()
 }
 
 /**
@@ -154,10 +174,18 @@ class AzulaState(
     // Declared before chatService: its default constructs a ChatService, which
     // now needs mediaService too.
     private val mediaService: MediaService,
-    private val chatService: ChatService = ChatService(convStore, persistence, scope, mediaService),
+    // The identity/account-sync core (multi-device-identity tasks 4.4/4.5): appends
+    // message_out/message_in/read_marker to the event log and projects/backfills
+    // MessageStore's plain-text history from the fold. Its signing identity is wired
+    // post-construction by ConnectService (see AccountSyncService.deviceIdentity's
+    // kdoc), so -- unlike mediaService/inviteService/connectService -- every one of
+    // its own constructor params is independently nullable/available, and it keeps a
+    // usable default like chatService/frameDispatcher below.
+    private val accountSyncService: AccountSyncService = AccountSyncService(null, null, convStore, persistence, scope),
+    private val chatService: ChatService = ChatService(convStore, persistence, scope, mediaService, accountSyncService),
     // The inbound-frame reaction core (applyFrame/applyProfile + the share
     // handshake). ConnectService hands it frames as they arrive off the wire.
-    private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, mediaService, null),
+    private val frameDispatcher: FrameDispatcher = FrameDispatcher(scope, convStore, surfaceStore, persistence, chatService, mediaService, accountSyncService, null),
     // Invitations: minting/revoking, verifying an inbound stranger's Hello.invite,
     // and the pending accept/decline inbox. Needs the transport directly (for
     // ticket/sign/verify), so -- like mediaService -- it has no usable default.
@@ -187,7 +215,26 @@ class AzulaState(
      *  lifecycle changes; incoming messages post a [Notifier] only when false. */
     var inForeground by mutableStateOf(true)
         private set
-    fun setForeground(value: Boolean) { inForeground = value }
+
+    /**
+     * Called by the platform on every foreground/background lifecycle transition (Android:
+     * [ProcessLifecycleOwner]'s `onStart`/`onStop` in `AzulaApplication`). On the false→true
+     * edge specifically -- i.e. actually resuming, not every call -- also re-dials siblings
+     * (multi-device-identity task 9.6): [ConnectService.reconnectSiblings] otherwise fires only
+     * from a transport re-bind ([ConnectService]'s `onCameOnline`) or the one-shot call at the
+     * end of `start()`, and a resident app never re-binds, so it would otherwise never re-sync
+     * with its siblings while simply backgrounded and resumed -- which, for a phone, is nearly
+     * always. Confirmed on-device: backgrounding and returning produced zero sibling dials for
+     * ~9 minutes, while a full force-stop + cold relaunch (a genuine re-bind) converged
+     * immediately. Guarded to the edge (not true→true or true→false) so repeated foreground
+     * re-entry doesn't spam dials; [ConnectService.reconnectSiblings]'s own
+     * `siblingDialsInFlight` guard additionally covers two resumes landing close together.
+     */
+    fun setForeground(value: Boolean) {
+        val resumed = value && !inForeground
+        inForeground = value
+        if (resumed) reconnectSiblings()
+    }
     var copied by mutableStateOf(false)
         private set
     // Connect UI state is owned by ConnectService; delegate for the connect screen.
@@ -208,6 +255,66 @@ class AzulaState(
     fun exportRecoveryPhrase(): String? = connectService.exportRecoveryPhrase()
     /** Restore identity from a recovery phrase; false if the phrase is invalid. */
     suspend fun importRecoveryPhrase(phrase: String): Boolean = connectService.importRecoveryPhrase(phrase)
+
+    /** Whether [phrase] would overwrite a *different* identity already held on this
+     *  device -- see [ConnectService.isDifferentIdentityRestore]. Read by the restore UI
+     *  before committing, to gate a second confirmation (multi-device-identity task 3.5a). */
+    fun isDifferentIdentityRestore(phrase: String): Boolean? = connectService.isDifferentIdentityRestore(phrase)
+
+    /**
+     * Rebuilds every conversation's plain-text message history from the event log alone
+     * (multi-device-identity's "Projection rebuild" scenario: deleting the derived stores
+     * and replaying the logs reproduces the same derived state). A no-op with no event log
+     * configured (the `-mock` apps, and every device before its first log entry). Exposed
+     * for recovery/diagnostic use -- see [AccountSyncService.rebuildProjection].
+     */
+    suspend fun rebuildMessageHistoryFromLog() = accountSyncService.rebuildProjection()
+
+    // ---- device linking (multi-device-identity tasks 6.1/6.2) ----
+    // Thin delegation onto ConnectService, exactly like the connect/recovery-phrase
+    // surface above -- all protocol logic lives in DeviceLinkProtocol/ConnectService;
+    // AzulaState is just the seam the UI (SetupSteps/Settings) reads and calls through.
+
+    /** This device's own granted device certificate, if it was QR-linked (task 6.1) --
+     *  null on every root-holding device. */
+    val linkedDeviceCert: String? get() = settingsService.linkedDeviceCert
+
+    /** Whether this device holds the identity's root secret and can therefore grant a
+     *  QR-link to a new device (task 6.2) -- the "Link a new device" entry in Settings
+     *  must only be offered when this is true. */
+    fun canGrantDeviceLinks(): Boolean = connectService.canGrantDeviceLinks()
+
+    // -- new-device side (task 6.1): "Link to existing identity" --
+
+    val deviceLinkStage: ConnectService.DeviceLinkStage get() = connectService.deviceLinkStage
+    val deviceLinkPayload: String? get() = connectService.deviceLinkPayload
+    val deviceLinkWords: List<String> get() = connectService.deviceLinkWords
+    val deviceLinkRejectReason: String? get() = connectService.deviceLinkRejectReason
+
+    /** Begin (or no-op if already in progress): generate this device's `azl…` link
+     *  payload and wait for a root-holding device to scan it. See
+     *  [ConnectService.beginDeviceLink]. */
+    fun beginDeviceLink(name: String) = connectService.beginDeviceLink(name)
+    fun cancelDeviceLink() = connectService.cancelDeviceLink()
+    fun resetDeviceLink() = connectService.resetDeviceLink()
+
+    // -- root-holding side (task 6.2): "Link a new device" (scan/paste) --
+
+    val grantStage: ConnectService.GrantStage get() = connectService.grantStage
+    val grantPeerName: String get() = connectService.grantPeerName
+    val grantPeerRoles: Int get() = connectService.grantPeerRoles
+    val grantWords: List<String> get() = connectService.grantWords
+    val grantFailReason: String? get() = connectService.grantFailReason
+
+    /** Decode a scanned/pasted `azl…` [payload] and dial it. See
+     *  [ConnectService.beginGrantDial]. */
+    fun beginGrantDial(payload: String) = connectService.beginGrantDial(payload)
+
+    /** Explicit confirmation -- the only thing that can produce a certificate; see
+     *  [ConnectService.confirmGrantLink]. */
+    fun confirmGrantLink() = connectService.confirmGrantLink()
+    fun cancelGrantLink() = connectService.cancelGrantLink()
+    fun resetGrantLink() = connectService.resetGrantLink()
 
     // ---- first-run setup gate (onboarding) ----
     /**
@@ -244,6 +351,11 @@ class AzulaState(
         connectService.onNavigate = { id -> desktopActive = id; mActive = id; mScreen = MScreen.CHAT }
         frameDispatcher.foreground = { inForeground }
         inviteService.foreground = { inForeground }
+        // multi-device-identity task 7.4: ChatService has no dependency on ConnectService
+        // (avoids a circular graph edge -- see ChatService.dialKnownDeviceAndSend's kdoc),
+        // so the dial-a-known-device-and-send fallback is wired here instead, exactly like
+        // every other cross-service callback on this page.
+        chatService.dialKnownDeviceAndSend = { convId, frame -> connectService.dialKnownDeviceForSend(convId, frame) }
         // iOS tap-routing for the "Connection requests" local notification --
         // no-op on Android (MainActivity routes via AppStateHost directly) but
         // harmless to register everywhere.
@@ -312,16 +424,27 @@ class AzulaState(
             else -> true // fresh install: no key, no flag
         }
         inviteService.load()
-        // Bind the transport and run the connect/receive core.
+        // Bind the transport and run the connect/receive core. accountSyncService's
+        // signing identity (device pk/secret) becomes resolvable only after this --
+        // see ConnectService.start's deviceIdentity wiring.
         connectService.start()
+        // multi-device-identity task 4.4: an existing (pre-upgrade) install's message
+        // history lives only in MessageStore and the event log ships empty -- back it
+        // into the log exactly once so it isn't a permanent second, log-invisible
+        // channel. Awaited (not fire-and-forget) so it completes before start() returns
+        // and the UI can possibly send a first new message; gated on the persisted flag
+        // so a relaunch never re-runs (and re-duplicates) it.
+        if (!settingsService.eventLogBackfilled && accountSyncService.backfillLegacyHistory()) {
+            settingsService.markEventLogBackfilled()
+        }
     }
 
     // ---- navigation ----
 
-    fun selectDesktop(id: String) { desktopActive = id; connectService.scheduleReconnect(id) }
+    fun selectDesktop(id: String) { desktopActive = id; connectService.scheduleReconnect(id); accountSyncService.markRead(id) }
     fun openConnectDesktop() { desktopActive = "connect"; connectService.resetConnect() }
     fun openSettingsDesktop() { desktopActive = "settings" }
-    fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT; connectService.scheduleReconnect(id) }
+    fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT; connectService.scheduleReconnect(id); accountSyncService.markRead(id) }
     fun openConnectMobile() { mScreen = MScreen.CONNECT; connectService.resetConnect() }
     fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }
@@ -491,6 +614,33 @@ class AzulaState(
     fun connectPeer(ticketRaw: String, share: Frame.Profile? = null) = connectService.connectPeer(ticketRaw, share)
     fun newSessionFrom(convId: String) = connectService.newSessionFrom(convId)
     fun reconnectSaved() = connectService.reconnectSaved()
+
+    /** Auto-dial this identity's other devices for sync (multi-device-identity task 5.4) --
+     *  see [ConnectService.reconnectSiblings]. Fires on its own on every bind/re-bind and on
+     *  the foreground false→true edge (task 9.6, see [setForeground]); exposed here for parity
+     *  with [reconnectSaved] and so tests can trigger a fresh sibling sync round explicitly. */
+    fun reconnectSiblings() = connectService.reconnectSiblings()
+
+    // ---- device management (multi-device-identity task 6.3) ----
+
+    /** The identity's current device set, local-rename-applied; see [ConnectService.devices].
+     *  Call [refreshDevices] to (re)populate it. */
+    val devices: List<ConnectService.DeviceRow> get() = connectService.devices
+
+    /** (Re)loads [devices] from the current fold -- call when the device management screen
+     *  opens, and after every rename/revoke. See [ConnectService.refreshDevices]. */
+    suspend fun refreshDevices() = connectService.refreshDevices()
+
+    /** Local-only rename, never touches the certificate; see [ConnectService.renameDeviceLocally]. */
+    fun renameDeviceLocally(devicePkHex: String, name: String?) = connectService.renameDeviceLocally(devicePkHex, name)
+
+    /** Whether this device holds the root secret and can therefore revoke another device --
+     *  the "Revoke" control must only be offered when this is true; see
+     *  [ConnectService.canRevokeDevices]. */
+    fun canRevokeDevices(): Boolean = connectService.canRevokeDevices()
+
+    /** Revoke a device by its hex public key; see [ConnectService.revokeDevice]. */
+    suspend fun revokeDevice(devicePkHex: String): Boolean = connectService.revokeDevice(devicePkHex)
 
     // ---- conversation management (enable/disable, delete) ----
 

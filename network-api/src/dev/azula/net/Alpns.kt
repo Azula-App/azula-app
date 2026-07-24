@@ -23,5 +23,20 @@ object Alpns {
      */
     const val MEDIA = "azula/media/0"
 
+    /**
+     * Device ↔ device: exchanges event-log entries between two devices
+     * sharing the same root identity (account-sync spec). Not part of
+     * [ALL]'s dial race — dialed only between a device's own siblings, never
+     * against an arbitrary peer.
+     */
+    const val SYNC = "azula/sync/0"
+
+    /**
+     * New device ↔ root-holding device: the QR-link device-enrollment
+     * protocol (device-linking spec). Not part of [ALL]'s dial race — dialed
+     * only during an explicit device-linking flow.
+     */
+    const val LINK = "azula/link/0"
+
     val ALL = listOf(CHAT, LLM, TERM)
 }

@@ -37,15 +37,18 @@ import dev.azula.ui.Brand
 /**
  * The rail's four stages (identity / back up / persona / done) -- shared by
  * the wide step rail and the compact progress dots, per the Adaptive Setup
- * Presentation requirement. [SetupStep.RESTORE] isn't its own stage: it maps
- * to "identity" alongside [SetupStep.FORK], since restoring is still
- * resolving that same first stage (the rail shows identity/back up/persona/
- * done, not a 5th "restore" item).
+ * Presentation requirement. [SetupStep.RESTORE]/[SetupStep.LINK] aren't their
+ * own stage: they map to "identity" alongside [SetupStep.FORK], since both are
+ * still resolving that same first stage (the rail shows identity/back up/
+ * persona/done, not a 5th/6th "restore"/"link" item). A QR-linked device skips
+ * "back up" entirely (multi-device-identity: it holds no recovery phrase to
+ * back up) straight to "persona" -- see `SetupFlow`'s `onLinked` callback --
+ * so [SetupStep.LINK] itself never needs its own rail stage either way.
  */
 private val railLabels = listOf("identity", "back up", "persona", "done")
 
 private fun railIndexFor(step: SetupStep): Int = when (step) {
-    SetupStep.FORK, SetupStep.RESTORE -> 0
+    SetupStep.FORK, SetupStep.RESTORE, SetupStep.LINK -> 0
     SetupStep.BACKUP -> 1
     SetupStep.PERSONA -> 2
 }

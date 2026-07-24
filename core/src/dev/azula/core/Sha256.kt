@@ -1,11 +1,15 @@
 package dev.azula.core
 
 /**
- * A minimal, dependency-free SHA-256 (FIPS 180-4). Used only for the 8-bit BIP-39
- * checksum, so it need not be fast — just correct and multiplatform (no crypto
- * library is available in common Kotlin here).
+ * A minimal, dependency-free SHA-256 (FIPS 180-4). It need not be fast — just correct and
+ * multiplatform (no crypto library is available in common Kotlin here).
+ *
+ * Shared by every hashing site in `core`: the 8-bit BIP-39 checksum, the log entry `prev_hash`
+ * chain, and the link verification words. Public rather than `internal` because those callers'
+ * behaviour is specified in terms of SHA-256 and is exercised from the test source set, which
+ * on Kotlin/Native targets is not a friend of the main compilation and so cannot see `internal`.
  */
-internal object Sha256 {
+object Sha256 {
     private val K = intArrayOf(
         0x428a2f98u.toInt(), 0x71374491u.toInt(), 0xb5c0fbcfu.toInt(), 0xe9b5dba5u.toInt(),
         0x3956c25bu.toInt(), 0x59f111f1u.toInt(), 0x923f82a4u.toInt(), 0xab1c5ed5u.toInt(),

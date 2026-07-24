@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.waitUntilDoesNotExist
 import androidx.compose.ui.test.waitUntilExactlyOneExists
+import dev.azula.mock.FakeTransport
 import dev.azula.persist.Persona
 import dev.azula.state.AzulaState
 import dev.azula.ui.PickedFile
@@ -104,6 +105,82 @@ class SettingsE2eTest {
         // RecoveryPhrase) must drive AzulaState.importRecoveryPhrase to succeed and
         // close the dialog -- proving the Restore button is actually wired, not
         // just present.
+        waitUntilDoesNotExist(hasText("Restore from recovery phrase"), timeoutMillis = 10_000)
+    }
+
+    @Test
+    fun revealPhraseDialogExplainsARootlessDeviceInsteadOfShowingAPhrase() {
+        // multi-device-identity: a QR-linked device (see the identity capability's
+        // "Device keys have no phrase" scenario) holds a node key but no root secret --
+        // FakeTransport(rootless = true) models exactly that.
+        desktopE2eTest(transport = FakeTransport(rootless = true)) { state, _, _ ->
+            openSettings()
+            onNodeWithTag("reveal-phrase-row").performClick()
+
+            onNodeWithText("No recovery phrase on this device").assertIsDisplayed()
+            onNodeWithText(
+                "This device joined the identity via a QR link, so the recovery phrase was " +
+                    "never stored here — it lives only on devices that were set up with it, or " +
+                    "that restored it. Check the phrase on one of those instead.",
+            ).assertIsDisplayed()
+            assertNull(state.exportRecoveryPhrase(), "a rootless device has no phrase to export")
+
+            // No "Reveal" step to click through -- the explanation shows immediately, and
+            // the only action is dismissing.
+            onNodeWithTag("reveal-phrase-confirm").performClick()
+            waitUntilDoesNotExist(hasText("No recovery phrase on this device"), timeoutMillis = 10_000)
+        }
+    }
+
+    @Test
+    fun restoringADifferentIdentityRequiresASecondConfirmation() = desktopE2eTest { state, _, _ ->
+        val phraseBefore = state.exportRecoveryPhrase()
+        openSettings()
+        onNodeWithTag("restore-phrase-row").performClick()
+
+        // 24 real BIP-39 words, decoding to a key that is NOT this mock identity's fixed
+        // secret -- exercises the genuinely destructive path (task 3.5a), unlike
+        // restorePhraseDialogAcceptsThisDevicesOwnPhraseAndCloses's same-identity case.
+        val differentPhrase = List(23) { "abandon" }.joinToString(" ") + " art"
+        onNodeWithTag("restore-phrase-input").performTextInput(differentPhrase)
+        onNodeWithTag("restore-phrase-confirm").performClick()
+
+        onNodeWithText("Replace this device's identity?").assertIsDisplayed()
+        // Nothing has committed yet -- only clicking "Replace it" would.
+        assertEquals(phraseBefore, state.exportRecoveryPhrase())
+    }
+
+    @Test
+    fun cancellingTheReplaceConfirmationLeavesTheRestoreDialogAndIdentityUntouched() = desktopE2eTest { state, _, _ ->
+        val phraseBefore = state.exportRecoveryPhrase()
+        openSettings()
+        onNodeWithTag("restore-phrase-row").performClick()
+
+        val differentPhrase = List(23) { "abandon" }.joinToString(" ") + " art"
+        onNodeWithTag("restore-phrase-input").performTextInput(differentPhrase)
+        onNodeWithTag("restore-phrase-confirm").performClick()
+        onNodeWithText("Replace this device's identity?").assertIsDisplayed()
+
+        onNode(hasText("Cancel") and hasClickAction()).performClick()
+
+        // Back to the restore dialog (not closed entirely), and nothing committed.
+        waitUntilDoesNotExist(hasText("Replace this device's identity?"), timeoutMillis = 10_000)
+        onNodeWithText("Restore from recovery phrase").assertIsDisplayed()
+        assertEquals(phraseBefore, state.exportRecoveryPhrase(), "cancelling the replace confirmation must not touch the identity")
+    }
+
+    @Test
+    fun confirmingTheReplaceCommitsAndClosesTheDialog() = desktopE2eTest { state, _, _ ->
+        openSettings()
+        onNodeWithTag("restore-phrase-row").performClick()
+
+        val differentPhrase = List(23) { "abandon" }.joinToString(" ") + " art"
+        onNodeWithTag("restore-phrase-input").performTextInput(differentPhrase)
+        onNodeWithTag("restore-phrase-confirm").performClick()
+        onNodeWithText("Replace this device's identity?").assertIsDisplayed()
+
+        onNodeWithTag("restore-phrase-confirm-replace").performClick()
+
         waitUntilDoesNotExist(hasText("Restore from recovery phrase"), timeoutMillis = 10_000)
     }
 

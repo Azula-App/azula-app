@@ -70,6 +70,77 @@ interface IrohTransport {
      */
     suspend fun importSecretKey(bytes: ByteArray)
 
+    /**
+     * The current 32-byte identity root secret, if this device holds one -- independent
+     * of [secretKeyBytes]/the node key (see the `identity` capability's Per-Platform
+     * Key-at-Rest Storage requirement, multi-device-identity). Null both before any root
+     * secret is known and permanently on a QR-linked device, which holds a node key and
+     * certificate but no root secret. Defaults to null so every existing [IrohTransport]
+     * implementation stays source-compatible.
+     */
+    fun rootSecretBytes(): ByteArray? = null
+
+    /**
+     * Persists [bytes] (32 bytes) as this device's root secret, independent of the node
+     * key -- used by the recovery-phrase import flow (`RecoveryPhrase` /
+     * `ConnectService.importRecoveryPhrase`). Unlike [importSecretKey] this never rebinds
+     * the transport itself: under the multi-device-identity model the node id is unaffected
+     * by a root-secret change. The rest of enrollment (self-issued certificate, `device_add`
+     * log entry, and a conditional [rebind] for a genuinely different identity) is
+     * orchestrated by `ConnectService.importRecoveryPhrase` (multi-device-identity task
+     * 3.4), calling this method and [publicKeyFor]/[rebind] in turn. Defaults to a no-op so
+     * every existing [IrohTransport] implementation stays source-compatible.
+     */
+    fun importRootSecret(bytes: ByteArray) {}
+
+    /**
+     * Clears any persisted root secret, leaving [rootSecretBytes] permanently `null` until a
+     * future [importRootSecret] -- multi-device-identity task 6.1's QR-link enrollment path
+     * calls this before generating its link payload. Necessary because bind()'s
+     * upgrade-in-place migration (see `IrohFfiTransport.maybeAdoptRootSecret`) auto-adopts the
+     * node secret as root the moment a device with no root secret yet completes its first
+     * bind -- which happens unconditionally, before the user's onboarding choice is even made
+     * (the setup gate decides *whether* to show setup pre-bind, but binding itself, and
+     * therefore the auto-adopt, isn't gated on that choice). A device that goes on to choose
+     * "link to an existing identity" must not keep that raced-in root secret: the QR-link flow
+     * calls this first so the invariant ("a QR-linked device SHALL NOT receive the root
+     * secret") holds regardless of the race's outcome. A no-op if no root secret is held.
+     * Defaults to a no-op so every existing [IrohTransport] implementation stays
+     * source-compatible; the real transports override it to actually clear the store.
+     */
+    fun forgetRootSecret() {}
+
+    /**
+     * Derives the Ed25519 public key for a raw 32-byte [secret] this device doesn't
+     * necessarily hold as its own bound key -- used by the recovery-phrase enrollment path
+     * (multi-device-identity task 3.4) to compute the `root_pk` a self-issued certificate
+     * embeds, and to namespace the per-identity event-log directory (task 4.6) by the
+     * identity's actual root public key. Distinct from [nodeId] (this device's OWN bound
+     * key's public half): the upgrade-in-place migration path's root secret always equals
+     * this device's node secret, so the two coincide there, but a phrase-enrolled device
+     * keeps its own node keypair while adopting a *different* root secret (see `Restore
+     * Recovers the Identity Onto This Device`), so the two must be computed independently
+     * in general. Null if unsupported or [secret] isn't a valid 32-byte Ed25519 secret.
+     * Defaults to null so every existing [IrohTransport] implementation (mocks, `-mock`
+     * apps' `FakeTransport`, most tests) stays source-compatible.
+     */
+    fun publicKeyFor(secret: ByteArray): ByteArray? = null
+
+    /**
+     * Re-binds the transport using whatever node key is already persisted (no key change)
+     * -- a teardown-then-rebuild of the endpoint, mirroring [importSecretKey]'s existing
+     * safe sequence minus the key swap. Used by the recovery-phrase enrollment path
+     * (`ConnectService.importRecoveryPhrase`, task 3.4) to "begin syncing" after adopting a
+     * *different* identity's root secret: re-announcing presence and refreshing
+     * connections is appropriate there (the device just switched identities), unlike a
+     * same-identity restore, which must change nothing observable and therefore never
+     * calls this. A failure here (network unavailable, endpoint error) propagates as an
+     * exception -- callers degrade to offline exactly as [nodeId]'s initial-bind try/catch
+     * does; this method itself makes no attempt to swallow it. Defaults to a no-op so every
+     * existing [IrohTransport] implementation stays source-compatible and never throws.
+     */
+    suspend fun rebind() {}
+
     /** Dial a peer by ticket on the given ALPN, opening a fresh stream. */
     suspend fun connect(ticket: String, alpn: String): P2pStream
 

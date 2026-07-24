@@ -38,6 +38,11 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         blobStore = InMemoryBlobStore(),
         invitationsStore = MockInvitationsStore(),
         mediaExporter = null,
+        // No real per-device event log for the `-mock` apps -- FakeTransport's
+        // nodeId isn't real key material anyway (see its kdoc), so there is no
+        // consistent signing identity to back one with.
+        eventLogStore = null,
+        ed25519 = null,
     ).azulaState
 
 /**

@@ -16,6 +16,8 @@ modules:
   - persistence-api
   - persistence-real
   - shared
+  - sync-api
+  - sync-real
   - terminal-api
   - terminal-real
   - theme

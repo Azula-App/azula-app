@@ -13,4 +13,6 @@ actual fun platformSettingsStore(): SettingsStore? = RawSettingsStore(
     },
 )
 
-private fun settingsFile() = File(System.getProperty("user.home"), ".azula/settings.json")
+/** `$AZULA_DATA_DIR/.azula/settings.json` when the isolation override is set
+ *  (see [azulaHomeDir]), else `~/.azula/settings.json` as before. */
+internal fun settingsFile(env: (String) -> String? = System::getenv) = File(azulaHomeDir(env), ".azula/settings.json")

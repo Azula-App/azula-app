@@ -12,6 +12,8 @@ dependencies:
   - ../notification-api: exported
   - ../persistence-api: exported
   - ../persistence-real: exported
+  - ../sync-api: exported
+  - ../sync-real: exported
   - ../terminal-api: exported
   - ../terminal-real: exported
   - ../theme: exported

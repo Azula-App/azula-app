@@ -1,0 +1,23 @@
+# sync-api — the account-sync contract: EventLogStore (per-device append-only
+# log storage: append own entries, insert verified foreign entries, the
+# per-device high-water vector, and iterating from it), the per-kind JSON
+# event bodies, and the deterministic fold
+# (specs/account-sync/spec.md's "Derived State Is a Deterministic Fold") over
+# the identity's logs into conversations/contacts/devices/read-state/profile.
+# No platform code, no heavy deps -- the fold is pure functions over
+# core.LogEntry, exercised directly in tests with no store at all. The
+# concrete JSONL-file actual lives in sync-real.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+
+dependencies:
+  - ../core: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    serialization: json

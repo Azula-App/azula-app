@@ -9,6 +9,7 @@ import dev.azula.di.AppGraph
 import dev.azula.net.AndroidPeerStore
 import dev.azula.net.IrohConfig
 import dev.azula.net.createTransport
+import dev.azula.net.platformEd25519
 import dev.azula.persist.AndroidBlobStore
 import dev.azula.persist.AndroidInvitationsStore
 import dev.azula.persist.AndroidMediaExporter
@@ -17,6 +18,8 @@ import dev.azula.persist.AndroidProfileStore
 import dev.azula.persist.AndroidSettingsStore
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
+import dev.azula.sync.AndroidEventLogStore
+import dev.azula.sync.toHexLower
 import dev.zacsweers.metro.createGraphFactory
 import android.util.Log
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -82,10 +85,11 @@ class AzulaApplication : Application() {
      * existing instance.
      */
     @Synchronized
-    fun obtainState(): AzulaState =
-        AppStateHost.shared ?: createGraphFactory<AppGraph.Factory>().create(
+    fun obtainState(): AzulaState = AppStateHost.shared ?: run {
+        val transport = createTransport()
+        createGraphFactory<AppGraph.Factory>().create(
             scope = appScope,
-            transport = createTransport(),
+            transport = transport,
             notifier = AndroidNotifier(this),
             messageStore = AndroidMessageStore(applicationContext),
             profileStore = AndroidProfileStore(applicationContext),
@@ -94,8 +98,25 @@ class AzulaApplication : Application() {
             blobStore = AndroidBlobStore(applicationContext),
             invitationsStore = AndroidInvitationsStore(applicationContext),
             mediaExporter = AndroidMediaExporter(applicationContext),
+            // sync-real's platformEventLogStore() returns null on Android (needs a
+            // Context it never receives) -- AndroidEventLogStore(context, ed25519, rootPkHex)
+            // is that "future caller" its kdoc anticipated. rootPkHex is a LAZY
+            // supplier -- the root pk isn't known until ConnectService.start() binds
+            // this same transport (see platformEventLogStore's kdoc). Namespaced by the
+            // identity's actual root public key (task 4.6), not this device's own node
+            // id -- see AppEntry.kt's identical wiring for why that distinction matters
+            // once multi-device-identity task 3.4's phrase enrollment can leave a
+            // device's node key different from its held root.
+            eventLogStore = AndroidEventLogStore(applicationContext, platformEd25519()) {
+                val rootSecret = transport.rootSecretBytes()
+                    ?: error("event log store accessed before this device holds a root secret")
+                transport.publicKeyFor(rootSecret)?.toHexLower()
+                    ?: error("transport cannot derive the root public key from its root secret")
+            },
+            ed25519 = platformEd25519(),
         ).azulaState.also {
             AppStateHost.shared = it
             appScope.launch { it.start() }
         }
+    }
 }

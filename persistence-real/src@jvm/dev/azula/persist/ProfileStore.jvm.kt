@@ -13,4 +13,6 @@ actual fun platformProfileStore(): ProfileStore? = RawProfileStore(
     },
 )
 
-private fun profileFile() = File(System.getProperty("user.home"), ".azula/profiles.json")
+/** `$AZULA_DATA_DIR/.azula/profiles.json` when the isolation override is set
+ *  (see [azulaHomeDir]), else `~/.azula/profiles.json` as before. */
+internal fun profileFile(env: (String) -> String? = System::getenv) = File(azulaHomeDir(env), ".azula/profiles.json")

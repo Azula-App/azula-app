@@ -29,7 +29,8 @@
             </intent-filter>
 
             <!-- App Links: https://azula.app/s/<token>, /connect/<token> (legacy),
-                 and /i/<payload> (invites). autoVerify requires assetlinks.json at
+                 /i/<payload> (invites), and /l/<payload> (device-link codes,
+                 multi-device-identity task 6.6). autoVerify requires assetlinks.json at
                  azula.app with the RELEASE signing SHA-256 — fill it once the app
                  is signed (azula-docs/openspec/specs/deeplinks/design.md). -->
             <intent-filter android:autoVerify="true">
@@ -39,10 +40,12 @@
                 <data android:scheme="https" android:host="azula.app" android:pathPrefix="/s/" />
                 <data android:scheme="https" android:host="azula.app" android:pathPrefix="/connect/" />
                 <data android:scheme="https" android:host="azula.app" android:pathPrefix="/i/" />
+                <data android:scheme="https" android:host="azula.app" android:pathPrefix="/l/" />
             </intent-filter>
 
-            <!-- Custom scheme fallback: azula://connect?code=<token> (legacy) and
-                 azula://i?c=<payload> (invites). -->
+            <!-- Custom scheme fallback: azula://connect?code=<token> (legacy),
+                 azula://i?c=<payload> (invites), and azula://l?c=<payload>
+                 (device-link codes, multi-device-identity task 6.6). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

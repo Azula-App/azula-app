@@ -292,7 +292,9 @@ private class FakeTerminalStream(
         }
     }
 
-    override suspend fun receiveLine(): String? = runCatching { inbox.receive() }.getOrNull()
+    // receiveCatching(), not runCatching { receive() } -- see LoopbackStream.receiveLine below:
+    // a broad Throwable catch would swallow the CancellationException a cancelled reader throws.
+    override suspend fun receiveLine(): String? = inbox.receiveCatching().getOrNull()
     override suspend fun sendBytes(bytes: ByteArray) {}
     override suspend fun receiveBytes(n: Int): ByteArray? = null
     override suspend fun close() { inbox.close() }
@@ -362,7 +364,14 @@ private class LoopbackStream(private val onSend: (Frame) -> Unit = {}) : P2pStre
         }
     }
 
-    override suspend fun receiveLine(): String? = runCatching { inbox.receive() }.getOrNull()
+    // receiveCatching(), not runCatching { receive() }: runCatching's broad Throwable catch would
+    // swallow the CancellationException receive() throws when a reader coroutine is cancelled
+    // mid-await, returning a plain null instead of propagating the cancellation (the classic
+    // "don't catch CancellationException" anti-pattern under structured concurrency).
+    // receiveCatching only folds the channel-closed case into a null result -- cancellation still
+    // propagates. Without this, a coroutine cancelled while awaiting a line reads as a clean EOF,
+    // so a caller that treats null as "the peer said nothing" reports a failure that never happened.
+    override suspend fun receiveLine(): String? = inbox.receiveCatching().getOrNull()
 
     override suspend fun sendBytes(bytes: ByteArray) {
         byteMutex.withLock { byteBuffer += bytes }

@@ -318,7 +318,7 @@ private class ScriptedTransport(
 private class DroppableStream : P2pStream {
     private val inbox = Channel<String>(Channel.UNLIMITED)
     override suspend fun sendLine(line: String) = Unit
-    override suspend fun receiveLine(): String? = runCatching { inbox.receive() }.getOrNull()
+    override suspend fun receiveLine(): String? = inbox.receiveCatching().getOrNull()
     override suspend fun sendBytes(bytes: ByteArray) = Unit
     override suspend fun receiveBytes(n: Int): ByteArray? = null
     override suspend fun close() { inbox.close() }

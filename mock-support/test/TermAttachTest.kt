@@ -257,7 +257,7 @@ private class RecordingStream : P2pStream {
     override suspend fun sendLine(line: String) {
         runCatching { FrameCodec.decode(line) }.getOrNull()?.let { sentFrames.add(it) }
     }
-    override suspend fun receiveLine(): String? = runCatching { inbox.receive() }.getOrNull()
+    override suspend fun receiveLine(): String? = inbox.receiveCatching().getOrNull()
     override suspend fun sendBytes(bytes: ByteArray) = Unit
     override suspend fun receiveBytes(n: Int): ByteArray? = null
     override suspend fun close() { inbox.close() }

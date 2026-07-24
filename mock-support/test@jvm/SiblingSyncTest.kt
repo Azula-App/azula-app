@@ -91,14 +91,14 @@ class SiblingSyncTest {
         val bToA = Channel<String>(Channel.UNLIMITED)
         val a: P2pStream = object : P2pStream {
             override suspend fun sendLine(line: String) { aToB.send(line) }
-            override suspend fun receiveLine(): String? = runCatching { bToA.receive() }.getOrNull()
+            override suspend fun receiveLine(): String? = bToA.receiveCatching().getOrNull()
             override suspend fun sendBytes(bytes: ByteArray) = Unit
             override suspend fun receiveBytes(n: Int): ByteArray? = null
             override suspend fun close() { aToB.close() }
         }
         val b: P2pStream = object : P2pStream {
             override suspend fun sendLine(line: String) { bToA.send(line) }
-            override suspend fun receiveLine(): String? = runCatching { aToB.receive() }.getOrNull()
+            override suspend fun receiveLine(): String? = aToB.receiveCatching().getOrNull()
             override suspend fun sendBytes(bytes: ByteArray) = Unit
             override suspend fun receiveBytes(n: Int): ByteArray? = null
             override suspend fun close() { bToA.close() }

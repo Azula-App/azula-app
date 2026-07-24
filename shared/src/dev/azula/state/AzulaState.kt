@@ -215,7 +215,26 @@ class AzulaState(
      *  lifecycle changes; incoming messages post a [Notifier] only when false. */
     var inForeground by mutableStateOf(true)
         private set
-    fun setForeground(value: Boolean) { inForeground = value }
+
+    /**
+     * Called by the platform on every foreground/background lifecycle transition (Android:
+     * [ProcessLifecycleOwner]'s `onStart`/`onStop` in `AzulaApplication`). On the false→true
+     * edge specifically -- i.e. actually resuming, not every call -- also re-dials siblings
+     * (multi-device-identity task 9.6): [ConnectService.reconnectSiblings] otherwise fires only
+     * from a transport re-bind ([ConnectService]'s `onCameOnline`) or the one-shot call at the
+     * end of `start()`, and a resident app never re-binds, so it would otherwise never re-sync
+     * with its siblings while simply backgrounded and resumed -- which, for a phone, is nearly
+     * always. Confirmed on-device: backgrounding and returning produced zero sibling dials for
+     * ~9 minutes, while a full force-stop + cold relaunch (a genuine re-bind) converged
+     * immediately. Guarded to the edge (not true→true or true→false) so repeated foreground
+     * re-entry doesn't spam dials; [ConnectService.reconnectSiblings]'s own
+     * `siblingDialsInFlight` guard additionally covers two resumes landing close together.
+     */
+    fun setForeground(value: Boolean) {
+        val resumed = value && !inForeground
+        inForeground = value
+        if (resumed) reconnectSiblings()
+    }
     var copied by mutableStateOf(false)
         private set
     // Connect UI state is owned by ConnectService; delegate for the connect screen.
@@ -597,9 +616,9 @@ class AzulaState(
     fun reconnectSaved() = connectService.reconnectSaved()
 
     /** Auto-dial this identity's other devices for sync (multi-device-identity task 5.4) --
-     *  see [ConnectService.reconnectSiblings]. Normally fires on its own (every bind/re-bind);
-     *  exposed here for parity with [reconnectSaved] and so tests can trigger a fresh sibling
-     *  sync round explicitly. */
+     *  see [ConnectService.reconnectSiblings]. Fires on its own on every bind/re-bind and on
+     *  the foreground false→true edge (task 9.6, see [setForeground]); exposed here for parity
+     *  with [reconnectSaved] and so tests can trigger a fresh sibling sync round explicitly. */
     fun reconnectSiblings() = connectService.reconnectSiblings()
 
     // ---- device management (multi-device-identity task 6.3) ----

@@ -140,8 +140,14 @@ class SiblingSyncTest {
 
         val bResults = mutableListOf<Result<SyncSessionOutcome>>()
 
+        /** Counts real dials of [siblingTicket] on [Alpns.SYNC] -- the task 9.6 tests assert on
+         *  this directly to prove exactly one dial happens per trigger (no dedup skip, no
+         *  duplicate stack-up), independent of what the sync session itself converges to. */
+        var dialCount = 0
+
         override suspend fun connect(ticket: String, alpn: String): P2pStream {
             if (ticket == siblingTicket && alpn == Alpns.SYNC) {
+                dialCount++
                 val pipe = SiblingPipe()
                 val aNodeIdBytes = fixedNodeIdHex.hexToByteArrayOrNull()!!
                 dialScope.launch {
@@ -243,5 +249,84 @@ class SiblingSyncTest {
         // hello -- consistent with a hello-stage rejection, not a normal converged session.
         val secondRoundResult = transport.bResults.last()
         assertTrue(secondRoundResult.isFailure, "device B's side should never reach a normal converged session in round 2, got $secondRoundResult")
+    }
+
+    /**
+     * multi-device-identity task 9.6: a resident app never re-binds its transport, so without
+     * a foreground-resume trigger it would never re-dial siblings while merely backgrounded and
+     * returned to -- only a cold relaunch (a genuine re-bind) did. [AzulaState.setForeground]
+     * now also calls [dev.azula.state.ConnectService.reconnectSiblings] on the false→true edge.
+     * This asserts the edge-only part of that: true→true (no prior background) and true→false
+     * (backgrounding itself) must NOT redial, only an actual resume must.
+     */
+    @Test
+    fun foregroundResumeRedialsSiblingsOnlyOnTheFalseToTrueEdge() = runTest {
+        val storeA = newStoreA()
+        val storeB = newStoreB()
+        val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
+
+        val transport = SiblingDialTransport(
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
+        )
+        val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
+        val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = storeA, ed25519 = ed25519, settingsStore = settingsStore)
+
+        azulaState.start()
+        runCurrent() // not advanceUntilIdle -- see the first sibling test above for why
+        assertEquals(1, transport.dialCount, "start()'s own bind fires one sibling-dial round")
+
+        // true -> true: AzulaState.inForeground defaults true and start() never changed it, so
+        // this re-affirms foreground with no intervening background -- not an edge, must not redial.
+        azulaState.setForeground(true)
+        runCurrent()
+        assertEquals(1, transport.dialCount, "re-affirming foreground with no prior background must not redial")
+
+        // true -> false: backgrounding itself must never redial -- only resuming does.
+        azulaState.setForeground(false)
+        runCurrent()
+        assertEquals(1, transport.dialCount, "backgrounding must not trigger a sibling redial")
+
+        // false -> true: the actual task 9.6 fix -- this edge must redial.
+        azulaState.setForeground(true)
+        runCurrent()
+        assertEquals(2, transport.dialCount, "resuming from the background must redial siblings (task 9.6)")
+    }
+
+    /**
+     * multi-device-identity task 9.6's overlap guard: [dev.azula.state.ConnectService]'s
+     * `siblingDialsInFlight` (mirroring [dev.azula.state.ConversationState.reconnecting]'s
+     * add-before-launch/clear-in-`finally` shape) must stop two resumes landing close together
+     * from stacking a second concurrent dial onto the same sibling.
+     */
+    @Test
+    fun rapidResumesDoNotStackConcurrentDialsOntoTheSameSibling() = runTest {
+        val storeA = newStoreA()
+        val storeB = newStoreB()
+        val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
+
+        val transport = SiblingDialTransport(
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
+        )
+        val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
+        val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = storeA, ed25519 = ed25519, settingsStore = settingsStore)
+
+        azulaState.start()
+        runCurrent()
+        assertEquals(1, transport.dialCount, "start()'s own bind fires one sibling-dial round")
+
+        // Two resumes back to back with NO runCurrent() drained in between: the guard check in
+        // ConnectService.reconnectSiblings runs synchronously at call time (before dialSibling's
+        // coroutine is even dispatched), so the second setForeground(true) call's loop iteration
+        // for deviceBHex must see it already claimed by the first and skip it -- without the
+        // guard this would stack a second concurrent dial onto the same sibling ticket.
+        azulaState.setForeground(false)
+        azulaState.setForeground(true)
+        azulaState.setForeground(false)
+        azulaState.setForeground(true)
+        runCurrent()
+
+        assertEquals(2, transport.dialCount, "two rapid resumes must produce exactly one extra dial, not two")
     }
 }

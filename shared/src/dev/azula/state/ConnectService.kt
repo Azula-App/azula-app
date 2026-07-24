@@ -110,6 +110,20 @@ class ConnectService(
      *  in `onCameOnline` (the first bind's loop is started by [start] itself). */
     private var bound = false
 
+    /**
+     * Device hexes with a [dialSibling] currently in flight. Mirrors
+     * [ConversationState.reconnecting]'s guard-and-clear shape (add-if-absent before
+     * launching, remove in a `finally`) rather than inventing a new one -- but keyed per
+     * sibling here instead of living on a persistent per-conversation object, since a sync
+     * session has no [ConversationState]/`cs.online` equivalent to dedupe against after the
+     * fact: [dialSibling] always closes its stream when the bounded catch-up ends (see
+     * [runSyncWith]), so nothing downstream would otherwise stop two overlapping dials to the
+     * same sibling from both running. Needed now that [reconnectSiblings] fires from more than
+     * one trigger (re-bind AND the task 9.6 foreground-resume hook below) that can land close
+     * together -- e.g. two resumes in quick succession.
+     */
+    private val siblingDialsInFlight = mutableSetOf<String>()
+
     fun resetConnect() {
         if (connectStage != ConnectStage.DIALING) {
             connectStage = ConnectStage.IDLE
@@ -762,7 +776,13 @@ class ConnectService(
      * Auto-dial this identity's other devices for sync, alongside [reconnectSaved]'s ordinary
      * peer redial (multi-device-identity task 5.4) -- called from the same [IrohTransport.onCameOnline]
      * trigger, so both the very first bind and every re-bind re-sync with siblings, not just
-     * reconnect chat peers.
+     * reconnect chat peers. ALSO called on the foreground false→true edge (task 9.6, see
+     * [dev.azula.state.AzulaState.setForeground]): a resident app never re-binds its transport,
+     * so without this second trigger a phone that's simply backgrounded and resumed -- which is
+     * most of a phone's lifetime -- would never re-dial its siblings at all; only a full
+     * force-stop-and-relaunch (a real re-bind) would. Confirmed on-device: backgrounding and
+     * returning produced zero sibling dials for ~9 minutes, while a cold relaunch converged
+     * immediately.
      *
      * Deliberately does NOT pre-filter [SettingsService.siblingTickets] against the current
      * fold's device set before dialing -- an earlier version of this method did, and it broke
@@ -777,6 +797,11 @@ class ConnectService(
      * the hello, wasting one dial attempt and nothing more. [revokeDevice]'s best-effort
      * [SettingsService.removeSiblingTicket] is what keeps that from accumulating indefinitely;
      * this function doesn't need to duplicate that check to stay correct.
+     *
+     * [siblingDialsInFlight] guards against this now having two live triggers: a re-bind and a
+     * foreground resume landing close together (or two resumes in quick succession) must not
+     * stack a second concurrent dial onto the same sibling -- a ticket already mid-dial is
+     * simply skipped, exactly as the next re-bind/resume will retry it if it's still needed.
      */
     fun reconnectSiblings() {
         if (offline) return
@@ -785,14 +810,21 @@ class ConnectService(
         val myDeviceHex = transport.nodeId
         for ((deviceHex, ticket) in tickets) {
             if (deviceHex == myDeviceHex) continue
-            scope.launch { dialSibling(ticket) }
+            if (!siblingDialsInFlight.add(deviceHex)) continue // already dialing this sibling
+            scope.launch {
+                try {
+                    dialSibling(ticket)
+                } finally {
+                    siblingDialsInFlight.remove(deviceHex)
+                }
+            }
         }
     }
 
     /** Dials one sibling ticket on [Alpns.SYNC] and runs the session once connected; bounded
      *  retries mirror [reconnectSaved]'s own posture (no infinite background loop -- the next
-     *  [reconnectSiblings] call, triggered by the next [IrohTransport.onCameOnline], tries
-     *  again if this one never connects). */
+     *  [reconnectSiblings] call, triggered by the next [IrohTransport.onCameOnline] or foreground
+     *  resume, tries again if this one never connects). */
     private suspend fun dialSibling(ticket: String) {
         repeat(3) {
             val stream = runCatching { transport.connect(ticket, Alpns.SYNC) }.getOrNull()

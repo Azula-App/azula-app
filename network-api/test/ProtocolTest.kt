@@ -288,4 +288,13 @@ class ProtocolTest {
         assertTrue(decoded is Frame.Chat)
         assertNull((decoded as Frame.Chat).id)
     }
+
+    @Test
+    fun relayHintRoundTripsWithTypeTag() {
+        val encoded = FrameCodec.encode(Frame.RelayHint("ticket-abc123"))
+        assertTrue(encoded.contains(""""type":"relay_hint""""), "missing type tag: $encoded")
+        val decoded = FrameCodec.decode(encoded)
+        assertTrue(decoded is Frame.RelayHint)
+        assertEquals("ticket-abc123", (decoded as Frame.RelayHint).ticket)
+    }
 }

@@ -126,6 +126,9 @@ class FrameDispatcher(
             is Frame.SyncHello, is Frame.SyncVector, is Frame.SyncEntries, is Frame.SyncAck,
             is Frame.LinkHello, is Frame.LinkGrant, is Frame.LinkReject,
             -> Unit
+            // cli-multi-session-relay: RelayHint only has meaning to the CLI/relay side --
+            // the app receiving one is a documented no-op, never a crash.
+            is Frame.RelayHint -> Unit
         }
         if (frame !is Frame.Token || frame.done) persistence.save(convId)
     }

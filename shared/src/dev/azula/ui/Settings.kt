@@ -153,6 +153,18 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                 BackupRow("Link a new device", "paste a code shown on the new device", tag = "grant-link-row") { showGrantLink = true }
             }
             BackupRow("Manage devices", "rename or revoke devices on this identity", tag = "device-management-row") { showDeviceManagement = true }
+
+            Spacer(Modifier.height(8.dp))
+            Text("SESSIONS", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+            Text(
+                "each CLI session (azula mcp, azula run, a terminal) gets its own conversation here, bounded by its certificate's expiry.",
+                color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            BackupRow(
+                "Archive expired sessions",
+                "disable every session conversation past its expiry",
+                tag = "archive-expired-sessions-row",
+            ) { state.archiveExpiredSessions() }
         }
     }
     if (showEditor) {

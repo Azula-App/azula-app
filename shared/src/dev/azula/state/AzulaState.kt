@@ -30,6 +30,7 @@ import dev.azula.net.PeerStore
 import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.core.AppScope
+import dev.azula.epochSeconds
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
 import dev.azula.persist.BlobStore
@@ -131,6 +132,17 @@ class ConversationState(seed: List<Message>) {
      *  so scheduleReconnect must not treat this terminal as eligible; the UI
      *  offers an explicit "New shell" instead. */
     var termExited by mutableStateOf(false)
+    /** cli-multi-session-relay: this conversation's session-cert expiry, in epoch ms
+     *  (`Long.MAX_VALUE` for a cert with `expires_at=0`, "never") -- null for a
+     *  conversation never admitted via the session-cert gate (see
+     *  `ConnectService.admitSessionCert`). Doubles as the marker `ConnectService`'s
+     *  accept gate (`startIncomingLoop`) uses to force cert re-validation on every
+     *  reconnect instead of the ordinary "conversation already exists" known-peer
+     *  fast path -- a session cert can expire between connections (session-identity
+     *  spec's "Session Expiry Bounds Exposure": "reconnects re-present a cert and are
+     *  re-validated"). Persisted (`ConversationDto.sessionExpiresAt`) so this survives
+     *  an app restart too, not just within one process. */
+    var sessionExpiresAt: Long? by mutableStateOf(null)
     /** Media picked (Photo/Video/Audio) but not yet sent, awaiting a caption --
      *  the composer's draft field doubles as the caption input while this is
      *  non-empty. Lives here (rather than as `ChatPane` `remember` state) so a
@@ -675,6 +687,24 @@ class AzulaState(
             scope.launch { reconnectSaved() }
         }
         persist(id)
+    }
+
+    /**
+     * Disable every conversation whose session cert has expired (cli-multi-session-relay's
+     * "Session Expiry Bounds Exposure": "the app ... SHALL support bulk-archiving expired
+     * session conversations"). This codebase's only "archived" state is disabled ([Conversation.enabled]
+     * = false, see [setConversationEnabled]) -- there's no separate archive flag, so
+     * "archiving" here is exactly that: closes any live stream, stops auto-reconnect and
+     * notifications, and leaves the row + history in place, greyed. A conversation never
+     * admitted via the session-cert gate ([ConversationState.sessionExpiresAt] null) is
+     * never touched, and an already-disabled one is skipped (nothing new to do).
+     */
+    fun archiveExpiredSessions() {
+        val now = epochSeconds() * 1000
+        conversations.toList()
+            .filter { it.enabled }
+            .filter { id -> (convOrNull(id.id)?.sessionExpiresAt ?: return@filter false) <= now }
+            .forEach { setConversationEnabled(it.id, false) }
     }
 
     /**

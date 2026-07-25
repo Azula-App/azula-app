@@ -33,8 +33,17 @@ const val ROLE_MAILBOX = 0x01
  *  present only so certificates that do carry it (a newer sibling) round-trip losslessly. */
 const val ROLE_BOT = 0x02
 
-/** Bits 0–1 are meaningful today; bits 2–7 are reserved (`0` on encode, ignored on decode). */
-private const val ROLE_MASK = ROLE_MAILBOX or ROLE_BOT
+/** Roles bit 2 (cli-multi-session-relay): an ephemerally-keyed CLI session cert --
+ *  binds a per-process session key (`device_pk`) to a machine identity key (`root_pk`),
+ *  always short-expiry, and never itself an identity device (see the device-linking
+ *  spec's "Session Certificate Kind": no sync participation, no log authorship, no
+ *  link-granting authority -- it only grants conversation access to peers already
+ *  paired with the machine). The wire value is fixed at `0x04`: the Rust `azula-cli`
+ *  side (a sibling change, out of this task's scope) uses the same bit. */
+const val ROLE_SESSION = 0x04
+
+/** Bits 0–2 are meaningful today; bits 3–7 are reserved (`0` on encode, ignored on decode). */
+private const val ROLE_MASK = ROLE_MAILBOX or ROLE_BOT or ROLE_SESSION
 
 private const val CERT_PREFIX = "azd"
 private const val REVOCATION_PREFIX = "azr"
@@ -134,6 +143,10 @@ data class DeviceCert(
     val signature: ByteArray,
 ) {
     val isMailbox: Boolean get() = (roles and ROLE_MAILBOX) != 0
+
+    /** True iff this cert carries [ROLE_SESSION] -- an ephemeral CLI session cert, never
+     *  an identity device (see [ROLE_SESSION]'s kdoc). */
+    val isSession: Boolean get() = (roles and ROLE_SESSION) != 0
 
     // `data class` would give us reference equality on the ByteArray fields, which is wrong here:
     // the device set is the union of `device_add` certificates, so the duplicate self-certs the

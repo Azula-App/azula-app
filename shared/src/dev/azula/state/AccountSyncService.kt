@@ -500,6 +500,51 @@ class AccountSyncService(
     }
 
     /**
+     * cli-multi-session-relay ("Session Certificates Admit Strangers Without an Invite" /
+     * "Phone Auto-Accepts Certified Sessions as Flat Conversations"): verifies [certStr]
+     * as an admissible SESSION certificate. Unlike [checkPresentedCert] (which classifies
+     * an ordinary IDENTITY device cert as [CertCheck.KnownByRoot]/[CertCheck.CertifiedStranger]/
+     * [CertCheck.Absent]), this returns the verified [DeviceCert] only when EVERY one of
+     * the spec's five checks holds, and `null` on any single failure -- per spec, "a
+     * failure of any SHALL fall through to the ordinary invite verification path, never
+     * to an error that blocks the invite path":
+     *
+     * 1. [certStr] decodes and its signature verifies against its own embedded `root_pk`.
+     * 2. It is unexpired (checked together with 1 by [DeviceCertCodec.verify]).
+     * 3. It carries the session role flag ([DeviceCert.isSession]).
+     * 4. Its `root_pk` is already a paired machine contact -- [knownRootPkHexes], the
+     *    same known-contact id set an identity cert's root is checked against
+     *    ([InviteService.knownContactIds]); a machine's root pk and its legacy bridge
+     *    node id are the same 32 bytes, so no separate lookup exists. A self-certified
+     *    session cert (`device_pk == root_pk`) only passes this if that exact key is
+     *    itself already a paired contact -- the scan-per-session case, admitted via the
+     *    ordinary invite redeemed from the phone, never through this gate.
+     * 5. Its `device_pk` equals [connectionDevicePk], the transport-level peer id of the
+     *    exact connection it arrived on (never a replay over a different connection).
+     *
+     * Deliberately does NOT consult device revocations the way [checkPresentedCert] does:
+     * v1 has no per-session revocation mechanism (design.md D1 -- "expiry bounds
+     * exposure ... revoking the machine pairing kills all its sessions at once"), and a
+     * session's `device_pk` is never added via `device_add`, so it could never
+     * legitimately appear in that set anyway. `null` if no [Ed25519] is configured (the
+     * `-mock` apps, most tests) -- same defensive posture as every other method here.
+     */
+    fun checkSessionCert(
+        certStr: String?,
+        connectionDevicePk: ByteArray,
+        knownRootPkHexes: Set<String>,
+    ): DeviceCert? {
+        val crypto = ed25519 ?: return null
+        if (certStr == null) return null
+        val cert = DeviceCertCodec.decode(certStr) ?: return null
+        if (!cert.devicePk.contentEquals(connectionDevicePk)) return null
+        if (!DeviceCertCodec.verify(cert, crypto, epochSeconds())) return null
+        if (!cert.isSession) return null
+        if (cert.rootPk.toHexLower() !in knownRootPkHexes) return null
+        return cert
+    }
+
+    /**
      * Revoke [devicePkToRevoke] (multi-device-identity task 6.3): issues a root-signed
      * [DeviceRevocation] and appends it to *this* device's own log as a `device_revoke`
      * entry -- signed by this device's own key, like every log entry ("Key Roles and

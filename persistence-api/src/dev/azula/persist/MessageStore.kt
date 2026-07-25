@@ -110,6 +110,16 @@ data class ConversationDto(
      *  survives a full app restart. Absent/null for non-terminal conversations
      *  and for pre-persistence blobs -- both load as "no session to attach". */
     val termSessionId: String? = null,
+    /**
+     * This conversation's session-certificate expiry, in epoch ms (cli-multi-session-relay's
+     * "Session Expiry Bounds Exposure") -- `Long.MAX_VALUE` for a session cert with
+     * `expires_at=0` ("never", per `DeviceCertCodec`). Null means this conversation was
+     * never admitted via the session-cert accept gate at all (the ordinary PEER/LLM/TERMINAL
+     * case) -- also the marker `ConnectService`'s accept gate uses to force cert
+     * re-validation on every reconnect instead of the ordinary "already known" fast path.
+     * Absent/null on old persisted blobs decodes the same way: "not a session".
+     */
+    val sessionExpiresAt: Long? = null,
 )
 
 // ---------------------------------------------------------------------------

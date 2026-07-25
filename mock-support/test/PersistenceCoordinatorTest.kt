@@ -91,4 +91,32 @@ class PersistenceCoordinatorTest {
         assertEquals("Buddy", restored.displayName, "the local name still wins after restore")
         assertEquals("Rex", restored.name)
     }
+
+    @Test
+    fun sessionExpiresAtSurvivesSaveAndRestoreAndDefaultsToNullOnOldBlobs() = runTest {
+        // cli-multi-session-relay 5.2: the session-cert expiry set by ConnectService's
+        // accept gate (ConversationState.sessionExpiresAt) must round-trip through the
+        // DTO exactly like every other per-conversation field, AND an old persisted
+        // blob written before this field existed must still decode -- "not a session".
+        val store = InMemoryMessageStore()
+        val convStore = ConversationStore()
+        val coordinator = PersistenceCoordinator(convStore, store, backgroundScope)
+        val id = convStore.ensureConv("peerS", ConversationKind.LLM, announcedName = "cli")
+        convStore.conv(id).sessionExpiresAt = 1_800_000_000_000L
+
+        coordinator.save(id)
+        val (_, dto) = store.saves.receive()
+        assertEquals(1_800_000_000_000L, dto.sessionExpiresAt, "the session expiry is persisted")
+
+        val convStore2 = ConversationStore()
+        PersistenceCoordinator(convStore2, store, backgroundScope).restoreAll()
+        assertEquals(1_800_000_000_000L, convStore2.conv(id).sessionExpiresAt, "the session expiry comes back")
+
+        // An ordinary (never-session) conversation, and a pre-existing blob missing
+        // the key entirely, both decode as "not a session" (null).
+        val ordinaryId = convStore.ensureConv("peerT", ConversationKind.PEER)
+        coordinator.save(ordinaryId)
+        val (_, ordinaryDto) = store.saves.receive()
+        assertEquals(null, ordinaryDto.sessionExpiresAt)
+    }
 }

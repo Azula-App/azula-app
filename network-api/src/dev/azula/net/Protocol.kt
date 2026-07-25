@@ -285,6 +285,22 @@ sealed class Frame {
     data class LinkGrant(val cert: String, val bundle: IdentityBundle) : Frame()
 
     /**
+     * Phone → machine (cli-multi-session-relay, "Machine Pairing Shares a Relay
+     * Hint" / design.md D6): shares this identity's relay/mailbox-role device's
+     * own connect ticket, so a machine-side session can deliver to it when the
+     * phone itself is unreachable. Sent (a) right after [Profile] when a machine
+     * pairing is accepted, and (b) after admitting a machine-certified session
+     * over the LLM ALPN -- both only when the phone knows a mailbox-role sibling
+     * and a ticket for it; absence of a relay means nothing is sent (delivery
+     * stays local-mailbox-fallback, unchanged). [ticket] is that relay device's
+     * connect ticket. Receiving this app-side is a no-op -- it only has meaning
+     * to the CLI/relay side.
+     */
+    @Serializable
+    @SerialName("relay_hint")
+    data class RelayHint(val ticket: String) : Frame()
+
+    /**
      * Root-holding device → new device (link ALPN): the link was declined
      * (or otherwise failed) — no certificate exists.
      */

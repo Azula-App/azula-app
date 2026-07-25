@@ -2,7 +2,9 @@ import dev.azula.core.DeviceCertCodec
 import dev.azula.core.DeviceRevocationCodec
 import dev.azula.core.LinkPayload
 import dev.azula.core.LinkPayloadCodec
+import dev.azula.core.ROLE_BOT
 import dev.azula.core.ROLE_MAILBOX
+import dev.azula.core.ROLE_SESSION
 import dev.azula.core.VerificationWords
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -181,6 +183,42 @@ class DeviceCertTest {
         assertFalse(DeviceCertCodec.verify(cert.copy(issuedAt = issuedAt + 1), ed25519, nowEpochSeconds = issuedAt))
         val tamperedSig = cert.signature.copyOf().also { it[0] = (it[0].toInt() xor 0xFF).toByte() }
         assertFalse(DeviceCertCodec.verify(cert.copy(signature = tamperedSig), ed25519, nowEpochSeconds = issuedAt))
+    }
+
+    // -- Session role flag (cli-multi-session-relay) ----------------------------------------
+
+    @Test
+    fun sessionRoleFlagRoundTripsAndSetsIsSession() {
+        val cert = DeviceCertCodec.issue(ROLE_SESSION, rootPk, devicePk, issuedAt, 0L, certName, rootSecret, ed25519)
+        assertTrue(cert.isSession, "issuing with ROLE_SESSION must set isSession")
+        assertFalse(cert.isMailbox, "ROLE_SESSION alone must not also read as mailbox")
+        val decoded = DeviceCertCodec.decode(DeviceCertCodec.encode(cert))!!
+        assertTrue(decoded.isSession, "the session flag must survive an encode/decode round trip")
+        assertEquals(ROLE_SESSION, decoded.roles)
+        assertTrue(DeviceCertCodec.verify(decoded, ed25519, nowEpochSeconds = issuedAt))
+    }
+
+    @Test
+    fun sessionRoleFlagCombinesWithOtherRoleBitsUnderTheMask() {
+        // The mask must admit bit 2 (ROLE_SESSION) alongside bits 0/1 (mailbox/bot) --
+        // a cert combining flags (however unusual in practice) must not have any of
+        // them silently stripped by the encoder's `roles and ROLE_MASK` masking.
+        val combined = ROLE_MAILBOX or ROLE_BOT or ROLE_SESSION
+        val cert = DeviceCertCodec.issue(combined, rootPk, devicePk, issuedAt, 0L, certName, rootSecret, ed25519)
+        assertEquals(combined, cert.roles, "the mask must not strip ROLE_SESSION when combined with other role bits")
+        assertTrue(cert.isSession)
+        assertTrue(cert.isMailbox)
+        val decoded = DeviceCertCodec.decode(DeviceCertCodec.encode(cert))!!
+        assertEquals(combined, decoded.roles)
+        assertTrue(decoded.isSession)
+        assertTrue(decoded.isMailbox)
+    }
+
+    @Test
+    fun noRoleBitsMeansNotASession() {
+        val cert = DeviceCertCodec.issue(0, rootPk, devicePk, issuedAt, 0L, certName, rootSecret, ed25519)
+        assertFalse(cert.isSession)
+        assertFalse(cert.isMailbox)
     }
 
     @Test

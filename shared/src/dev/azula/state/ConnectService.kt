@@ -321,6 +321,13 @@ class ConnectService(
                     scope.launch { runCatching { s.sendLine(FrameCodec.encode(profile)) } }
                 }
             }
+            // cli-multi-session-relay ("Machine Pairing Shares a Relay Hint"): share
+            // this identity's own relay ticket, when one is known, right after the
+            // profile above -- see sendRelayHintIfKnown's kdoc for why this is always
+            // OUR OWN relay device being advertised, never the accepted peer's.
+            if (convId != null) {
+                scope.launch { sendRelayHintIfKnown(convId) }
+            }
         }
         transport.onCameOnline = {
             nodeId = transport.nodeId
@@ -444,20 +451,31 @@ class ConnectService(
                         scope.launch { runCatching { inc.stream.close() } }
                         return@collect
                     }
+                    if (convStore.convOrNull(inc.remoteId)?.sessionExpiresAt != null) {
+                        // cli-multi-session-relay: a session conversation's cert is
+                        // re-validated on EVERY inbound connection -- unlike an ordinary
+                        // accepted contact, it must never be treated as trivially "known"
+                        // just because a conversation already exists for this id (a cert
+                        // can expire between connections; see the session-identity spec's
+                        // "Session Expiry Bounds Exposure": "reconnects re-present a cert
+                        // and are re-validated").
+                        scope.launch { handleStrangerConnection(inc) }
+                        return@collect
+                    }
                     if (!isKnownPeer(inc.remoteId)) {
                         // dialAll races CHAT+LLM+TERM, so a stranger's dial opens all
-                        // three. Only CHAT is invite-gateable (see
-                        // azula-docs/openspec/specs/invitations/design.md) -- hold it pending a valid
-                        // Hello.invite. LLM/TERM have no accept UX and no legitimate
-                        // reason to be opened by a stranger, so just close them; in
-                        // particular don't enqueue them as pending too, or whichever
-                        // of the three arrives first (not necessarily CHAT) would
-                        // become the wrong held "primary".
-                        if (inc.alpn == Alpns.CHAT) {
-                            scope.launch { handleCertOrStrangerConnection(inc) }
-                        } else {
-                            scope.launch { runCatching { inc.stream.close() } }
-                        }
+                        // three. A session cert (cli-multi-session-relay's "Phone
+                        // Auto-Accepts Certified Sessions as Flat Conversations") is now
+                        // checked for all three ALPNs alike -- previously LLM/TERM had no
+                        // accept path at all and were simply closed. Only CHAT additionally
+                        // falls through to the invite-gated pending-inbox path on a
+                        // session-check miss (see azula-docs/openspec/specs/invitations/design.md)
+                        // -- LLM/TERM still have no other accept UX and no legitimate
+                        // reason to be opened by a stranger, so they're closed exactly as
+                        // before; in particular don't enqueue them as pending too, or
+                        // whichever of the three arrives first (not necessarily CHAT)
+                        // would become the wrong held "primary".
+                        scope.launch { handleStrangerConnection(inc) }
                         return@collect
                     }
                     wireStream(inc.alpn, inc.stream, inc.remoteId)
@@ -859,11 +877,95 @@ class ConnectService(
             peerStore?.load().orEmpty().any { peerIdForEntry(it) == nodeId }
 
     /**
-     * A CHAT connection from a peer not already known by node id ([isKnownPeer]
-     * false). Reads the first frame (15 s timeout) and checks any presented
-     * `Hello.cert` against this identity's known contacts/revocations
-     * ([AccountSyncService.checkPresentedCert], multi-device-identity task 7.2)
-     * *before* falling to the ordinary invite-gated path:
+     * A CHAT/LLM/TERM connection from a peer not already known by node id, and not a
+     * previously-admitted session conversation needing re-validation ([isKnownPeer]
+     * false, [ConversationState.sessionExpiresAt] null or unset -- see
+     * [startIncomingLoop]). Reads the first frame (15 s timeout, shared with
+     * [handleCertOrStrangerConnection] below) and tries the session-cert admission
+     * path ([admitSessionCert], cli-multi-session-relay's "Session Certificates Admit
+     * Strangers Without an Invite") first, for all three ALPNs alike -- previously
+     * LLM/TERM strangers had no accept path of any kind and were simply closed; a
+     * valid session cert now admits them too, each wired straight into its own flat
+     * conversation keyed by the session's own `device_pk` (never re-keyed to a root --
+     * see [applyPresentedCertToConversation]'s session guard).
+     *
+     * If the session path doesn't admit (no cert, wrong flag, expired, unpaired root,
+     * or a transport-binding mismatch -- any single failure, never a hard error): CHAT
+     * falls through to [handleCertOrStrangerConnection]'s pre-existing identity-cert/
+     * invite gate exactly as before; LLM/TERM have no other accept path and are
+     * closed, restoring today's behavior for them.
+     */
+    private suspend fun handleStrangerConnection(inc: IncomingConnection) {
+        val line = withTimeoutOrNull(15_000) { inc.stream.receiveLine() }
+        val hello = line?.let { runCatching { FrameCodec.decode(it) }.getOrNull() } as? Frame.Hello
+        if (admitSessionCert(inc, hello)) return
+        if (inc.alpn == Alpns.CHAT) {
+            handleCertOrStrangerConnection(inc, hello)
+        } else {
+            runCatching { inc.stream.close() }
+        }
+    }
+
+    /**
+     * cli-multi-session-relay ("Phone Auto-Accepts Certified Sessions as Flat
+     * Conversations" / "Session Certificates Admit Strangers Without an Invite"):
+     * admits [inc] with no invite and no pending prompt when [hello]'s cert passes all
+     * five checks ([AccountSyncService.checkSessionCert]). On admission, wires the
+     * stream straight into a (possibly pre-existing, on a re-validated reconnect) flat
+     * conversation keyed by the session's own `device_pk` -- never the root -- records
+     * the cert's expiry on it (the marker [applyPresentedCertToConversation] and
+     * [startIncomingLoop] both use to keep a session conversation from ever being
+     * re-keyed/merged, or trivially "known" without re-validation), sends
+     * [Frame.RelayHint] when this identity has a known mailbox/relay device and ticket
+     * for it and this is the LLM ALPN (5.3), and returns `true`. Returns `false`,
+     * touching nothing, on any check failure -- the caller ([handleStrangerConnection])
+     * is responsible for routing [inc]'s stream onward.
+     */
+    private fun admitSessionCert(inc: IncomingConnection, hello: Frame.Hello?): Boolean {
+        val connectionDevicePk = inc.remoteId.hexToByteArrayOrNull() ?: return false
+        val cert = accountSyncService.checkSessionCert(hello?.cert, connectionDevicePk, inviteService.knownContactIds()) ?: return false
+        val peerId = cert.devicePk.toHexLower()
+        val convId = wireStream(inc.alpn, inc.stream, peerId, transportNodeId = inc.remoteId) ?: return true
+        // expires_at == 0 means "never" (DeviceCertCodec's convention) -- keep that
+        // meaning distinct from "not a session at all" (null) by using a sentinel
+        // rather than leaving it null too; see ConversationState.sessionExpiresAt's kdoc.
+        convStore.convOrNull(convId)?.sessionExpiresAt = if (cert.expiresAt == 0L) Long.MAX_VALUE else cert.expiresAt * 1000
+        persistence.save(convId)
+        if (inc.alpn == Alpns.LLM) scope.launch { sendRelayHintIfKnown(convId) }
+        return true
+    }
+
+    /**
+     * cli-multi-session-relay ("Machine Pairing Shares a Relay Hint" / design.md D6):
+     * sends [Frame.RelayHint] over [convId]'s live stream carrying this identity's own
+     * mailbox/relay-role sibling device's connect ticket, when both are known --
+     * mirrors [registerMailboxSiblingTicket]'s source of a sibling ticket
+     * ([SettingsService.siblingTickets], keyed by device pk hex) rather than inventing
+     * a second ticket store: find a mailbox-role device in this identity's current
+     * fold ([AccountSyncService.currentDeviceSet]) and look up its ticket there.
+     * No-op (sends nothing) if this identity's root isn't known yet, it has no
+     * mailbox-role device, or no ticket is known for the one it has -- "Absence of a
+     * relay hint SHALL leave delivery behavior as it was" (local mailbox fallback).
+     * Called both from [ConnectService.start]'s `inviteService.onAccept` (right after
+     * an accepted stranger's shared [Frame.Profile]) and from [admitSessionCert] (a
+     * machine-certified session admitted over the LLM ALPN) -- both share this one
+     * implementation since in either case it's always *this* device's own relay being
+     * advertised, never the peer's.
+     */
+    private suspend fun sendRelayHintIfKnown(convId: String) {
+        val rootPk = currentRootPk() ?: return
+        val mailboxDevice = accountSyncService.currentDeviceSet(rootPk).firstOrNull { it.isMailbox } ?: return
+        val ticket = settingsService.siblingTickets[mailboxDevice.devicePk.toHexLower()] ?: return
+        val stream = convStore.convOrNull(convId)?.stream ?: return
+        runCatching { stream.sendLine(FrameCodec.encode(Frame.RelayHint(ticket))) }
+    }
+
+    /**
+     * A CHAT connection whose session-cert check ([admitSessionCert], called first by
+     * [handleStrangerConnection]) didn't admit it. Checks the [hello] already read by
+     * the caller for a presented `Hello.cert` against this identity's known
+     * contacts/revocations ([AccountSyncService.checkPresentedCert], multi-device-identity
+     * task 7.2) before falling to the ordinary invite-gated path:
      *
      * - [CertCheck.KnownByRoot] (cert verifies, binds to this connection, isn't
      *   revoked, and its root is already a contact): admitted immediately, no
@@ -879,9 +981,7 @@ class ConnectService(
      *   legacy (no-cert) peer and a peer with a broken certificate are gated
      *   identically, and neither is ever worse off than today.
      */
-    private suspend fun handleCertOrStrangerConnection(inc: IncomingConnection) {
-        val line = withTimeoutOrNull(15_000) { inc.stream.receiveLine() }
-        val hello = line?.let { runCatching { FrameCodec.decode(it) }.getOrNull() } as? Frame.Hello
+    private suspend fun handleCertOrStrangerConnection(inc: IncomingConnection, hello: Frame.Hello?) {
         val connectionDevicePk = inc.remoteId.hexToByteArrayOrNull()
         val certCheck = if (connectionDevicePk != null) {
             accountSyncService.checkPresentedCert(hello?.cert, connectionDevicePk, inviteService.knownContactIds(), bundleRevocationStrings())
@@ -1083,6 +1183,17 @@ class ConnectService(
      * (task 7.3), re-homing the live [stream]/online state onto whichever
      * [ConversationState] ends up representing the result. Returns the conversation id
      * subsequent frames on this stream must be routed under.
+     *
+     * cli-multi-session-relay: a session conversation ([ConversationState.sessionExpiresAt]
+     * non-null -- set only by [admitSessionCert]) is exempt from all of the above and
+     * returned unchanged: unlike an ordinary certified PEER contact, a session must
+     * NEVER be re-keyed/merged onto a root -- each session key is its own flat
+     * conversation forever, per the session-identity spec ("Two Claude Code windows,
+     * two conversations"). This matters concretely for a session admitted on the CHAT
+     * ALPN (`kindForAlpn(CHAT) == PEER`, so the plain kind guard below wouldn't by
+     * itself exclude it) -- a session admitted on LLM/TERM is already excluded by that
+     * kind guard alone, but the check here is unconditional so the invariant holds
+     * regardless of which ALPN a session happens to use.
      */
     private suspend fun applyPresentedCertToConversation(
         currentConvId: String,
@@ -1092,6 +1203,7 @@ class ConnectService(
         stream: P2pStream,
     ): String {
         if (certStr == null) return currentConvId
+        if (convStore.convOrNull(currentConvId)?.sessionExpiresAt != null) return currentConvId
         if (convStore.conversationOrNull(currentConvId)?.kind != ConversationKind.PEER) return currentConvId
         val connectionDevicePk = transportNodeId.hexToByteArrayOrNull() ?: return currentConvId
         val check = accountSyncService.checkPresentedCert(certStr, connectionDevicePk, inviteService.knownContactIds(), bundleRevocationStrings())

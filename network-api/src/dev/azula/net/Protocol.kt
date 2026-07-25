@@ -307,6 +307,21 @@ sealed class Frame {
     @Serializable
     @SerialName("link_reject")
     data class LinkReject(val reason: String) : Frame()
+
+    /**
+     * Relay → phone (sync ALPN, cli-multi-session-relay's "A2UI Snapshot Replay on
+     * Reconnect"): pending A2UI snapshots for [conversation] (the session's public key
+     * in hex), replayed after ordinary sync catch-up completes. [messages] is one or
+     * more standard A2UI wire message objects, in the exact shape [Frame.A2ui.message]
+     * carries (createSurface/updateComponents/updateDataModel, or deleteSurface for a
+     * tombstone) -- applying them in order reproduces the surface's latest state, the
+     * same wire semantics a live `a2ui` frame sequence already has. A2UI state itself is
+     * never written to the hash-chained log (design.md D6) -- this frame is how the
+     * relay's out-of-log side store reaches the phone instead.
+     */
+    @Serializable
+    @SerialName("sync_a2ui")
+    data class SyncA2ui(val conversation: String, val messages: List<JsonObject>) : Frame()
 }
 
 object FrameCodec {

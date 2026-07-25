@@ -45,6 +45,21 @@ class CrossLanguageVectorTest {
     private val h2Hex = "92b106995ea0545ac0252992bd6bc0a26c4ed3015f640b4c2b3dfc2224ba8712"
     private val h3Hex = "6afc397dde714ef7c9d8e7811d0f608f3fc9d508ad7873a0112eadd85a93004b"
 
+    // -- cli-multi-session-relay phase 6: a fourth entry, chained after the three above,
+    // pinning `agent_in` (0x09)'s wire bytes for the Rust relay to reproduce exactly.
+    // Same device (deviceAPkHex) and real Ed25519 as e1-e3 -- this entry's author secret
+    // is the 32 bytes 0x60..=0x7f (`fixedKey(0x60)` in this codebase's test-fixture
+    // convention), which independently confirms `DEVICE_A_SEED` IS that same range: the
+    // public key it derives (via iroh-kmp's real `ed25519PublicFromSecret`, the same
+    // primitive `IrohKmpEd25519` wraps for production signing) equals [deviceAPkHex]
+    // byte-for-byte. seq 4/lamport 4 continue device A's own chain (prev_hash = h3's
+    // bytes); body field order and presence are pinned exactly: `conversation`, `text`,
+    // `id`, `from_name` -- see account-sync spec's "Event Kinds" delta and
+    // sync-api/EventBodies.kt's `AgentInBody`.
+    private val body4 = "{\"conversation\":\"cafebabe\",\"text\":\"hello from claude\",\"id\":\"00112233445566778899aabbccddeeff\",\"from_name\":\"Claude\"}"
+    private val e4B64 = "AQkXRVO0Vt3fxpCOyrHBAf5qsh4rqgYXeVt9Q6Y0gpk/1QAAAAAAAAAEAAAAAAAAAAQAAAGLz+VzuGr8OX3ecU73ydjngR0PYI8/ydUIrXhzoBEurdhakwBLAAAAc3siY29udmVyc2F0aW9uIjoiY2FmZWJhYmUiLCJ0ZXh0IjoiaGVsbG8gZnJvbSBjbGF1ZGUiLCJpZCI6IjAwMTEyMjMzNDQ1NTY2Nzc4ODk5YWFiYmNjZGRlZWZmIiwiZnJvbV9uYW1lIjoiQ2xhdWRlIn23LV+7/fV81iMfv/PrprZt9lfbZZY/+OexSqyBPoqhHHt28rCquBnuNQOFpU2Sc1+epS98Fre41O87NDdm/ykP"
+    private val h4Hex = "522670c48faff21d9ff3558aa93aef34999ec625e5a1d322082a6ff6a6676433"
+
     @Test
     fun certDecodesAndReEncodesByteIdentical() {
         val decoded = DeviceCertCodec.decode(certStr)!!
@@ -120,5 +135,33 @@ class CrossLanguageVectorTest {
         // `network-real` can supply a real `Ed25519` here, add
         // `ed25519_verify(rootPk/devicePk, ..., signature) == true` assertions for the cert,
         // revocation, and all three log entries.
+    }
+
+    /**
+     * cli-multi-session-relay phase 6: the `agent_in` (0x09) cross-language vector, chained
+     * after the three-entry log above -- same shape/posture as
+     * [logEntriesDecodeAndReEncodeByteIdenticalAndChainValidates]: `core` has no real Ed25519
+     * (see that test's trailing TODO), so this decodes/re-encodes/chain-checks a vector that
+     * WAS computed with real Ed25519 -- `network-real`'s `IrohKmpEd25519` (iroh-kmp's real
+     * free functions, the same primitive production signing uses), not `FakeEd25519` --
+     * against secret `fixedKey(0x60)` (bytes 0x60..=0x7f). That computation is exactly what
+     * this test's fixed [e4B64]/[h4Hex] constants record.
+     */
+    @Test
+    fun agentInEntryChainedAfterTheThreeEntryVectorDecodesAndReEncodesByteIdentical() {
+        val bytes4 = Base64.decode(e4B64)
+        val d4 = LogEntryCodec.decode(bytes4)!!
+
+        assertEquals(deviceAPkHex, d4.authorDevicePk.toHex())
+        assertEquals(EventKind.AGENT_IN.wireValue, d4.kind)
+        assertEquals(4L, d4.seq)
+        assertEquals(4L, d4.lamport)
+        assertEquals(baseTsMs + 3000, d4.tsMs)
+        assertEquals(h3Hex, d4.prevHash.toHex(), "chained after the existing 3-entry vector's last hash")
+        assertEquals(body4, d4.body.decodeToString())
+
+        // Byte-identical re-encode: the actual cross-language proof for this entry.
+        assertEquals(e4B64, Base64.encode(LogEntryCodec.encode(d4)))
+        assertEquals(h4Hex, Sha256.hash(LogEntryCodec.encode(d4)).toHex())
     }
 }

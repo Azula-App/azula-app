@@ -53,6 +53,18 @@ class AccountSyncFoldTest {
             encodeMessageInBody(MessageInBody(conversation, fromDevicePk, text, id)),
         )
 
+    private fun agentIn(author: ByteArray, seq: Long, lamport: Long, conversation: String, text: String, id: String? = null, fromName: String? = null) =
+        entry(
+            EventKind.AGENT_IN.wireValue, author, seq, lamport, lamport * 1000,
+            encodeAgentInBody(AgentInBody(conversation, text, id, fromName)),
+        )
+
+    private fun agentOut(author: ByteArray, seq: Long, lamport: Long, conversation: String, text: String, id: String? = null) =
+        entry(
+            EventKind.AGENT_OUT.wireValue, author, seq, lamport, lamport * 1000,
+            encodeAgentOutBody(AgentOutBody(conversation, text, id)),
+        )
+
     private fun readMarker(author: ByteArray, seq: Long, lamport: Long, conversation: String, upToLamport: Long) =
         entry(
             EventKind.READ_MARKER.wireValue, author, seq, lamport, lamport * 1000,
@@ -242,6 +254,99 @@ class AccountSyncFoldTest {
             messageIn(deviceAPk, 2, lamport = 2, conversation = "cafe", fromDevicePk = deviceBPk.toHexLower(), text = "there", id = "b"),
         )
         assertEquals(2, fold(entries).conversations.getValue("cafe").size)
+    }
+
+    // -- Agent kinds (cli-multi-session-relay) -------------------------------------------------
+
+    @Test
+    fun agentInFoldsIntoTheSessionConversationKeyedByTheSessionPk() {
+        val entries = listOf(
+            agentIn(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "build failed", fromName = "claude"),
+        )
+        val messages = fold(entries).conversations.getValue("sessionpk")
+        assertEquals(1, messages.size)
+        assertEquals("build failed", messages[0].text)
+        assertEquals(false, messages[0].outgoing) // agent_in renders as the agent/peer side
+        assertTrue(messages[0].fromAgent)
+    }
+
+    @Test
+    fun agentOutRendersAsTheUsersOwnSide() {
+        val entries = listOf(agentOut(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "on it"))
+        val messages = fold(entries).conversations.getValue("sessionpk")
+        assertEquals(1, messages.size)
+        assertTrue(messages[0].outgoing) // agent_out renders as the user's own side
+        assertTrue(messages[0].fromAgent)
+    }
+
+    @Test
+    fun agentInDedupesByConversationAndIdLikeMessageIn() {
+        val entries = listOf(
+            agentIn(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "hi", id = "retry-1"),
+            agentIn(deviceBPk, 1, lamport = 2, conversation = "sessionpk", text = "hi", id = "retry-1"),
+        )
+        val messages = fold(entries).conversations.getValue("sessionpk")
+        assertEquals(1, messages.size)
+    }
+
+    @Test
+    fun agentInWithoutIdIsNeverDeduped() {
+        val entries = listOf(
+            agentIn(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "hi"),
+            agentIn(deviceBPk, 1, lamport = 2, conversation = "sessionpk", text = "hi"),
+        )
+        assertEquals(2, fold(entries).conversations.getValue("sessionpk").size)
+    }
+
+    @Test
+    fun agentRetryDeduplicatesAcrossMessageInAndAgentIn() {
+        // "Agent retry deduplicates": a session delivers directly first (folded as
+        // MESSAGE_IN on the receiving device's own log, since the live path never
+        // touches the relay), then retries the same id via the relay (folded as
+        // AGENT_IN, on the relay's own log) after a timeout. Both must dedup against
+        // the same (conversation, id) -- the fold must show the message exactly once.
+        val entries = listOf(
+            messageIn(deviceAPk, 1, lamport = 1, conversation = "sessionpk", fromDevicePk = "sessionpk", text = "attach here", id = "retry-1"),
+            agentIn(deviceBPk, 1, lamport = 2, conversation = "sessionpk", text = "attach here", id = "retry-1"),
+        )
+        val messages = fold(entries).conversations.getValue("sessionpk")
+        assertEquals(1, messages.size)
+    }
+
+    @Test
+    fun agentOutIsNeverDedupedEvenWithARepeatedId() {
+        // Matches MESSAGE_OUT's own posture: outbound entries are never retried into the
+        // log twice under the same id, so no dedup is applied.
+        val entries = listOf(
+            agentOut(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "hi", id = "same-id"),
+            agentOut(deviceAPk, 2, lamport = 2, conversation = "sessionpk", text = "hi again", id = "same-id"),
+        )
+        assertEquals(2, fold(entries).conversations.getValue("sessionpk").size)
+    }
+
+    @Test
+    fun agentAndPeerConversationsAreIndependentByKey() {
+        val entries = listOf(
+            agentIn(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "agent hello"),
+            messageIn(deviceAPk, 2, lamport = 2, conversation = "peerkey", fromDevicePk = "peerkey", text = "peer hello"),
+        )
+        val state = fold(entries)
+        assertEquals(listOf("agent hello"), state.conversations.getValue("sessionpk").map { it.text })
+        assertEquals(listOf("peer hello"), state.conversations.getValue("peerkey").map { it.text })
+    }
+
+    @Test
+    fun agentAndMessageKindsInterleaveInLamportOrderRegardlessOfInputOrder() {
+        val inOrder = listOf(
+            messageOut(deviceAPk, 1, lamport = 1, conversation = "sessionpk", text = "first"),
+            agentIn(deviceBPk, 1, lamport = 2, conversation = "sessionpk", text = "second"),
+            agentOut(deviceAPk, 2, lamport = 3, conversation = "sessionpk", text = "third"),
+            agentIn(deviceBPk, 2, lamport = 4, conversation = "sessionpk", text = "fourth"),
+        )
+        val forward = fold(inOrder).conversations.getValue("sessionpk").map { it.text }
+        val shuffled = fold(inOrder.reversed()).conversations.getValue("sessionpk").map { it.text }
+        assertEquals(listOf("first", "second", "third", "fourth"), forward)
+        assertEquals(forward, shuffled)
     }
 
     // -- Unknown kinds: excluded from the fold -----------------------------------------------

@@ -206,7 +206,7 @@ class EventLogTest {
     }
 
     @Test
-    fun eventKindFromByteCoversAllEightKindsAndRejectsUnknown() {
+    fun eventKindFromByteCoversAllTenKindsAndRejectsUnknown() {
         assertEquals(EventKind.MESSAGE_OUT, EventKind.fromByte(0x01))
         assertEquals(EventKind.MESSAGE_IN, EventKind.fromByte(0x02))
         assertEquals(EventKind.READ_MARKER, EventKind.fromByte(0x03))
@@ -215,8 +215,38 @@ class EventLogTest {
         assertEquals(EventKind.DEVICE_ADD, EventKind.fromByte(0x06))
         assertEquals(EventKind.DEVICE_REVOKE, EventKind.fromByte(0x07))
         assertEquals(EventKind.PROFILE_UPDATE, EventKind.fromByte(0x08))
+        assertEquals(EventKind.AGENT_IN, EventKind.fromByte(0x09))
+        assertEquals(EventKind.AGENT_OUT, EventKind.fromByte(0x0A))
         assertNull(EventKind.fromByte(0x00))
+        // cli-multi-session-relay: fromByte must keep returning null for any kind above
+        // 0x0A this build doesn't know -- a future sibling's own extension.
+        assertNull(EventKind.fromByte(0x0B))
         assertNull(EventKind.fromByte(0xFF))
+    }
+
+    // -- Agent kinds (cli-multi-session-relay) -------------------------------------------------
+
+    @Test
+    fun agentInAndAgentOutEntriesRoundTrip() {
+        val agentInBody = """{"conversation":"cafebabe","text":"hello from claude","id":"00112233445566778899aabbccddeeff","from_name":"Claude"}""".encodeToByteArray()
+        val agentIn = LogEntryCodec.sign(
+            EventKind.AGENT_IN.wireValue, devicePk, seq = 1, lamport = 1, tsMs = 1L,
+            prevHash = ZERO_PREV_HASH, body = agentInBody, authorSecret = deviceSecret, ed25519 = ed25519,
+        )
+        val decodedIn = LogEntryCodec.decode(LogEntryCodec.encode(agentIn))!!
+        assertEquals(agentIn, decodedIn)
+        assertEquals(EventKind.AGENT_IN, decodedIn.knownKind)
+        assertTrue(LogEntryCodec.verify(decodedIn, previous = null, ed25519 = ed25519))
+
+        val agentOutBody = """{"conversation":"cafebabe","text":"on it","id":null}""".encodeToByteArray()
+        val agentOut = LogEntryCodec.sign(
+            EventKind.AGENT_OUT.wireValue, devicePk, seq = 2, lamport = 2, tsMs = 2L,
+            prevHash = LogEntryCodec.chainHash(agentIn), body = agentOutBody, authorSecret = deviceSecret, ed25519 = ed25519,
+        )
+        val decodedOut = LogEntryCodec.decode(LogEntryCodec.encode(agentOut))!!
+        assertEquals(agentOut, decodedOut)
+        assertEquals(EventKind.AGENT_OUT, decodedOut.knownKind)
+        assertTrue(LogEntryCodec.verify(decodedOut, previous = agentIn, ed25519 = ed25519))
     }
 
     // -- (lamport, ts_ms, device_pk) comparator ------------------------------------------------

@@ -8,6 +8,7 @@ import dev.azula.core.DeviceRevocationCodec
 import dev.azula.core.Ed25519
 import dev.azula.core.EventKind
 import dev.azula.epochSeconds
+import dev.azula.model.ConversationKind
 import dev.azula.model.Message
 import dev.azula.model.Role
 import dev.azula.net.IdentityBundle
@@ -22,6 +23,7 @@ import dev.azula.sync.MessageOutBody
 import dev.azula.sync.ReadMarkerBody
 import dev.azula.sync.SyncSessionOutcome
 import dev.azula.sync.allEntries
+import dev.azula.sync.decodeAgentInBody
 import dev.azula.sync.decodeDeviceAddBody
 import dev.azula.sync.decodeDeviceRevokeBody
 import dev.azula.sync.decodeMessageInBody
@@ -31,12 +33,14 @@ import dev.azula.sync.encodeDeviceRevokeBody
 import dev.azula.sync.encodeMessageInBody
 import dev.azula.sync.encodeMessageOutBody
 import dev.azula.sync.encodeReadMarkerBody
+import dev.azula.sync.hexToByteArrayOrNull
 import dev.azula.sync.runSyncSession
 import dev.azula.sync.toHexLower
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 // azula-docs/openspec/changes/multi-device-identity/specs/account-sync/spec.md's
 // "Derived State Is a Deterministic Fold", "Read State Syncs as Log Entries", and
@@ -451,17 +455,76 @@ class AccountSyncService(
      * returns `null` (and does nothing) if no event log/ed25519/signing identity is
      * configured (the `-mock` apps, most tests) or [myCertString] (the parameter) doesn't
      * decode.
+     *
+     * cli-multi-session-relay additions, both threaded straight through to
+     * `sync-real`'s [runSyncSession]/its own `recvLoop`, and both fire only once the
+     * bounded session above has fully closed (this method's `livePush = false` posture,
+     * unchanged):
+     * - [onSyncA2ui]: the "A2UI Snapshot Replay on Reconnect" callback -- see
+     *   [runSyncSession]'s own kdoc for why it lives there rather than here.
+     * - [onNewAgentMessage]: fired once per `agent_in` entry this session actually
+     *   accepted (live-pushed or caught up), so a caller with access to
+     *   `FrameDispatcher.notify` (this class can't depend on that -- see this class's own
+     *   kdoc) can fire the identical notification path `Frame.Chat` uses. "New" is
+     *   computed from the store's own per-device vector before/after this session ran --
+     *   never wall time -- so a rebuild/bootstrap re-reading already-accepted entries
+     *   never re-notifies (see [notifyNewlyAcceptedAgentMessages]'s kdoc). Also triggers
+     *   [rebuildProjection] when anything changed, so a relayed agent message (or an
+     *   ordinary synced peer message) actually becomes visible in the UI.
      */
     suspend fun runSiblingSync(
         stream: P2pStream,
         myCertString: String,
         bundleRevocations: List<String>,
         transportPeerDevicePk: ByteArray,
+        onSyncA2ui: suspend (conversation: String, messages: List<JsonObject>) -> Unit = { _, _ -> },
+        onNewAgentMessage: (conversation: String, text: String) -> Unit = { _, _ -> },
     ): SyncSessionOutcome? {
         val (store, crypto, _) = identityOrNull() ?: return null
         val myCert = DeviceCertCodec.decode(myCertString) ?: return null
         val revoked = currentRevokedDevicePks(myCert.rootPk, bundleRevocations)
-        return runSyncSession(stream, myCert, revoked, transportPeerDevicePk, store, crypto, epochSeconds(), livePush = false)
+        val beforeVector = runCatching { store.vector() }.getOrDefault(emptyMap())
+        val outcome = runSyncSession(
+            stream, myCert, revoked, transportPeerDevicePk, store, crypto, epochSeconds(),
+            livePush = false, onSyncA2ui = onSyncA2ui,
+        )
+        val afterVector = runCatching { store.vector() }.getOrDefault(emptyMap())
+        if (afterVector != beforeVector) {
+            rebuildProjection()
+            notifyNewlyAcceptedAgentMessages(store, beforeVector, afterVector, onNewAgentMessage)
+        }
+        return outcome
+    }
+
+    /**
+     * cli-multi-session-relay task 6.2: fires [onNewAgentMessage] once per `agent_in`
+     * entry this sync session actually caused [store] to accept -- i.e. any entry at a
+     * `seq` past [beforeVector]'s snapshot for that device, up through [afterVector].
+     * Keying "new" off this accepted-entry delta (never wall time, never "every agent_in
+     * currently in the fold") is what keeps a later rebuild/bootstrap from re-notifying:
+     * an entry a prior session already advanced a device's cursor past is simply outside
+     * every subsequent call's `(beforeVector, afterVector]` window, no matter how many
+     * times sync reruns. `message_in`'s own notification gap (see [runSiblingSync]'s
+     * kdoc) is deliberately left alone here -- this only ever inspects
+     * [EventKind.AGENT_IN] entries.
+     */
+    private suspend fun notifyNewlyAcceptedAgentMessages(
+        store: EventLogStore,
+        beforeVector: Map<String, Long>,
+        afterVector: Map<String, Long>,
+        onNewAgentMessage: (conversation: String, text: String) -> Unit,
+    ) {
+        for ((deviceHex, afterSeq) in afterVector) {
+            val beforeSeq = beforeVector[deviceHex] ?: 0L
+            if (afterSeq <= beforeSeq) continue
+            val devicePk = deviceHex.hexToByteArrayOrNull() ?: continue
+            val newEntries = runCatching { store.readFrom(devicePk, beforeSeq) }.getOrDefault(emptyList())
+            for (entry in newEntries) {
+                if (entry.knownKind != EventKind.AGENT_IN) continue
+                val body = decodeAgentInBody(entry.body) ?: continue
+                onNewAgentMessage(body.conversation, body.text)
+            }
+        }
     }
 
     /**
@@ -582,6 +645,18 @@ class AccountSyncService(
      *
      * Idempotent for an unchanged log, so "delete the derived stores, replay the logs" is
      * exactly: clear a conversation's messages (or its whole persisted blob) and call this.
+     *
+     * cli-multi-session-relay addition: a conversation [convStore] has never heard of is
+     * normally skipped (a peer conversation is always `ensureConv`'d at the transport/
+     * invite layer before any `message_in`/`message_out` for it is ever logged, so a
+     * missing entry there is never this device's own). A relayed `agent_in`/`agent_out`
+     * breaks that assumption -- the session's public key can arrive purely via sibling
+     * sync, with this device never having connected to that session directly (spec: "a
+     * device receiving a relayed agent_in for a new conversation SHALL surface it"). So a
+     * conversation whose folded history is at least partly [FoldedMessage.fromAgent] is
+     * auto-created here (LLM kind, hex fallback name) instead of skipped; a purely
+     * peer-chat conversation's visibility is unchanged -- still gated on the transport/
+     * invite path, not this rebuild.
      */
     suspend fun rebuildProjection() {
         val store = eventLogStore ?: return
@@ -590,7 +665,12 @@ class AccountSyncService(
         val entries = store.allEntries()
         val derived = AccountSyncFold.fold(entries, rootPk, crypto, epochSeconds())
         for ((conversation, folded) in derived.conversations) {
-            val cs = convStore.convOrNull(conversation) ?: continue
+            var cs = convStore.convOrNull(conversation)
+            if (cs == null) {
+                if (folded.none { it.fromAgent }) continue
+                convStore.ensureConv(conversation, ConversationKind.LLM, conversation)
+                cs = convStore.convOrNull(conversation) ?: continue
+            }
             val nonLogMessages = cs.messages.filterNot { it.isPlainLogMessage() }
             val logMessages = folded.map { it.toMessage() }
             cs.messages.clear()

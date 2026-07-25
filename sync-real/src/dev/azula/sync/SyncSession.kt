@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.selects.select
+import kotlinx.serialization.json.JsonObject
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -111,6 +112,16 @@ sealed class SyncSessionOutcome {
  *   side's close is a clean EOF to a live peer's `recvLoop`, exactly like any dropped
  *   connection. The revocation-recompute contract above applies identically to both
  *   modes -- shorter sessions mean *more* frequent re-verification, never less.
+ * @param onSyncA2ui cli-multi-session-relay's "A2UI Snapshot Replay on Reconnect":
+ *   invoked once per inbound [Frame.SyncA2ui] frame, with its `conversation` and
+ *   `messages` fields, as they arrive during either catch-up or live push -- handled
+ *   inline in [recvLoop], the same place [Frame.SyncEntries] batches are applied to
+ *   [store]. Defaults to a no-op, following this function's existing parameter-callback
+ *   style; this module stays UI-free (a real callback is wired in by `shared`'s
+ *   `AccountSyncService`, which can reach `ConversationStore`/`SurfaceStore`/
+ *   `FrameDispatcher`, none of which this module may depend on). Kept `suspend` so a
+ *   real implementation can safely touch coroutine-confined state (e.g. Compose
+ *   snapshot state on the main dispatcher) without this module caring how.
  */
 suspend fun runSyncSession(
     stream: P2pStream,
@@ -121,6 +132,7 @@ suspend fun runSyncSession(
     ed25519: Ed25519,
     nowEpochSeconds: Long,
     livePush: Boolean = true,
+    onSyncA2ui: suspend (conversation: String, messages: List<JsonObject>) -> Unit = { _, _ -> },
 ): SyncSessionOutcome {
     // Step 1: mutual hello. Send ours, then verify theirs. Any verification failure
     // closes the connection with no further writes at all -- in particular, no
@@ -151,7 +163,7 @@ suspend fun runSyncSession(
     // would race away the other half of the catch-up.
     return coroutineScope {
         val sendJob = async { sendLoop(stream, store, myVector, peerVector, livePush) }
-        val recvJob = async { recvLoop(stream, store, untilAck = !livePush) }
+        val recvJob = async { recvLoop(stream, store, untilAck = !livePush, onSyncA2ui = onSyncA2ui) }
         if (livePush) {
             select<Unit> {
                 sendJob.onAwait {}
@@ -280,12 +292,25 @@ internal suspend fun sendGap(stream: P2pStream, store: EventLogStore, deviceHex:
  * returns once the peer's `SyncAck` arrives -- by protocol order everything before the
  * ack is the peer's catch-up gap and everything after is live push, so this is exactly
  * the bounded-catch-up cutoff [runSyncSession]'s `livePush = false` mode needs.
+ *
+ * A [Frame.SyncA2ui] is handed straight to [onSyncA2ui] rather than touching [store] --
+ * A2UI snapshots are deliberately never written to the hash-chained log (design.md D6) --
+ * and otherwise ignored the same tolerant way as any other non-`SyncEntries` frame.
  */
-internal suspend fun recvLoop(stream: P2pStream, store: EventLogStore, untilAck: Boolean = false) {
+internal suspend fun recvLoop(
+    stream: P2pStream,
+    store: EventLogStore,
+    untilAck: Boolean = false,
+    onSyncA2ui: suspend (conversation: String, messages: List<JsonObject>) -> Unit = { _, _ -> },
+) {
     while (true) {
         val line = stream.receiveLine() ?: return
         val frame = runCatching { FrameCodec.decode(line) }.getOrNull() ?: continue
         if (untilAck && frame is Frame.SyncAck) return
+        if (frame is Frame.SyncA2ui) {
+            onSyncA2ui(frame.conversation, frame.messages)
+            continue
+        }
         if (frame !is Frame.SyncEntries) continue // SyncAck / stray hello|vector / unrecognized: ignored
         for (b64 in frame.entries) {
             val entry = b64.decodeSyncBase64() ?: continue

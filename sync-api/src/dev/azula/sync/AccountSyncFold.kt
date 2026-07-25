@@ -13,8 +13,12 @@ import dev.azula.core.LogEntry
 // read state, and profile are all derived from the union of the identity's logs.
 // This file is that fold -- pure functions over `core.LogEntry`, no store needed.
 
-/** One message folded into a conversation's history, from either a `message_out`
- *  ([outgoing] `true`) or a deduplicated `message_in` ([outgoing] `false`) entry. */
+/** One message folded into a conversation's history, from either a `message_out`/
+ *  `agent_out` ([outgoing] `true`) or a deduplicated `message_in`/`agent_in`
+ *  ([outgoing] `false`) entry. [fromAgent] is `true` for the two cli-multi-session-relay
+ *  kinds (`agent_in`/`agent_out`) -- callers use it to tell a session conversation's
+ *  history apart from a peer conversation's (e.g. to auto-create a conversation a device
+ *  only ever learned about via a relayed entry -- see `AccountSyncService.rebuildProjection`). */
 data class FoldedMessage(
     val conversation: String,
     val text: String,
@@ -23,6 +27,7 @@ data class FoldedMessage(
     val authorDevicePk: ByteArray,
     val lamport: Long,
     val tsMs: Long,
+    val fromAgent: Boolean = false,
 ) {
     // See core's LogEntry.equals kdoc: a data class would give the ByteArray field
     // reference equality, which is wrong for a value the determinism test compares
@@ -36,6 +41,7 @@ data class FoldedMessage(
             outgoing == other.outgoing &&
             lamport == other.lamport &&
             tsMs == other.tsMs &&
+            fromAgent == other.fromAgent &&
             authorDevicePk.contentEquals(other.authorDevicePk)
     }
 
@@ -46,6 +52,7 @@ data class FoldedMessage(
         result = 31 * result + outgoing.hashCode()
         result = 31 * result + lamport.hashCode()
         result = 31 * result + tsMs.hashCode()
+        result = 31 * result + fromAgent.hashCode()
         result = 31 * result + authorDevicePk.contentHashCode()
         return result
     }
@@ -105,7 +112,13 @@ object AccountSyncFold {
         val ordered = entries.sortedWith(LOG_ENTRY_ORDER)
 
         val conversations = LinkedHashMap<String, MutableList<FoldedMessage>>()
-        val seenMessageIn = HashSet<Pair<String, String>>() // (conversation, id) dedup, id != null only
+        // (conversation, id) dedup, id != null only -- shared by MESSAGE_IN and AGENT_IN
+        // (cli-multi-session-relay's "Agent retry deduplicates": a session that delivers a
+        // message directly (folded as MESSAGE_IN on the receiving device's own log) and then,
+        // after a timeout, retries the *same id* via the relay (folded as AGENT_IN on the
+        // relay's log) must fold to exactly one message in that conversation -- which only
+        // works if both kinds dedup against the same (conversation, id) key space).
+        val seenIncoming = HashSet<Pair<String, String>>()
         val contactState = LinkedHashMap<String, ContactState>()
         val certsByDevice = LinkedHashMap<String, DeviceCert>() // hex device_pk -> latest valid cert
         val revokedDeviceHex = HashSet<String>()
@@ -134,7 +147,7 @@ object AccountSyncFold {
                     val body = decodeMessageInBody(entry.body) ?: continue
                     // "Chat Message Ids Deduplicate Retries": dedupe by (sender/conversation, id);
                     // entries without an id are never deduplicated.
-                    if (body.id != null && !seenMessageIn.add(body.conversation to body.id)) continue
+                    if (body.id != null && !seenIncoming.add(body.conversation to body.id)) continue
                     conversations.getOrPut(body.conversation) { mutableListOf() }.add(
                         FoldedMessage(
                             conversation = body.conversation,
@@ -144,6 +157,42 @@ object AccountSyncFold {
                             authorDevicePk = entry.authorDevicePk,
                             lamport = entry.lamport,
                             tsMs = entry.tsMs,
+                        ),
+                    )
+                }
+
+                EventKind.AGENT_IN -> {
+                    val body = decodeAgentInBody(entry.body) ?: continue
+                    // Same (conversation, id) dedup space as MESSAGE_IN -- see seenIncoming's kdoc.
+                    if (body.id != null && !seenIncoming.add(body.conversation to body.id)) continue
+                    conversations.getOrPut(body.conversation) { mutableListOf() }.add(
+                        FoldedMessage(
+                            conversation = body.conversation,
+                            text = body.text,
+                            id = body.id,
+                            outgoing = false,
+                            authorDevicePk = entry.authorDevicePk,
+                            lamport = entry.lamport,
+                            tsMs = entry.tsMs,
+                            fromAgent = true,
+                        ),
+                    )
+                }
+
+                EventKind.AGENT_OUT -> {
+                    val body = decodeAgentOutBody(entry.body) ?: continue
+                    // No dedup -- matches MESSAGE_OUT's posture (an identity's own outbound
+                    // entries are never retried into the log twice under the same id).
+                    conversations.getOrPut(body.conversation) { mutableListOf() }.add(
+                        FoldedMessage(
+                            conversation = body.conversation,
+                            text = body.text,
+                            id = body.id,
+                            outgoing = true,
+                            authorDevicePk = entry.authorDevicePk,
+                            lamport = entry.lamport,
+                            tsMs = entry.tsMs,
+                            fromAgent = true,
                         ),
                     )
                 }

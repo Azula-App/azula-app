@@ -76,6 +76,33 @@ data class ProfileUpdateBody(
     val description: String? = null,
 )
 
+/**
+ * `0x09 agent_in`: `{conversation, text, id?, from_name?}` -- cli-multi-session-relay's
+ * relay-carried agent chat. [conversation] is the SESSION's public key in hex (not a
+ * contact root/node id -- a session conversation's key space, distinct from peer
+ * conversations). [fromName] is the session's announced display name, when known. Field
+ * order here is pinned: it must match azula-cli's `eventlog.rs` byte-for-byte (see the
+ * cross-language vector in `core/test/CrossLanguageVectorTest.kt`).
+ */
+@Serializable
+data class AgentInBody(
+    val conversation: String,
+    val text: String,
+    val id: String? = null,
+    @SerialName("from_name") val fromName: String? = null,
+)
+
+/** `0x0A agent_out`: `{conversation, text, id?}` -- the identity's own reply into a
+ *  session conversation. Same field shape as [MessageOutBody] but a distinct kind/type,
+ *  since direction is determined by kind, not by an explicit field (mirrors
+ *  message_out/message_in). */
+@Serializable
+data class AgentOutBody(
+    val conversation: String,
+    val text: String,
+    val id: String? = null,
+)
+
 fun decodeMessageOutBody(body: ByteArray): MessageOutBody? =
     runCatching { EventBodyJson.decodeFromString(MessageOutBody.serializer(), body.decodeToString()) }.getOrNull()
 
@@ -97,6 +124,12 @@ fun decodeDeviceRevokeBody(body: ByteArray): DeviceRevokeBody? =
 fun decodeProfileUpdateBody(body: ByteArray): ProfileUpdateBody? =
     runCatching { EventBodyJson.decodeFromString(ProfileUpdateBody.serializer(), body.decodeToString()) }.getOrNull()
 
+fun decodeAgentInBody(body: ByteArray): AgentInBody? =
+    runCatching { EventBodyJson.decodeFromString(AgentInBody.serializer(), body.decodeToString()) }.getOrNull()
+
+fun decodeAgentOutBody(body: ByteArray): AgentOutBody? =
+    runCatching { EventBodyJson.decodeFromString(AgentOutBody.serializer(), body.decodeToString()) }.getOrNull()
+
 fun encodeMessageOutBody(value: MessageOutBody): ByteArray =
     EventBodyJson.encodeToString(MessageOutBody.serializer(), value).encodeToByteArray()
 
@@ -117,3 +150,9 @@ fun encodeDeviceRevokeBody(value: DeviceRevokeBody): ByteArray =
 
 fun encodeProfileUpdateBody(value: ProfileUpdateBody): ByteArray =
     EventBodyJson.encodeToString(ProfileUpdateBody.serializer(), value).encodeToByteArray()
+
+fun encodeAgentInBody(value: AgentInBody): ByteArray =
+    EventBodyJson.encodeToString(AgentInBody.serializer(), value).encodeToByteArray()
+
+fun encodeAgentOutBody(value: AgentOutBody): ByteArray =
+    EventBodyJson.encodeToString(AgentOutBody.serializer(), value).encodeToByteArray()

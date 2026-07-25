@@ -18,6 +18,11 @@ enum class EventKind(val wireValue: Int) {
     DEVICE_ADD(0x06), // {cert}
     DEVICE_REVOKE(0x07), // {revocation}
     PROFILE_UPDATE(0x08), // {name?, description?}
+    // cli-multi-session-relay: agent chat riding the relay's own log. `conversation` is the
+    // session's public key in hex -- not a contact root/node id. See account-sync spec's
+    // "Event Kinds" delta.
+    AGENT_IN(0x09), // {conversation, text, id?, from_name?}
+    AGENT_OUT(0x0A), // {conversation, text, id?}
     ;
 
     companion object {

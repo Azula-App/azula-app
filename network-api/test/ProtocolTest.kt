@@ -297,4 +297,20 @@ class ProtocolTest {
         assertTrue(decoded is Frame.RelayHint)
         assertEquals("ticket-abc123", (decoded as Frame.RelayHint).ticket)
     }
+
+    @Test
+    fun syncA2uiRoundTripsWithTypeTagAndCarriesOrdinaryA2uiMessageObjects() {
+        // cli-multi-session-relay's "A2UI Snapshot Replay on Reconnect": messages are the
+        // exact same wire shape Frame.A2ui.message carries -- no separate encoding.
+        val createMsg = kotlinx.serialization.json.buildJsonObject {
+            put("createSurface", kotlinx.serialization.json.buildJsonObject { put("surfaceId", kotlinx.serialization.json.JsonPrimitive("s1")) })
+        }
+        val encoded = FrameCodec.encode(Frame.SyncA2ui(conversation = "cafebabe", messages = listOf(createMsg)))
+        assertTrue(encoded.contains(""""type":"sync_a2ui""""), "missing type tag: $encoded")
+        val decoded = FrameCodec.decode(encoded)
+        assertTrue(decoded is Frame.SyncA2ui)
+        decoded as Frame.SyncA2ui
+        assertEquals("cafebabe", decoded.conversation)
+        assertEquals(listOf(createMsg), decoded.messages)
+    }
 }

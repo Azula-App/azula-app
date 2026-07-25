@@ -126,6 +126,11 @@ class FrameDispatcher(
             is Frame.SyncHello, is Frame.SyncVector, is Frame.SyncEntries, is Frame.SyncAck,
             is Frame.LinkHello, is Frame.LinkGrant, is Frame.LinkReject,
             -> Unit
+            // cli-multi-session-relay: sync_a2ui is consumed inside SyncSession.recvLoop's
+            // own callback (see AccountSyncService.runSiblingSync's onSyncA2ui parameter),
+            // which replays each message through this same dispatcher's Frame.A2ui branch
+            // above -- so a real Frame.SyncA2ui never reaches this `when` on its own.
+            is Frame.SyncA2ui -> Unit
             // cli-multi-session-relay: RelayHint only has meaning to the CLI/relay side --
             // the app receiving one is a documented no-op, never a crash.
             is Frame.RelayHint -> Unit

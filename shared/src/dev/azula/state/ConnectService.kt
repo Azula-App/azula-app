@@ -43,6 +43,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
 
 /**
  * The connect + transport core carved out of AzulaState: owns the (rebindable)
@@ -779,6 +780,13 @@ class ConnectService(
      * [AccountSyncService.runSiblingSync]. If this device doesn't yet have its own certificate
      * to present ([myCertString] null -- offline before the first self-certify), the stream is
      * just closed: there is nothing valid to say in a `SyncHello` yet.
+     *
+     * cli-multi-session-relay: also wires [onSyncA2ui] and `frameDispatcher::notify` as
+     * [AccountSyncService.runSiblingSync]'s two new callbacks -- this is the one place both
+     * [convStore]/[frameDispatcher] (needed to apply a replayed A2UI message or fire a
+     * notification) and [accountSyncService] (which owns the sync session itself, but can't
+     * depend on [FrameDispatcher] -- that dependency already runs the other way) are both in
+     * scope.
      */
     private suspend fun runSyncWith(stream: P2pStream, transportPeerDevicePk: ByteArray) {
         val certString = myCertString()
@@ -786,8 +794,35 @@ class ConnectService(
             runCatching { stream.close() }
             return
         }
-        accountSyncService.runSiblingSync(stream, certString, bundleRevocationStrings(), transportPeerDevicePk)
+        accountSyncService.runSiblingSync(
+            stream, certString, bundleRevocationStrings(), transportPeerDevicePk,
+            onSyncA2ui = ::onSyncA2ui, onNewAgentMessage = frameDispatcher::notify,
+        )
         runCatching { stream.close() }
+    }
+
+    /**
+     * cli-multi-session-relay's "A2UI Snapshot Replay on Reconnect": [conversation] is the
+     * session's public key in hex -- the same key [AccountSyncService.runSiblingSync]'s
+     * `agent_in`/`agent_out` handling uses, and the same conversation id an admitted session
+     * was auto-created under (task 5.2). Ensures that conversation exists (it should -- the
+     * session was admitted before a relay ever had anything to replay -- but a device that
+     * only ever heard about this session via sync, never a direct connection, may not have
+     * it yet; same gap [AccountSyncService.rebuildProjection] closes for `agent_in`/`agent_out`
+     * fold visibility), then reuses [FrameDispatcher.applyFrame]'s existing `Frame.A2ui`
+     * routing verbatim for each message -- no separate CreateSurface/Delete/apply logic here,
+     * so replay and a live `a2ui` frame always agree. Applying a full createSurface +
+     * updateComponents + updateDataModel sequence for an already-live surface is safe to
+     * replay: [FrameDispatcher]'s `CreateSurface` branch replaces the surface outright, so the
+     * result is always the latest state, never a merge of stale and fresh data.
+     */
+    private fun onSyncA2ui(conversation: String, messages: List<JsonObject>) {
+        if (convStore.conversationOrNull(conversation) == null) {
+            convStore.ensureConv(conversation, ConversationKind.LLM, conversation)
+        }
+        for (message in messages) {
+            frameDispatcher.applyFrame(conversation, Frame.A2ui(message))
+        }
     }
 
     /**

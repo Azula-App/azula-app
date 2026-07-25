@@ -12,6 +12,12 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.io.path.createTempDirectory
@@ -310,6 +316,46 @@ class SyncSessionTest {
 
         recvLoop(pipe.a, store)
 
+        assertEquals(1L, store.vector()[deviceAPk.toHexLower()])
+    }
+
+    // --- sync_a2ui (cli-multi-session-relay's "A2UI Snapshot Replay on Reconnect") ----
+
+    @Test
+    fun recvLoopDeliversSyncA2uiToTheCallbackAndKeepsToleratingUnknownFramesAndProcessingEntries() = runTest {
+        val store = newStore("sync_a2ui")
+        val e1 = entry(deviceASecret, deviceAPk, 1, ZERO_PREV_HASH)
+        val createMsg = buildJsonObject {
+            put("createSurface", buildJsonObject { put("surfaceId", JsonPrimitive("s1")) })
+        }
+        val updateMsg = buildJsonObject {
+            put(
+                "updateComponents",
+                buildJsonObject {
+                    put("surfaceId", JsonPrimitive("s1"))
+                    put("components", buildJsonArray { add(buildJsonObject { put("id", JsonPrimitive("root")) }) })
+                },
+            )
+        }
+
+        val delivered = mutableListOf<Pair<String, List<JsonObject>>>()
+        val pipe = Pipe()
+        // A relay would send its A2UI replay (possibly more than one frame, and possibly
+        // interleaved with a kind this build doesn't recognize) before its own SyncAck --
+        // see runSyncSession's onSyncA2ui kdoc for why that ordering matters for a bounded
+        // (livePush = false) catch-up on the receiving side.
+        pipe.b.sendLine(FrameCodec.encode(Frame.SyncA2ui(conversation = "cafebabe", messages = listOf(createMsg))))
+        pipe.b.sendLine("""{"type":"sync_resync_request","foo":"bar"}""")
+        pipe.b.sendLine(FrameCodec.encode(Frame.SyncA2ui(conversation = "cafebabe", messages = listOf(updateMsg))))
+        pipe.b.sendLine(FrameCodec.encode(Frame.SyncEntries(entries = listOf(base64Of(e1)))))
+        pipe.b.close()
+
+        recvLoop(pipe.a, store, onSyncA2ui = { conversation, messages -> delivered.add(conversation to messages) })
+
+        assertEquals(listOf("cafebabe" to listOf(createMsg), "cafebabe" to listOf(updateMsg)), delivered)
+        // The unrelated unknown frame and the SyncEntries batch that followed the sync_a2ui
+        // frames must still be tolerated/applied -- sync_a2ui handling must not swallow or
+        // derail the rest of the stream.
         assertEquals(1L, store.vector()[deviceAPk.toHexLower()])
     }
 

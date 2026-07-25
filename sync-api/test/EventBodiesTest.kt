@@ -62,4 +62,39 @@ class EventBodiesTest {
         assertNull(decodeMessageOutBody("not json".encodeToByteArray()))
         assertNull(decodeContactKeyBody("{".encodeToByteArray()))
     }
+
+    // -- Agent kinds (cli-multi-session-relay) -------------------------------------------------
+
+    @Test
+    fun agentInRoundTripsAndUsesSnakeCaseFromNameKey() {
+        val body = AgentInBody(conversation = "cafebabe", text = "hello from claude", id = "abc123", fromName = "Claude")
+        val json = encodeAgentInBody(body).decodeToString()
+        assertEquals(true, json.contains("\"from_name\":\"Claude\""))
+        assertEquals(body, decodeAgentInBody(encodeAgentInBody(body)))
+    }
+
+    @Test
+    fun agentInOmitsAbsentIdAndFromName() {
+        val body = AgentInBody(conversation = "cafebabe", text = "hi")
+        val json = encodeAgentInBody(body).decodeToString()
+        assertEquals(false, json.contains("id"))
+        assertEquals(false, json.contains("from_name"))
+        assertEquals(body, decodeAgentInBody(encodeAgentInBody(body)))
+    }
+
+    @Test
+    fun agentOutRoundTrips() {
+        val body = AgentOutBody(conversation = "cafebabe", text = "on it", id = "xyz789")
+        assertEquals(body, decodeAgentOutBody(encodeAgentOutBody(body)))
+    }
+
+    @Test
+    fun agentBodiesFieldOrderMatchesThePinnedWireFormat() {
+        // account-sync spec's Event Kinds delta pins property order exactly:
+        // agent_in {conversation, text, id?, from_name?}; agent_out {conversation, text, id?}.
+        val inJson = encodeAgentInBody(AgentInBody("c", "t", "i", "n")).decodeToString()
+        assertEquals("""{"conversation":"c","text":"t","id":"i","from_name":"n"}""", inJson)
+        val outJson = encodeAgentOutBody(AgentOutBody("c", "t", "i")).decodeToString()
+        assertEquals("""{"conversation":"c","text":"t","id":"i"}""", outJson)
+    }
 }

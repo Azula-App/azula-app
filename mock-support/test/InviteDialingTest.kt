@@ -54,7 +54,7 @@ class InviteDialingTest {
  *  string-only mock) and records every dialed ticket, so a test can assert exactly what
  *  ConnectService handed to [connect] -- the decoded ticket, not the encoded invite. */
 private class InviteAwareTransport(private val peerId: String) : IrohTransport {
-    override var nodeId: String? = "self"
+    override var endpointId: String? = "self"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
     override suspend fun myTicket(): String = ""

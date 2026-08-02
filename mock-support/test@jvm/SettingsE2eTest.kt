@@ -111,7 +111,7 @@ class SettingsE2eTest {
     @Test
     fun revealPhraseDialogExplainsARootlessDeviceInsteadOfShowingAPhrase() {
         // multi-device-identity: a QR-linked device (see the identity capability's
-        // "Device keys have no phrase" scenario) holds a node key but no root secret --
+        // "Device keys have no phrase" scenario) holds a endpoint key but no root secret --
         // FakeTransport(rootless = true) models exactly that.
         desktopE2eTest(transport = FakeTransport(rootless = true)) { state, _, _ ->
             openSettings()

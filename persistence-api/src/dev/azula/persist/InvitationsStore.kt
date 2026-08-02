@@ -29,7 +29,7 @@ data class IssuedInvite(
  */
 @Serializable
 data class PendingInvite(
-    val nodeId: String,
+    val endpointId: String,
     val inviteId: String? = null,
     val receivedAt: Long,
     val peerCode: String,
@@ -37,7 +37,7 @@ data class PendingInvite(
 )
 
 /** Everything [InvitationsStore] persists: invites we issued, strangers awaiting
- *  a decision, and the node ids of peers we've already accepted. */
+ *  a decision, and the endpoint ids of peers we've already accepted. */
 @Serializable
 data class InvitationsBook(
     val issued: List<IssuedInvite> = emptyList(),

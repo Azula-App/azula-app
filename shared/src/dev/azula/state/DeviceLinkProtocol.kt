@@ -225,7 +225,7 @@ object DeviceLinkProtocol {
      * restores it). A small local fold rather than reusing
      * [AccountSyncFold.DerivedState.contacts], which collapses each contact to a single
      * opaque `key` string and so can't tell a certified contact's `root_pk` apart from a
-     * legacy one's `node_id` -- exactly the distinction [Contact] (and the wire bundle)
+     * legacy one's `endpoint_id` -- exactly the distinction [Contact] (and the wire bundle)
      * needs to preserve (`Contact`'s own kdoc: "exactly one of the two, never both").
      */
     private fun contactsSnapshot(entries: List<LogEntry>): List<Contact> {
@@ -235,21 +235,21 @@ object DeviceLinkProtocol {
                 EventKind.CONTACT_ADD -> {
                     val body = decodeContactKeyBody(entry.body) ?: continue
                     val key = body.key ?: continue
-                    state[key] = ContactFoldState(present = true, rootPk = body.rootPk, nodeId = body.nodeId, name = body.name)
+                    state[key] = ContactFoldState(present = true, rootPk = body.rootPk, endpointId = body.endpointId, name = body.name)
                 }
 
                 EventKind.CONTACT_REMOVE -> {
                     val body = decodeContactKeyBody(entry.body) ?: continue
                     val key = body.key ?: continue
                     val prev = state[key]
-                    state[key] = ContactFoldState(present = false, rootPk = prev?.rootPk, nodeId = prev?.nodeId, name = prev?.name)
+                    state[key] = ContactFoldState(present = false, rootPk = prev?.rootPk, endpointId = prev?.endpointId, name = prev?.name)
                 }
 
                 else -> Unit
             }
         }
-        return state.values.filter { it.present }.map { Contact(rootPk = it.rootPk, nodeId = it.nodeId, name = it.name) }
+        return state.values.filter { it.present }.map { Contact(rootPk = it.rootPk, endpointId = it.endpointId, name = it.name) }
     }
 
-    private data class ContactFoldState(val present: Boolean, val rootPk: String?, val nodeId: String?, val name: String?)
+    private data class ContactFoldState(val present: Boolean, val rootPk: String?, val endpointId: String?, val name: String?)
 }

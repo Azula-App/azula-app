@@ -65,7 +65,7 @@ class FrameDispatcher(
                 // multi-device-identity task 4.5: this identity's own devices log
                 // message_in for both certified and legacy peers alike (spec: "Legacy
                 // Peers Are Unaffected"). No cert-based sender device key exists yet
-                // (task 7.3/6.x), so fromDevicePk falls back to the peer's node id --
+                // (task 7.3/6.x), so fromDevicePk falls back to the peer's endpoint id --
                 // the same value convId already is for a legacy contact.
                 accountSyncService.appendMessageIn(convId, fromDevicePk = convId, text = frame.text, id = frame.id)
                 notify(convId, frame.text)

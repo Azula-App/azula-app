@@ -31,7 +31,7 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * multi-device-identity tasks 7.2 ("Extend known-peer checks... per the invitations
- * delta") and 7.3 (conversation keying by root pk, merging a legacy node-id
+ * delta") and 7.3 (conversation keying by root pk, merging a legacy endpoint-id
  * conversation the moment its peer first presents a valid certificate). Driven end to
  * end through [testAzulaState]'s public [dev.azula.state.AzulaState] surface, against
  * a real [FileEventLogStore] (so [dev.azula.state.AccountSyncService.checkPresentedCert]'s
@@ -107,10 +107,10 @@ class CertKnownPeerTest {
      *  [FakeTransport]'s own fixed "mockterm" demo connection. */
     private class IdentityTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -183,7 +183,7 @@ class CertKnownPeerTest {
         val rootConvId = contactRootPk.toHexLower()
         assertFalse(azulaState.conversations.any { it.id == rootConvId }, "a revoked device must not ride the root match into the contact's conversation")
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.nodeId, "falls all the way through to the ordinary stranger path")
+        assertEquals(phoneHex, pending?.endpointId, "falls all the way through to the ordinary stranger path")
         assertTrue(pending?.unverified == true, "no invite was presented -- admitted only via allowLegacyInbound, same as any stranger")
     }
 
@@ -207,7 +207,7 @@ class CertKnownPeerTest {
         val rootConvId = contactRootPk.toHexLower()
         assertFalse(azulaState.conversations.any { it.id == rootConvId }, "an invalid cert must grant nothing -- even though its (unverifiable) root would otherwise be a known contact")
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.nodeId, "a cert that fails verification is treated as absent, NOT a hard rejection -- it still falls to the (unverified) stranger path exactly like a legacy peer")
+        assertEquals(phoneHex, pending?.endpointId, "a cert that fails verification is treated as absent, NOT a hard rejection -- it still falls to the (unverified) stranger path exactly like a legacy peer")
         assertTrue(pending?.unverified == true)
     }
 
@@ -225,14 +225,14 @@ class CertKnownPeerTest {
         runCurrent()
 
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.nodeId, "a legacy peer must be gated exactly as before this change")
+        assertEquals(phoneHex, pending?.endpointId, "a legacy peer must be gated exactly as before this change")
         assertTrue(pending?.unverified == true)
     }
 
     // ---- task 7.3: conversation keying by root pk ----
 
     @Test
-    fun nodeIdConversationMergesIntoRootKeyedOneWhenThePeerFirstPresentsAValidCertPreservingHistory() = runTest {
+    fun endpointIdConversationMergesIntoRootKeyedOneWhenThePeerFirstPresentsAValidCertPreservingHistory() = runTest {
         val inner = FakeTransport()
         val transport = IdentityTransport(mySecret, myHex, inner)
         val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = newStore(), ed25519 = ed25519)
@@ -240,12 +240,12 @@ class CertKnownPeerTest {
         runCurrent()
 
         // FakeTransport.peerIdForTicket only resolves a ticket of exactly this shape
-        // back to the node id embedded in it.
+        // back to the endpoint id embedded in it.
         val ticket = "azula-mock-$phoneHex"
         azulaState.connectPeer(ticket)
         runCurrent()
         val legacyConvId = azulaState.conversations.single().id
-        assertEquals(phoneHex, legacyConvId, "starts out node-id-keyed, exactly as before this change")
+        assertEquals(phoneHex, legacyConvId, "starts out endpoint-id-keyed, exactly as before this change")
 
         azulaState.updateDraft(legacyConvId, "hi there")
         azulaState.send(legacyConvId)
@@ -260,13 +260,13 @@ class CertKnownPeerTest {
         runCurrent()
 
         val rootConvId = contactRootPk.toHexLower()
-        assertFalse(azulaState.conversations.any { it.id == phoneHex }, "the old node-id-keyed conversation must be gone, not left stranded")
+        assertFalse(azulaState.conversations.any { it.id == phoneHex }, "the old endpoint-id-keyed conversation must be gone, not left stranded")
         assertTrue(azulaState.conversations.any { it.id == rootConvId }, "history must now live under the root-pk key")
         assertEquals(historyBeforeMerge, azulaState.conv(rootConvId).messages.map { it.role to it.text }, "history is preserved across the merge")
     }
 
     @Test
-    fun secondDevicesNodeIdConversationMergesIntoAnAlreadyEstablishedRootKeyedConversation() = runTest {
+    fun secondDevicesEndpointIdConversationMergesIntoAnAlreadyEstablishedRootKeyedConversation() = runTest {
         val inner = FakeTransport()
         val transport = IdentityTransport(mySecret, myHex, inner)
         val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = newStore(), ed25519 = ed25519)
@@ -289,7 +289,7 @@ class CertKnownPeerTest {
         val rootConvId = contactRootPk.toHexLower()
         assertTrue(azulaState.conversations.any { it.id == rootConvId }, "accepting a certified stranger must pin the root and key its conversation by it")
 
-        // Laptop, meanwhile, already has an established LEGACY (node-id-keyed)
+        // Laptop, meanwhile, already has an established LEGACY (endpoint-id-keyed)
         // conversation from before it ever presented a certificate.
         val laptopTicket = "azula-mock-$laptopHex"
         azulaState.connectPeer(laptopTicket)
@@ -307,7 +307,7 @@ class CertKnownPeerTest {
         inner.injectIncoming(laptopTicket, Frame.Hello(laptopHex, cert = cert(laptopPk, "laptop")), alpn = Alpns.CHAT)
         runCurrent()
 
-        assertFalse(azulaState.conversations.any { it.id == laptopHex }, "laptop's legacy node-id conversation must be gone")
+        assertFalse(azulaState.conversations.any { it.id == laptopHex }, "laptop's legacy endpoint-id conversation must be gone")
         assertEquals(1, azulaState.conversations.count { it.id == rootConvId }, "still exactly one conversation for this contact -- not stranded as a second one")
         val merged = azulaState.conv(rootConvId).messages.map { it.role to it.text }
         laptopHistoryBeforeMerge.forEach { assertTrue(it in merged, "laptop's prior history must survive the merge, missing $it") }

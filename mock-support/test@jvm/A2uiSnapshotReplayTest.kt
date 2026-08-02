@@ -132,14 +132,14 @@ class A2uiSnapshotReplayTest {
      *  call on B's side -- [playRelaySide] replaces it. */
     private class RelayReplayTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val relayTicket: String,
-        private val relayNodeIdHex: String,
+        private val relayEndpointIdHex: String,
         private val play: suspend (P2pStream) -> Unit,
         private val dialScope: CoroutineScope,
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -154,7 +154,7 @@ class A2uiSnapshotReplayTest {
         }
 
         override fun peerIdForTicket(ticket: String): String? =
-            if (ticket == relayTicket) relayNodeIdHex else delegate.peerIdForTicket(ticket)
+            if (ticket == relayTicket) relayEndpointIdHex else delegate.peerIdForTicket(ticket)
     }
 
     @Test
@@ -178,7 +178,7 @@ class A2uiSnapshotReplayTest {
 
         val store = FileEventLogStore(File(tempDir, "a"), ed25519) { deviceAHex }
         val transport = RelayReplayTransport(
-            deviceASecret, deviceAHex, relayTicket = "ticket-relay", relayNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, relayTicket = "ticket-relay", relayEndpointIdHex = deviceBHex,
             play = { stream -> playRelaySide(stream, certB, sessionHex, listOf(createMsg, updateComponentsMsg, updateDataModelMsg)) },
             dialScope = backgroundScope,
         )
@@ -221,7 +221,7 @@ class A2uiSnapshotReplayTest {
         val store = FileEventLogStore(File(tempDir, "a2"), ed25519) { deviceAHex }
         var callCount = 0
         val transport = RelayReplayTransport(
-            deviceASecret, deviceAHex, relayTicket = "ticket-relay", relayNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, relayTicket = "ticket-relay", relayEndpointIdHex = deviceBHex,
             play = { stream ->
                 val messages = if (callCount++ == 0) snapshot(staleComponent) else snapshot(freshComponent)
                 playRelaySide(stream, certB, sessionHex, messages)

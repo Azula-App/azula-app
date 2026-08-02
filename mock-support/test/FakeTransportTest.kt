@@ -19,7 +19,7 @@ class FakeTransportTest {
     @Test fun mockedTransportBindsAndLoopsBackChat() = runTest {
         val transport: IrohTransport = FakeTransport()
         transport.bind(listOf(Alpns.CHAT))
-        assertNotNull(transport.nodeId, "bind should assign a node id")
+        assertNotNull(transport.endpointId, "bind should assign a endpoint id")
 
         val stream = transport.connect(ticket = "any-ticket", alpn = Alpns.CHAT)
         stream.sendLine(FrameCodec.encode(Frame.Chat("hi")))
@@ -71,12 +71,12 @@ class FakeTransportTest {
         val transport: IrohTransport = FakeTransport()
 
         val data = "hello".encodeToByteArray()
-        val sig1 = transport.signWithNodeKey(data)
-        val sig2 = transport.signWithNodeKey(data)
+        val sig1 = transport.signWithEndpointKey(data)
+        val sig2 = transport.signWithEndpointKey(data)
         assertNotNull(sig1)
         assertEquals(64, sig1.size)
         assertTrue(sig1.contentEquals(sig2), "signing the same data twice should be deterministic")
-        assertTrue(transport.verifyNodeSignature("anynode", data, sig1), "mock always trusts")
+        assertTrue(transport.verifyEndpointSignature("anynode", data, sig1), "mock always trusts")
 
         val ticket = "azula-mock-ticket-abc123"
         val bytes = transport.ticketBytes(ticket)

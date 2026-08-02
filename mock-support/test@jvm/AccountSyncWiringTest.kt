@@ -36,10 +36,10 @@ import kotlin.test.assertTrue
  * history after the derived UI/`MessageStore` state is wiped (the "Projection rebuild"
  * scenario, task 4.4's centerpiece).
  *
- * [FakeTransport] itself is *not* used as the transport here: its `nodeId` is a random
+ * [FakeTransport] itself is *not* used as the transport here: its `endpointId` is a random
  * `"self<hex>"` string, not real Ed25519 key material paired with anything, so there is no
  * consistent (devicePk, secret) identity to sign event-log entries with. [IdentityFakeTransport]
- * wraps a real [FakeTransport] (for its loopback/incoming behavior) but fixes `nodeId`/
+ * wraps a real [FakeTransport] (for its loopback/incoming behavior) but fixes `endpointId`/
  * `rootSecretBytes` to a [FakeEd25519]-paired pair, mirroring the `sync-api`/`sync-real` test
  * modules' own `fixedKey`/`fakePublicKey` convention (each module keeps its own tiny copy --
  * see those modules' `SyncTestFixtures.kt` kdoc for why).
@@ -123,7 +123,7 @@ class AccountSyncWiringTest {
             "expected the echoed reply logged as message_in, got $incoming",
         )
         // The legacy peer has no certified device key -- fromDevicePk falls back to the
-        // peer's node id, the same value already used as the conversation key.
+        // peer's endpoint id, the same value already used as the conversation key.
         assertTrue(incoming.all { it.fromDevicePk == convId })
     }
 
@@ -255,7 +255,7 @@ class AccountSyncWiringTest {
     @Test
     fun importRecoveryPhraseSelfCertifiesUnderTheNewlyImportedRoot() = runTest {
         // multi-device-identity task 3.4: enrolling into a phrase-supplied identity keeps
-        // this device's own node key as device_pk, but the certificate's root_pk must
+        // this device's own endpoint key as device_pk, but the certificate's root_pk must
         // reflect the *imported* root secret's own public key -- which differs from
         // device_pk whenever the phrase belongs to some other identity.
         val store = newStore()
@@ -274,7 +274,7 @@ class AccountSyncWiringTest {
             .mapNotNull { DeviceCertCodec.decode(decodeDeviceAddBody(it.body)!!.cert) }
         val enrollmentCert = certs.find { !it.rootPk.contentEquals(it.devicePk) }
         assertNotNull(enrollmentCert, "expected a device_add whose root differs from this device's own key, got $certs")
-        assertEquals(devicePkHex, enrollmentCert.devicePk.toHexLower(), "device_pk must stay this device's own node key")
+        assertEquals(devicePkHex, enrollmentCert.devicePk.toHexLower(), "device_pk must stay this device's own endpoint key")
         assertEquals(
             fakePublicKey(newRootSecret).toHexLower(),
             enrollmentCert.rootPk.toHexLower(),
@@ -343,7 +343,7 @@ private class FakeEd25519 : Ed25519 {
 private fun fakePublicKey(secret: ByteArray): ByteArray = Sha256.hash(secret)
 
 /**
- * A test-only [IrohTransport] whose `nodeId`/`rootSecretBytes` are a real, [FakeEd25519]-
+ * A test-only [IrohTransport] whose `endpointId`/`rootSecretBytes` are a real, [FakeEd25519]-
  * consistent (devicePk, secret) pair -- unlike [FakeTransport]'s own random `"self<hex>"`
  * id, which pairs with nothing. Delegates everything else (bind/connect/incoming/the CHAT
  * loopback) to a real [FakeTransport] instance, so `ConnectService`'s existing dial/accept/
@@ -352,7 +352,7 @@ private fun fakePublicKey(secret: ByteArray): ByteArray = Sha256.hash(secret)
  *
  * [root] is mutable (starts equal to [secret], the migration invariant) so
  * `importRootSecret`/`rootSecretBytes` actually model multi-device-identity task 3.4's
- * enrollment path (a device adopting a *different* root while keeping its own node key) --
+ * enrollment path (a device adopting a *different* root while keeping its own endpoint key) --
  * unlike the fixed, always-equal-to-[secret] version this class used to be, which only
  * ever exercised the migration/self-certify case (tasks 4.4/4.5). [publicKeyFor] is
  * overridden to the same [FakeEd25519]-paired derivation [fakePublicKey] provides, so
@@ -361,10 +361,10 @@ private fun fakePublicKey(secret: ByteArray): ByteArray = Sha256.hash(secret)
  */
 private class IdentityFakeTransport(
     private val secret: ByteArray,
-    private val fixedNodeIdHex: String,
+    private val fixedEndpointIdHex: String,
     private val delegate: FakeTransport = FakeTransport(),
 ) : IrohTransport by delegate {
-    override val nodeId: String? get() = fixedNodeIdHex
+    override val endpointId: String? get() = fixedEndpointIdHex
     private var root: ByteArray = secret
     override fun rootSecretBytes(): ByteArray = root
     override fun secretKeyBytes(): ByteArray = secret

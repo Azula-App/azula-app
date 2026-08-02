@@ -80,7 +80,7 @@ class SessionCertGateTest {
     private val myHex = myPk.toHexLower()
 
     // "The machine" -- a paired CLI machine identity (device-linking's machine root ==
-    // its own bridge/node key).
+    // its own bridge/endpoint key).
     private val machineRootSecret = fixedKey(0x70)
     private val machineRootPk = fakePublicKey(machineRootSecret)
     private val machineRootHex = machineRootPk.toHexLower()
@@ -132,10 +132,10 @@ class SessionCertGateTest {
      *  (devicePk, secret) identity delegating everything else to a real [FakeTransport]. */
     private class IdentityTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -279,7 +279,7 @@ class SessionCertGateTest {
         runCurrent()
 
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(sessionHex, pending?.nodeId, "a CHAT stranger with no session cert must still reach the invite gate")
+        assertEquals(sessionHex, pending?.endpointId, "a CHAT stranger with no session cert must still reach the invite gate")
         assertTrue(pending?.unverified == true)
         assertTrue(azulaState.conversations.isEmpty())
     }
@@ -300,7 +300,7 @@ class SessionCertGateTest {
 
         assertTrue(azulaState.conversations.isEmpty(), "an expired session cert must not be admitted")
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(sessionHex, pending?.nodeId, "a session-cert miss on CHAT falls through to the ordinary invite gate, not a hard close")
+        assertEquals(sessionHex, pending?.endpointId, "a session-cert miss on CHAT falls through to the ordinary invite gate, not a hard close")
     }
 
     @Test
@@ -320,7 +320,7 @@ class SessionCertGateTest {
         assertTrue(azulaState.conversations.any { it.id == sessionHex }, "sanity: the first connection is admitted")
 
         // Second connection (a redial -- e.g. the process restarted holding a cert
-        // that has since expired) on the SAME node id: the session-identity spec
+        // that has since expired) on the SAME endpoint id: the session-identity spec
         // requires this to be RE-VALIDATED, never short-circuited through the
         // ordinary "conversation already exists" known-peer fast path the way an
         // accepted contact's reconnect is.

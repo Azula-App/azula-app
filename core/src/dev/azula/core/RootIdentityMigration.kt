@@ -2,7 +2,7 @@ package dev.azula.core
 
 // multi-device-identity design.md Migration Plan step 2 / the `identity` delta's
 // "Identity Is a Root Keypair Above Device Node Keys" requirement: an existing (or
-// freshly minted) single-device identity's node secret becomes its root secret
+// freshly minted) single-device identity's endpoint secret becomes its root secret
 // unchanged, and the device keeps using that same key as its device key too --
 // a self-certificate where `device_pk == root_pk`.
 //
@@ -14,13 +14,13 @@ package dev.azula.core
 
 /**
  * Self-issues a `device_pk == root_pk` certificate for a device adopting [rootSecret]
- * (its own former, or freshly minted, node secret) as the identity's root secret. [devicePk]
- * is that same key's already-known public key -- the transport's node id bytes, or whatever
+ * (its own former, or freshly minted, endpoint secret) as the identity's root secret. [devicePk]
+ * is that same key's already-known public key -- the transport's endpoint id bytes, or whatever
  * iroh-kmp's `ed25519PublicFromSecret` derives from [rootSecret] -- they are the same 32
- * bytes here by construction, since the device adopting root authority *is* the node key.
+ * bytes here by construction, since the device adopting root authority *is* the endpoint key.
  *
- * The recovery phrase, node id, and existing contacts are unaffected by this call: it
- * neither touches a node-key entry nor rebinds any transport -- see
+ * The recovery phrase, endpoint id, and existing contacts are unaffected by this call: it
+ * neither touches a endpoint-key entry nor rebinds any transport -- see
  * [`Identity Is a Root Keypair Above Device Node Keys`](azula-docs/openspec/changes/multi-device-identity/specs/identity/spec.md).
  *
  * This function still deliberately does NOT persist the resulting certificate anywhere

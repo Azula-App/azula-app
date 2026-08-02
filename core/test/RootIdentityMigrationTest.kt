@@ -6,8 +6,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * multi-device-identity task 3.2: on first launch with an existing node key and no root
- * entry, the node secret becomes the root secret unchanged and a self-certificate with
+ * multi-device-identity task 3.2: on first launch with an existing endpoint key and no root
+ * entry, the endpoint secret becomes the root secret unchanged and a self-certificate with
  * `device_pk == root_pk` is issued (design.md Migration Plan step 2). This exercises the
  * pure self-certification computation in isolation -- see [RootIdentityMigration]'s kdoc
  * for why the storage decision ("is there already a root entry?") and persistence live in
@@ -16,14 +16,14 @@ import kotlin.test.assertTrue
 class RootIdentityMigrationTest {
     private val ed25519 = FakeEd25519()
 
-    // The migrating device's former node secret -- becomes the root secret unchanged.
-    private val nodeSecret = fixedKey(9)
-    private val devicePk = fakePublicKey(nodeSecret)
+    // The migrating device's former endpoint secret -- becomes the root secret unchanged.
+    private val endpointSecret = fixedKey(9)
+    private val devicePk = fakePublicKey(endpointSecret)
     private val issuedAt = 1_700_000_000L
 
     @Test
     fun selfCertHasMatchingRootAndDevicePk() {
-        val cert = RootIdentityMigration.selfCertify(nodeSecret, devicePk, issuedAt, ed25519)
+        val cert = RootIdentityMigration.selfCertify(endpointSecret, devicePk, issuedAt, ed25519)
 
         assertTrue(cert.rootPk.contentEquals(cert.devicePk), "device_pk must equal root_pk for a self-certified migration")
         assertTrue(cert.rootPk.contentEquals(devicePk))
@@ -31,14 +31,14 @@ class RootIdentityMigrationTest {
 
     @Test
     fun selfCertVerifiesAgainstItsOwnEmbeddedRootPk() {
-        val cert = RootIdentityMigration.selfCertify(nodeSecret, devicePk, issuedAt, ed25519)
+        val cert = RootIdentityMigration.selfCertify(endpointSecret, devicePk, issuedAt, ed25519)
 
         assertTrue(DeviceCertCodec.verify(cert, ed25519, nowEpochSeconds = issuedAt))
     }
 
     @Test
     fun selfCertHasNoRolesAndNeverExpires() {
-        val cert = RootIdentityMigration.selfCertify(nodeSecret, devicePk, issuedAt, ed25519)
+        val cert = RootIdentityMigration.selfCertify(endpointSecret, devicePk, issuedAt, ed25519)
 
         assertEquals(0, cert.roles, "migration doesn't request the mailbox/bot role bits")
         assertEquals(0L, cert.expiresAt, "a self-cert from migration never expires")
@@ -51,8 +51,8 @@ class RootIdentityMigrationTest {
         // Same inputs must produce a byte-identical cert -- the whole point being that this
         // is safe to recompute on every launch until an event-log store exists to persist
         // it once (multi-device-identity task 3.4).
-        val first = RootIdentityMigration.selfCertify(nodeSecret, devicePk, issuedAt, ed25519)
-        val second = RootIdentityMigration.selfCertify(nodeSecret, devicePk, issuedAt, ed25519)
+        val first = RootIdentityMigration.selfCertify(endpointSecret, devicePk, issuedAt, ed25519)
+        val second = RootIdentityMigration.selfCertify(endpointSecret, devicePk, issuedAt, ed25519)
 
         assertEquals(DeviceCertCodec.encode(first), DeviceCertCodec.encode(second))
     }
@@ -67,7 +67,7 @@ class RootIdentityMigrationTest {
     @Test
     fun rejectsAWrongSizeDevicePk() {
         assertFailsWith<IllegalArgumentException> {
-            RootIdentityMigration.selfCertify(nodeSecret, ByteArray(31), issuedAt, ed25519)
+            RootIdentityMigration.selfCertify(endpointSecret, ByteArray(31), issuedAt, ed25519)
         }
     }
 }

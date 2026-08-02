@@ -5,7 +5,7 @@ import app.azula.iroh.IrohStream
 import app.azula.iroh.ed25519PublicFromSecret
 import app.azula.iroh.ed25519Sign
 import app.azula.iroh.ed25519Verify
-import app.azula.iroh.nodeIdFromTicket
+import app.azula.iroh.endpointIdFromTicket
 import app.azula.iroh.ticketBytes as irohTicketBytes
 import app.azula.iroh.ticketFromBytes as irohTicketFromBytes
 import app.azula.iroh.verifySignature as irohVerifySignature
@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  * A single persisted 32-byte secret slot -- one named entry in the platform's key-at-rest
  * mechanism (one Keychain (service, account) pair, one plain file). The two-entry
  * [SecretKeyStore] the transport actually uses is built by pairing two of these -- one for
- * the node key, one for the root secret -- under distinct names; see [LayeredSecretKeyStore].
+ * the endpoint key, one for the root secret -- under distinct names; see [LayeredSecretKeyStore].
  */
 interface SingleSlotKeyStore {
     fun load(): ByteArray?
@@ -42,20 +42,20 @@ interface SingleSlotKeyStore {
 
 /**
  * Persists azula's two independently-present secrets under distinct entries, per the
- * `identity` capability's Per-Platform Key-at-Rest Storage requirement: [loadNodeKey]/
- * [saveNodeKey] for this device's iroh node secret (present once bound -- the node id
+ * `identity` capability's Per-Platform Key-at-Rest Storage requirement: [loadEndpointKey]/
+ * [saveEndpointKey] for this device's iroh endpoint secret (present once bound -- the endpoint id
  * derives from it), [loadRootSecret]/[saveRootSecret] for the identity's root secret
  * (present once this device holds one; permanently absent on a QR-linked device). The two
- * entries are independent -- a device may hold a node key and no root secret, so
- * [loadRootSecret] is nullable rather than falling back to the node key.
+ * entries are independent -- a device may hold a endpoint key and no root secret, so
+ * [loadRootSecret] is nullable rather than falling back to the endpoint key.
  */
 interface SecretKeyStore {
-    fun loadNodeKey(): ByteArray?
-    fun saveNodeKey(bytes: ByteArray)
+    fun loadEndpointKey(): ByteArray?
+    fun saveEndpointKey(bytes: ByteArray)
     fun loadRootSecret(): ByteArray?
     fun saveRootSecret(bytes: ByteArray)
 
-    /** Clears the root-secret entry only (never the node key) -- see
+    /** Clears the root-secret entry only (never the endpoint key) -- see
      *  [IrohTransport.forgetRootSecret]. Defaults to a no-op so every existing
      *  implementer stays source-compatible. */
     fun clearRootSecret() {}
@@ -64,15 +64,15 @@ interface SecretKeyStore {
 /**
  * Builds the two-entry [SecretKeyStore] contract out of a pair of [SingleSlotKeyStore]s --
  * one per entry -- so JVM desktop's per-item Keychain/file stores (each already a single
- * named entry) can supply both the node and root entries without duplicating their own
+ * named entry) can supply both the endpoint and root entries without duplicating their own
  * load/save/migrate logic.
  */
 class LayeredSecretKeyStore(
-    internal val node: SingleSlotKeyStore,
+    internal val endpoint: SingleSlotKeyStore,
     internal val root: SingleSlotKeyStore,
 ) : SecretKeyStore {
-    override fun loadNodeKey(): ByteArray? = node.load()
-    override fun saveNodeKey(bytes: ByteArray) = node.save(bytes)
+    override fun loadEndpointKey(): ByteArray? = endpoint.load()
+    override fun saveEndpointKey(bytes: ByteArray) = endpoint.save(bytes)
     override fun loadRootSecret(): ByteArray? = root.load()
     override fun saveRootSecret(bytes: ByteArray) = root.save(bytes)
     override fun clearRootSecret() = root.clear()
@@ -102,7 +102,7 @@ class FileSecretKeyStore(private val path: String) : SingleSlotKeyStore {
  * but is unreadable (login keychain locked, or the `security` call errored/timed out)
  * and no legacy plaintext copy exists. [IrohFfiTransport.bind] propagates it rather
  * than degrading to a fresh key, so a transient Keychain outage fails loudly instead
- * of silently minting a new identity and changing the node id.
+ * of silently minting a new identity and changing the endpoint id.
  */
 class KeychainUnavailableException(detail: String) : IllegalStateException(
     "Identity Keychain unavailable ($detail); refusing to mint a new identity. " +
@@ -240,7 +240,7 @@ object IrohConfig {
 /**
  * Real iroh transport for JVM desktop and Android, over the `app.azula.iroh:iroh-kmp`
  * binding. Unlike the published `computer.iroh:iroh` artifact, this Gobley binding's
- * async calls complete on Android, so [IrohEndpoint.bind] returns and the node comes
+ * async calls complete on Android, so [IrohEndpoint.bind] returns and the endpoint comes
  * online.
  *
  * Gobley's bindings still call through **JNA** on jvm + android (this comment used to
@@ -254,7 +254,7 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     private var endpoint: IrohEndpoint? = null
     private var alpns: List<String> = emptyList()
 
-    override var nodeId: String? = null
+    override var endpointId: String? = null
         private set
 
     override var onCameOnline: (() -> Unit)? = null
@@ -266,9 +266,9 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
         // key-store hiccup degrades to a fresh key (never to demo) — but a
         // [KeychainUnavailableException] (the identity may exist but the Keychain
         // is locked/unreadable) propagates, so we fail loudly rather than silently
-        // minting a new identity and changing the node id.
+        // minting a new identity and changing the endpoint id.
         val stored = try {
-            keyStore.loadNodeKey()
+            keyStore.loadEndpointKey()
         } catch (e: KeychainUnavailableException) {
             throw e
         } catch (e: Throwable) {
@@ -276,8 +276,8 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
         }
         val ep = IrohEndpoint.bind(alpns, stored)
         endpoint = ep
-        nodeId = ep.nodeId()
-        runCatching { keyStore.saveNodeKey(ep.secretKeyBytes()) }
+        endpointId = ep.id()
+        runCatching { keyStore.saveEndpointKey(ep.secretKeyBytes()) }
         runCatching { maybeAdoptRootSecret(ep) }
         IrohConfig.activeTransport = this
         onCameOnline?.invoke()
@@ -285,38 +285,38 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
 
     /**
      * multi-device-identity design.md Migration Plan step 2: if this device has no root
-     * secret yet, its node secret becomes the root secret unchanged and a self-certificate
+     * secret yet, its endpoint secret becomes the root secret unchanged and a self-certificate
      * (`device_pk == root_pk`) is issued. This covers both an existing single-device
      * identity's first post-upgrade launch AND a genuinely fresh install -- there's no
      * separate "link to an existing identity" flow yet (task 6), so every device is
-     * root-holding today. The node key itself is never touched here, so the node id,
+     * root-holding today. The endpoint key itself is never touched here, so the endpoint id,
      * recovery phrase, and existing contacts are all unaffected -- see
      * [adoptRootSecretIfNeeded]'s kdoc for the TODO this leaves for task 3.4.
      */
     private fun maybeAdoptRootSecret(ep: IrohEndpoint) {
-        val nodeSecret = ep.secretKeyBytes()
-        val devicePk = runCatching { ed25519PublicFromSecret(nodeSecret) }.getOrNull() ?: return
-        adoptRootSecretIfNeeded(keyStore, nodeSecret, devicePk, System.currentTimeMillis() / 1000)
+        val endpointSecret = ep.secretKeyBytes()
+        val devicePk = runCatching { ed25519PublicFromSecret(endpointSecret) }.getOrNull() ?: return
+        adoptRootSecretIfNeeded(keyStore, endpointSecret, devicePk, System.currentTimeMillis() / 1000)
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
 
     override fun secretKeyBytes(): ByteArray? =
-        runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: runCatching { keyStore.loadNodeKey() }.getOrNull()
+        runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: runCatching { keyStore.loadEndpointKey() }.getOrNull()
 
     /**
      * Pre-bind probe of [keyStore] for the setup gate (see [IrohTransport.hasPersistedIdentity]).
-     * [SecretKeyStore.loadNodeKey] can throw [KeychainUnavailableException] (macOS Keychain
+     * [SecretKeyStore.loadEndpointKey] can throw [KeychainUnavailableException] (macOS Keychain
      * locked) — treated as "no identity" here, so a locked Keychain shows setup once rather
      * than crashing; harmless per the design's risk note since "create" falls back to the
      * same keystore-recovery behavior as today, and restore is still available.
      */
     override fun hasPersistedIdentity(): Boolean =
-        runCatching { keyStore.loadNodeKey() != null }.getOrDefault(false)
+        runCatching { keyStore.loadEndpointKey() != null }.getOrDefault(false)
 
     override suspend fun importSecretKey(bytes: ByteArray) {
         require(bytes.size == 32) { "secret key must be 32 bytes" }
-        runCatching { keyStore.saveNodeKey(bytes) }
+        runCatching { keyStore.saveEndpointKey(bytes) }
         // Re-bind with the restored identity: tear down the old endpoint and bind
         // again, which reads the freshly-saved key from the store.
         runCatching { endpoint?.shutdown() }
@@ -325,15 +325,15 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     }
 
     /** The current 32-byte identity root secret, if this device holds one -- independent
-     *  of the node key (see [SecretKeyStore]). Null on a QR-linked device, or before any
+     *  of the endpoint key (see [SecretKeyStore]). Null on a QR-linked device, or before any
      *  root secret is known. */
     override fun rootSecretBytes(): ByteArray? = runCatching { keyStore.loadRootSecret() }.getOrNull()
 
     /**
-     * Persists [bytes] as this device's root secret, independent of the node key -- used by
+     * Persists [bytes] as this device's root secret, independent of the endpoint key -- used by
      * the recovery-phrase import flow (see [dev.azula.core.RecoveryPhrase] /
      * `ConnectService.importRecoveryPhrase`). Unlike [importSecretKey] this never rebinds
-     * the transport itself: the node id is unaffected by a root-secret change under the
+     * the transport itself: the endpoint id is unaffected by a root-secret change under the
      * multi-device-identity model. The rest of enrollment (self-issued certificate,
      * `device_add` log entry, second-confirmation-on-overwrite, and a conditional
      * [rebind] for a genuinely different identity) is orchestrated by
@@ -346,7 +346,7 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     }
 
     /** See [IrohTransport.forgetRootSecret] -- clears [keyStore]'s root entry only, never
-     *  touching the node key/id. */
+     *  touching the endpoint key/id. */
     override fun forgetRootSecret() {
         runCatching { keyStore.clearRootSecret() }
     }
@@ -367,7 +367,7 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
     }
 
     override fun peerIdForTicket(ticket: String): String? =
-        runCatching { nodeIdFromTicket(ticket) }.getOrNull()
+        runCatching { endpointIdFromTicket(ticket) }.getOrNull()
 
     override fun incoming(): Flow<IncomingConnection> = channelFlow {
         val ep = endpoint ?: return@channelFlow
@@ -397,11 +397,11 @@ class IrohFfiTransport(private val keyStore: SecretKeyStore) : IrohTransport {
         endpoint = null
     }
 
-    override fun signWithNodeKey(data: ByteArray): ByteArray? =
+    override fun signWithEndpointKey(data: ByteArray): ByteArray? =
         runCatching { endpoint?.sign(data) }.getOrNull()
 
-    override fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean =
-        runCatching { irohVerifySignature(nodeIdHex, data, sig) }.getOrDefault(false)
+    override fun verifyEndpointSignature(endpointIdHex: String, data: ByteArray, sig: ByteArray): Boolean =
+        runCatching { irohVerifySignature(endpointIdHex, data, sig) }.getOrDefault(false)
 
     override fun ticketBytes(ticket: String): ByteArray? =
         runCatching { irohTicketBytes(ticket) }.getOrNull()
@@ -474,9 +474,9 @@ private fun defaultKeyPath(fileName: String, env: (String) -> String? = System::
  * desktop (Android always injects `AndroidSecretKeyStore` before this runs).
  * macOS gets the Keychain-backed store; other desktop OSes keep the old
  * plaintext file, noted as a known gap (no equivalent dependency-free OS
- * keystore CLI on Linux/Windows). The node entry keeps its original name/account
- * (`endpoint.key` / `endpoint_key`) so an existing install's node key -- and
- * therefore its node id -- is read back unchanged; the root entry (`root.key` /
+ * keystore CLI on Linux/Windows). The endpoint entry keeps its original name/account
+ * (`endpoint.key` / `endpoint_key`) so an existing install's endpoint key -- and
+ * therefore its endpoint id -- is read back unchanged; the root entry (`root.key` /
  * `root_secret`) is new and starts absent, which is exactly what triggers the
  * migration in [IrohFfiTransport.maybeAdoptRootSecret] on first launch.
  *
@@ -503,7 +503,7 @@ internal fun defaultDesktopKeyStore(
     val overridden = env("AZULA_DATA_DIR")?.isNotBlank() == true
     return if (isMac && !overridden) {
         LayeredSecretKeyStore(
-            node = MacKeychainSecretKeyStore(
+            endpoint = MacKeychainSecretKeyStore(
                 service = "app.azula.identity",
                 account = "endpoint_key",
                 fallback = FileSecretKeyStore(defaultKeyPath("endpoint.key", env)),
@@ -516,7 +516,7 @@ internal fun defaultDesktopKeyStore(
         )
     } else {
         LayeredSecretKeyStore(
-            node = FileSecretKeyStore(defaultKeyPath("endpoint.key", env)),
+            endpoint = FileSecretKeyStore(defaultKeyPath("endpoint.key", env)),
             root = FileSecretKeyStore(defaultKeyPath("root.key", env)),
         )
     }
@@ -539,7 +539,7 @@ actual fun platformEd25519(): Ed25519 = IrohKmpEd25519
 /**
  * multi-device-identity design.md Migration Plan step 2, factored out of
  * [IrohFfiTransport.maybeAdoptRootSecret] so it's testable without a real bound
- * [IrohEndpoint]: if [keyStore] has no root secret yet, [nodeSecret] becomes the root
+ * [IrohEndpoint]: if [keyStore] has no root secret yet, [endpointSecret] becomes the root
  * secret (persisted as-is) and a `device_pk == root_pk` self-certificate is computed via
  * [RootIdentityMigration.selfCertify] and returned. A no-op (returns null) if a root
  * secret is already present -- migration runs at most once per device.
@@ -550,19 +550,19 @@ actual fun platformEd25519(): Ed25519 = IrohKmpEd25519
  * `ConnectService.start()` (in `shared`, which *can* see the event log) independently
  * recomputes the identical certificate via `AccountSyncService.ensureSelfCertified` and
  * durably logs its `device_add` there. Safe because self-certification is deterministic
- * (same node secret, same devicePk, same signature) -- this copy and that one always
+ * (same endpoint secret, same devicePk, same signature) -- this copy and that one always
  * agree, and `ensureSelfCertified` is idempotent, so redoing the computation here costs
  * nothing.
  */
 fun adoptRootSecretIfNeeded(
     keyStore: SecretKeyStore,
-    nodeSecret: ByteArray,
+    endpointSecret: ByteArray,
     devicePk: ByteArray,
     nowEpochSeconds: Long,
     ed25519: Ed25519 = IrohKmpEd25519,
 ): DeviceCert? {
     if (runCatching { keyStore.loadRootSecret() }.getOrNull() != null) return null
-    val cert = runCatching { RootIdentityMigration.selfCertify(nodeSecret, devicePk, nowEpochSeconds, ed25519) }.getOrNull()
-    runCatching { keyStore.saveRootSecret(nodeSecret) }
+    val cert = runCatching { RootIdentityMigration.selfCertify(endpointSecret, devicePk, nowEpochSeconds, ed25519) }.getOrNull()
+    runCatching { keyStore.saveRootSecret(endpointSecret) }
     return cert
 }

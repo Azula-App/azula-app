@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  * unknown peer dialing us opens all three streams, not just CHAT. Only CHAT is
  * invite-gateable -- LLM/TERM from a stranger must be closed outright, never
  * wired AND never enqueued as pending (enqueuing would risk one of them landing
- * before CHAT and becoming the wrong held "primary" for that node id).
+ * before CHAT and becoming the wrong held "primary" for that endpoint id).
  */
 class StrangerGateTest {
     @Test
@@ -75,7 +75,7 @@ class StrangerGateTest {
         runCurrent()
 
         val req = azulaState.pendingInvites.single()
-        assertEquals("stranger-chat", req.nodeId)
+        assertEquals("stranger-chat", req.endpointId)
         assertFalse(req.unverified, "a stream presenting a valid invite must land in pending as verified")
         assertTrue(azulaState.conversations.isEmpty(), "still holds pending, not wired -- no conversation until accept")
     }
@@ -97,13 +97,13 @@ private class TrackingStream : P2pStream {
  * so a test can simulate a stranger opening several ALPNs in sequence. Its
  * ticketBytes/ticketFromBytes/peerIdForTicket round-trip faithfully -- like the
  * fixed [dev.azula.mock.FakeTransport] -- so a self-issued invite verifies
- * against [nodeId] the same way it would on a real transport.
+ * against [endpointId] the same way it would on a real transport.
  */
 private class GateTestTransport : IrohTransport {
-    override var nodeId: String? = "self-node"
+    override var endpointId: String? = "self-endpoint"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
-    override suspend fun myTicket(): String = "ticket-for-$nodeId"
+    override suspend fun myTicket(): String = "ticket-for-$endpointId"
     override fun secretKeyBytes(): ByteArray? = null
     override suspend fun importSecretKey(bytes: ByteArray) = Unit
     override suspend fun connect(ticket: String, alpn: String): P2pStream = error("not used: inbound-only test")

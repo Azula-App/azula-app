@@ -44,14 +44,14 @@ class InviteReviewSheetE2eTest {
 
     @Test
     fun acceptingAVerifiedStrangerWiresAConversationAndClearsThePending() = desktopE2eTest { state, transport, scope ->
-        // Wait for the transport to actually bind (sets AzulaState.nodeId) before
+        // Wait for the transport to actually bind (sets AzulaState.endpointId) before
         // minting: createInvite embeds transport.myTicket() at mint time, and
         // verifyInbound later checks that ticket's peer id against
-        // transport.nodeId -- minting before bind would embed a stale
-        // "azula-mock-offline" ticket that no longer resolves to the real node
+        // transport.endpointId -- minting before bind would embed a stale
+        // "azula-mock-offline" ticket that no longer resolves to the real endpoint
         // id once bound, breaking verification against no fault of the invite
         // itself.
-        waitUntil(timeoutMillis = 10_000) { state.nodeId != null }
+        waitUntil(timeoutMillis = 10_000) { state.endpointId != null }
 
         // Mint a real invite from this same (issuer) AzulaState -- exactly the
         // loopback shape StrangerGateTest.unknownPeerOnChatWithAValidInviteLandsInPendingVerified
@@ -85,7 +85,7 @@ class InviteReviewSheetE2eTest {
 
         assertTrue(state.pendingInvites.isEmpty(), "accept must remove the request from the pending inbox")
         // ConnectService.wireStream keys the new conversation's id off the
-        // stranger's node id (ConversationStore.ensureConv's `id = peerId`).
+        // stranger's endpoint id (ConversationStore.ensureConv's `id = peerId`).
         assertEquals(ConversationKind.PEER, state.conversations.single { it.id == "stranger-verified" }.kind)
     }
 

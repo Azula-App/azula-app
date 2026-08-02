@@ -143,7 +143,7 @@ class SyncSessionTest {
     }
 
     @Test
-    fun helloRejectsATransportNodeIdMismatchBeforeAnyVectorExchange() = runTest {
+    fun helloRejectsATransportEndpointIdMismatchBeforeAnyVectorExchange() = runTest {
         val myCert = cert(rootSecret, rootPk, deviceAPk, "victim")
         val siblingCert = cert(rootSecret, rootPk, deviceBPk, "sibling")
         val pipe = Pipe()
@@ -151,10 +151,10 @@ class SyncSessionTest {
 
         // Transport peer id does NOT match siblingCert.devicePk.
         val outcome = runSyncSession(
-            pipe.a, myCert, emptyList(), foreignRootPk, newStore("node_id_mismatch"), ed25519, 1_700_000_500L,
+            pipe.a, myCert, emptyList(), foreignRootPk, newStore("endpoint_id_mismatch"), ed25519, 1_700_000_500L,
         )
         val rejected = outcome as? SyncSessionOutcome.HelloRejected ?: fail("expected HelloRejected, got $outcome")
-        assertTrue(rejected.reason.contains("transport") || rejected.reason.contains("node id"), rejected.reason)
+        assertTrue(rejected.reason.contains("transport") || rejected.reason.contains("endpoint id"), rejected.reason)
 
         assertTrue(FrameCodec.decode(pipe.aToB.tryReceive().getOrThrow()) is Frame.SyncHello)
         assertTrue(pipe.aToB.tryReceive().isFailure)

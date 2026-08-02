@@ -90,7 +90,7 @@ sealed class SyncSessionOutcome {
  *   session; do the same here.
  * @param transportPeerDevicePk the connection's actual transport-layer peer device
  *   public key (e.g. decoded from [dev.azula.net.IncomingConnection.remoteId], or the
- *   ticket's node id for a dialed-out connection) -- the caller's job to obtain. Pins
+ *   ticket's endpoint id for a dialed-out connection) -- the caller's job to obtain. Pins
  *   the presented certificate to the connection it actually arrived on.
  * @param store this device's [EventLogStore].
  * @param ed25519 real signature verification for [store]'s entries and the peer's cert.
@@ -216,7 +216,7 @@ internal suspend fun readAndVerifyHello(
         return "certificate's device key has been revoked"
     }
     if (!cert.devicePk.contentEquals(transportPeerDevicePk)) {
-        return "certificate's device key does not match the connection's transport node id"
+        return "certificate's device key does not match the connection's transport endpoint id"
     }
     return null
 }

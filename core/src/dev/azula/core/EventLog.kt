@@ -13,13 +13,13 @@ enum class EventKind(val wireValue: Int) {
     MESSAGE_OUT(0x01), // {conversation, text, id?}
     MESSAGE_IN(0x02), // {conversation, from_device_pk, text, id?}
     READ_MARKER(0x03), // {conversation, up_to_lamport}
-    CONTACT_ADD(0x04), // {root_pk | node_id, name?}
+    CONTACT_ADD(0x04), // {root_pk | endpoint_id, name?}
     CONTACT_REMOVE(0x05), // same key shape as add
     DEVICE_ADD(0x06), // {cert}
     DEVICE_REVOKE(0x07), // {revocation}
     PROFILE_UPDATE(0x08), // {name?, description?}
     // cli-multi-session-relay: agent chat riding the relay's own log. `conversation` is the
-    // session's public key in hex -- not a contact root/node id. See account-sync spec's
+    // session's public key in hex -- not a contact root/endpoint id. See account-sync spec's
     // "Event Kinds" delta.
     AGENT_IN(0x09), // {conversation, text, id?, from_name?}
     AGENT_OUT(0x0A), // {conversation, text, id?}

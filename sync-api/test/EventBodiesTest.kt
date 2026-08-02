@@ -29,16 +29,16 @@ class EventBodiesTest {
     }
 
     @Test
-    fun contactKeyBodyPrefersRootPkOverNodeId() {
-        val body = ContactKeyBody(rootPk = "root-hex", nodeId = "node-hex", name = "Alice")
+    fun contactKeyBodyPrefersRootPkOverEndpointId() {
+        val body = ContactKeyBody(rootPk = "root-hex", endpointId = "endpoint-hex", name = "Alice")
         assertEquals("root-hex", body.key)
         assertEquals(body, decodeContactKeyBody(encodeContactKeyBody(body)))
     }
 
     @Test
-    fun contactKeyBodyFallsBackToNodeIdWhenRootPkAbsent() {
-        val body = ContactKeyBody(nodeId = "node-hex")
-        assertEquals("node-hex", body.key)
+    fun contactKeyBodyFallsBackToEndpointIdWhenRootPkAbsent() {
+        val body = ContactKeyBody(endpointId = "endpoint-hex")
+        assertEquals("endpoint-hex", body.key)
     }
 
     @Test

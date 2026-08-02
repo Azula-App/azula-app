@@ -5,7 +5,7 @@ import app.azula.iroh.IrohStream
 import app.azula.iroh.ed25519PublicFromSecret
 import app.azula.iroh.ed25519Sign
 import app.azula.iroh.ed25519Verify
-import app.azula.iroh.nodeIdFromTicket
+import app.azula.iroh.endpointIdFromTicket
 import app.azula.iroh.ticketBytes as irohTicketBytes
 import app.azula.iroh.ticketFromBytes as irohTicketFromBytes
 import app.azula.iroh.verifySignature as irohVerifySignature
@@ -65,18 +65,18 @@ class IosIrohTransport : IrohTransport {
     private var endpoint: IrohEndpoint? = null
     private var alpns: List<String> = emptyList()
 
-    override var nodeId: String? = null
+    override var endpointId: String? = null
         private set
 
     override var onCameOnline: (() -> Unit)? = null
 
     override suspend fun bind(alpns: List<String>) {
         this.alpns = alpns
-        // Reuse the persisted secret key so the node id (and "your code") stays
+        // Reuse the persisted secret key so the endpoint id (and "your code") stays
         // stable across launches, mirroring AndroidSecretKeyStore.
         val ep = IrohEndpoint.bind(alpns, loadSecretKey())
         endpoint = ep
-        nodeId = ep.nodeId()
+        endpointId = ep.id()
         runCatching { saveSecretKey(ep.secretKeyBytes()) }
         runCatching { maybeAdoptRootSecret(ep) }
         onCameOnline?.invoke()
@@ -84,11 +84,11 @@ class IosIrohTransport : IrohTransport {
 
     /**
      * multi-device-identity design.md Migration Plan step 2: if this device has no root
-     * secret yet, its node secret becomes the root secret unchanged and a self-certificate
+     * secret yet, its endpoint secret becomes the root secret unchanged and a self-certificate
      * (`device_pk == root_pk`) is issued -- mirrors [IrohFfiTransport]'s
      * `maybeAdoptRootSecret`/`adoptRootSecretIfNeeded`. Covers both an existing
      * single-device identity's first post-upgrade launch and a fresh install (no separate
-     * "link to an existing identity" flow exists yet -- task 6). The node key itself is
+     * "link to an existing identity" flow exists yet -- task 6). The endpoint key itself is
      * never touched here.
      *
      * multi-device-identity task 3.4, closed: this module still cannot depend on
@@ -100,10 +100,10 @@ class IosIrohTransport : IrohTransport {
      */
     private fun maybeAdoptRootSecret(ep: IrohEndpoint) {
         if (runCatching { loadRootSecret() }.getOrNull() != null) return
-        val nodeSecret = ep.secretKeyBytes()
-        val devicePk = runCatching { ed25519PublicFromSecret(nodeSecret) }.getOrNull() ?: return
-        runCatching { RootIdentityMigration.selfCertify(nodeSecret, devicePk, epochSecondsNow(), IrohKmpEd25519) }
-        runCatching { saveRootSecret(nodeSecret) }
+        val endpointSecret = ep.secretKeyBytes()
+        val devicePk = runCatching { ed25519PublicFromSecret(endpointSecret) }.getOrNull() ?: return
+        runCatching { RootIdentityMigration.selfCertify(endpointSecret, devicePk, epochSecondsNow(), IrohKmpEd25519) }
+        runCatching { saveRootSecret(endpointSecret) }
     }
 
     override suspend fun myTicket(): String = endpoint?.myTicket() ?: ""
@@ -112,13 +112,13 @@ class IosIrohTransport : IrohTransport {
         runCatching { endpoint?.secretKeyBytes() }.getOrNull() ?: loadSecretKey()
 
     /** The current 32-byte identity root secret, if this device holds one -- independent
-     *  of the node key. Null on a QR-linked device, or before any root secret is known. */
+     *  of the endpoint key. Null on a QR-linked device, or before any root secret is known. */
     override fun rootSecretBytes(): ByteArray? = runCatching { loadRootSecret() }.getOrNull()
 
     /**
-     * Persists [bytes] as this device's root secret, independent of the node key -- used by
+     * Persists [bytes] as this device's root secret, independent of the endpoint key -- used by
      * the recovery-phrase import flow. Unlike [importSecretKey] this never rebinds the
-     * transport itself: the node id is unaffected by a root-secret change under the
+     * transport itself: the endpoint id is unaffected by a root-secret change under the
      * multi-device-identity model. The rest of enrollment (self-issued certificate,
      * `device_add` log entry, second-confirmation-on-overwrite, and a conditional
      * [rebind] for a genuinely different identity) is orchestrated by
@@ -130,7 +130,7 @@ class IosIrohTransport : IrohTransport {
     }
 
     /** See [IrohTransport.forgetRootSecret] -- clears the Keychain root-secret entry and its
-     *  NSUserDefaults fallback only, never the node key/id. */
+     *  NSUserDefaults fallback only, never the endpoint key/id. */
     override fun forgetRootSecret() {
         runCatching { clearRootSecretStorage() }
     }
@@ -170,7 +170,7 @@ class IosIrohTransport : IrohTransport {
     }
 
     override fun peerIdForTicket(ticket: String): String? =
-        runCatching { nodeIdFromTicket(ticket) }.getOrNull()
+        runCatching { endpointIdFromTicket(ticket) }.getOrNull()
 
     override fun incoming(): Flow<IncomingConnection> = channelFlow {
         val ep = endpoint ?: return@channelFlow
@@ -199,11 +199,11 @@ class IosIrohTransport : IrohTransport {
         endpoint = null
     }
 
-    override fun signWithNodeKey(data: ByteArray): ByteArray? =
+    override fun signWithEndpointKey(data: ByteArray): ByteArray? =
         runCatching { endpoint?.sign(data) }.getOrNull()
 
-    override fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean =
-        runCatching { irohVerifySignature(nodeIdHex, data, sig) }.getOrDefault(false)
+    override fun verifyEndpointSignature(endpointIdHex: String, data: ByteArray, sig: ByteArray): Boolean =
+        runCatching { irohVerifySignature(endpointIdHex, data, sig) }.getOrDefault(false)
 
     override fun ticketBytes(ticket: String): ByteArray? =
         runCatching { irohTicketBytes(ticket) }.getOrNull()
@@ -287,13 +287,13 @@ private fun saveSecretKey(bytes: ByteArray) {
     }
 }
 
-// --- Root-secret persistence (identity root, distinct from the node key above) ---
+// --- Root-secret persistence (identity root, distinct from the endpoint key above) ---
 //
 // A second, independent Keychain entry (per the `identity` capability's Per-Platform
-// Key-at-Rest Storage requirement -- "the root secret and node key SHALL be stored under
-// distinct entries"). Unlike the node key, there is no legacy plaintext value to migrate
+// Key-at-Rest Storage requirement -- "the root secret and endpoint key SHALL be stored under
+// distinct entries"). Unlike the endpoint key, there is no legacy plaintext value to migrate
 // here: this entry didn't exist before multi-device-identity, so a Keychain failure just
-// falls back to a second NSUserDefaults key, the same resilience posture as the node key.
+// falls back to a second NSUserDefaults key, the same resilience posture as the endpoint key.
 
 private const val ROOT_KEYCHAIN_ACCOUNT = "root_secret"
 private const val ROOT_SECRET_PREF = "azula_root_secret_key"

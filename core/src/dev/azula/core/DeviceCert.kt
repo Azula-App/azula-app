@@ -130,7 +130,7 @@ private fun readU32BE(bytes: ByteArray, offset: Int): Long =
 /**
  * A decoded device certificate: an association claim binding [devicePk] to [rootPk], signed by
  * the root secret. Confers nothing by itself — per the spec, a verifier must additionally check
- * the *transport* node id equals [devicePk] before treating a connection as that device.
+ * the *transport* endpoint id equals [devicePk] before treating a connection as that device.
  */
 data class DeviceCert(
     val version: Int,

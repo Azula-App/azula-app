@@ -104,12 +104,12 @@ class MultiDeviceSendTest {
      *  over the winning connection. */
     private class DialOrderTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val downTickets: Set<String>,
         private val droppableTickets: Set<String> = emptySet(),
         val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)

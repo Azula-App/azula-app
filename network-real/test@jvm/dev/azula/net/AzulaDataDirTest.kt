@@ -78,14 +78,14 @@ class AzulaDataDirTest {
     @Test
     fun unsetOnMacUsesTheRealKeychain() {
         val store = defaultDesktopKeyStore(env = { null }, isMac = true) as LayeredSecretKeyStore
-        assertTrue(store.node is MacKeychainSecretKeyStore, "unset must keep today's real-Keychain behavior on macOS")
+        assertTrue(store.endpoint is MacKeychainSecretKeyStore, "unset must keep today's real-Keychain behavior on macOS")
         assertTrue(store.root is MacKeychainSecretKeyStore)
     }
 
     @Test
     fun unsetOnNonMacUsesFileStorageAsBefore() {
         val store = defaultDesktopKeyStore(env = { null }, isMac = false) as LayeredSecretKeyStore
-        assertTrue(store.node is FileSecretKeyStore)
+        assertTrue(store.endpoint is FileSecretKeyStore)
         assertTrue(store.root is FileSecretKeyStore)
     }
 
@@ -98,9 +98,9 @@ class AzulaDataDirTest {
         val isMac = System.getProperty("os.name")?.lowercase()?.contains("mac") == true
         val overridden = System.getenv("AZULA_DATA_DIR")?.isNotBlank() == true
         if (isMac && !overridden) {
-            assertTrue(store.node is MacKeychainSecretKeyStore)
+            assertTrue(store.endpoint is MacKeychainSecretKeyStore)
         } else {
-            assertTrue(store.node is FileSecretKeyStore)
+            assertTrue(store.endpoint is FileSecretKeyStore)
         }
     }
 
@@ -117,7 +117,7 @@ class AzulaDataDirTest {
                 env = { if (it == "AZULA_DATA_DIR") dir.path else null },
                 isMac = true,
             ) as LayeredSecretKeyStore
-            assertTrue(store.node is FileSecretKeyStore, "override must never touch the real Keychain")
+            assertTrue(store.endpoint is FileSecretKeyStore, "override must never touch the real Keychain")
             assertTrue(store.root is FileSecretKeyStore, "override must never touch the real Keychain")
         } finally {
             dir.deleteRecursively()
@@ -132,11 +132,11 @@ class AzulaDataDirTest {
             val storeA = defaultDesktopKeyStore(env = { if (it == "AZULA_DATA_DIR") dirA.path else null }, isMac = true)
             val storeB = defaultDesktopKeyStore(env = { if (it == "AZULA_DATA_DIR") dirB.path else null }, isMac = true)
 
-            storeA.saveNodeKey(ByteArray(32) { 1 })
-            storeB.saveNodeKey(ByteArray(32) { 2 })
+            storeA.saveEndpointKey(ByteArray(32) { 1 })
+            storeB.saveEndpointKey(ByteArray(32) { 2 })
 
-            assertEquals(List(32) { 1.toByte() }, storeA.loadNodeKey()?.toList(), "instance A must read back its own key")
-            assertEquals(List(32) { 2.toByte() }, storeB.loadNodeKey()?.toList(), "instance B must read back its own key")
+            assertEquals(List(32) { 1.toByte() }, storeA.loadEndpointKey()?.toList(), "instance A must read back its own key")
+            assertEquals(List(32) { 2.toByte() }, storeB.loadEndpointKey()?.toList(), "instance B must read back its own key")
 
             // And the two scratch dirs really are on disk as distinct roots.
             assertTrue(dirA.resolve(".azula/endpoint.key").exists())

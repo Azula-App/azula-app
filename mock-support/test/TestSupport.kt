@@ -40,7 +40,7 @@ internal fun testAzulaState(
     // any existing test), but a test that wants to exercise the real event-log
     // append/fold/rebuild path end-to-end can supply both -- see
     // AccountSyncWiringTest.kt for why that needs its own identity-consistent
-    // IrohTransport rather than the shared FakeTransport (whose nodeId isn't real
+    // IrohTransport rather than the shared FakeTransport (whose endpointId isn't real
     // key material paired with any Ed25519).
     eventLogStore: EventLogStore? = null,
     ed25519: Ed25519? = null,

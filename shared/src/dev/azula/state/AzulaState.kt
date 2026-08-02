@@ -154,7 +154,7 @@ class ConversationState(seed: List<Message>) {
      *  keyed by device public key hex -- populated by ConnectService's receive loop as
      *  each device's valid, bound, unrevoked certificate is seen. Used purely as a dial
      *  address book for [ConnectService.dialKnownDeviceForSend]'s send-time fallback;
-     *  stays empty for a legacy (node-id-keyed) conversation, since there's no second
+     *  stays empty for a legacy (endpoint-id-keyed) conversation, since there's no second
      *  device to know about. Session-scoped (not persisted) -- rebuilt naturally as
      *  devices reconnect and re-present their `Hello.cert`, same posture as [rttMs]/
      *  [reconnecting] elsewhere on this class. */
@@ -251,14 +251,14 @@ class AzulaState(
         private set
     // Connect UI state is owned by ConnectService; delegate for the connect screen.
     val myCode get() = connectService.myCode
-    val nodeId get() = connectService.nodeId
+    val endpointId get() = connectService.endpointId
     val connectStage get() = connectService.connectStage
     val connectStep get() = connectService.connectStep
     var connectInput: String
         get() = connectService.connectInput
         set(v) { connectService.connectInput = v }
     /** Resolve the peer being connected to from the current connect input (for the
-     *  setup screen): their node id and mnemonic code. */
+     *  setup screen): their endpoint id and mnemonic code. */
     fun peerIdForInput(input: String): String? = connectService.peerIdForInput(input)
     fun peerCodeForInput(input: String): String? = connectService.peerCodeForInput(input)
 
@@ -395,7 +395,7 @@ class AzulaState(
     // Message-history persistence is delegated to PersistenceCoordinator.
     private fun persist(convId: String) = persistence.save(convId)
 
-    /** A human-friendly label derived from any node id (our own or a peer's). */
+    /** A human-friendly label derived from any endpoint id (our own or a peer's). */
     fun mnemonicCode(id: String): String = convStore.mnemonicCode(id)
 
     /** Our own code for display. Copy uses [myCode]. */
@@ -411,7 +411,7 @@ class AzulaState(
      * `obtainState()`, then the composition's `SetupGate` starts it again), and
      * every step below is once-per-process. Before this guard existed the second
      * call re-ran [ConnectService.start] and bound a SECOND endpoint on the same
-     * secret key -- two nodes sharing one node id, the first orphaned along with
+     * secret key -- two endpoints sharing one endpoint id, the first orphaned along with
      * its accept loop. The mutex (not a bare flag) because the two callers arrive
      * on different dispatchers.
      */
@@ -720,7 +720,7 @@ class AzulaState(
         }
         mediaService.cancelAllForConversation(id)
         // PeerStore has no per-item delete — save a filtered list. Match by the
-        // entry's resolved node id (covers inbound-only convs with no sourceTicket,
+        // entry's resolved endpoint id (covers inbound-only convs with no sourceTicket,
         // and invite-string entries alongside bare tickets).
         peerStore?.let { store ->
             store.save(store.load().filter { (connectService.peerIdForEntry(it) ?: "") != id })

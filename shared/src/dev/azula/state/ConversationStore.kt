@@ -95,7 +95,7 @@ class ConversationStore {
         else -> name.firstOrNull()?.uppercaseChar()?.toString() ?: "•"
     }
 
-    /** A human-friendly label derived from any node id (our own or a peer's). */
+    /** A human-friendly label derived from any endpoint id (our own or a peer's). */
     fun mnemonicCode(id: String): String {
         val h = id.filter { it.isLetterOrDigit() }
         if (h.length < 4) return "··· offline"

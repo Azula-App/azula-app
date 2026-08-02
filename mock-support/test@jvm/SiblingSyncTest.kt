@@ -124,16 +124,16 @@ class SiblingSyncTest {
      */
     private class SiblingDialTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val siblingTicket: String,
-        private val siblingNodeIdHex: String,
+        private val siblingEndpointIdHex: String,
         private val storeB: EventLogStore,
         private val certB: DeviceCert,
         private val ed25519: Ed25519,
         private val dialScope: CoroutineScope,
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -149,10 +149,10 @@ class SiblingSyncTest {
             if (ticket == siblingTicket && alpn == Alpns.SYNC) {
                 dialCount++
                 val pipe = SiblingPipe()
-                val aNodeIdBytes = fixedNodeIdHex.hexToByteArrayOrNull()!!
+                val aEndpointIdBytes = fixedEndpointIdHex.hexToByteArrayOrNull()!!
                 dialScope.launch {
                     val result = runCatching {
-                        runSyncSession(pipe.b, certB, emptyList(), aNodeIdBytes, storeB, ed25519, 1_700_000_500L)
+                        runSyncSession(pipe.b, certB, emptyList(), aEndpointIdBytes, storeB, ed25519, 1_700_000_500L)
                     }
                     bResults.add(result)
                 }
@@ -162,7 +162,7 @@ class SiblingSyncTest {
         }
 
         override fun peerIdForTicket(ticket: String): String? =
-            if (ticket == siblingTicket) siblingNodeIdHex else delegate.peerIdForTicket(ticket)
+            if (ticket == siblingTicket) siblingEndpointIdHex else delegate.peerIdForTicket(ticket)
     }
 
     @Test
@@ -172,7 +172,7 @@ class SiblingSyncTest {
         val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
 
         val transport = SiblingDialTransport(
-            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingEndpointIdHex = deviceBHex,
             storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
         )
         val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
@@ -209,7 +209,7 @@ class SiblingSyncTest {
         val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
 
         val transport = SiblingDialTransport(
-            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingEndpointIdHex = deviceBHex,
             storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
         )
         val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
@@ -266,7 +266,7 @@ class SiblingSyncTest {
         val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
 
         val transport = SiblingDialTransport(
-            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingEndpointIdHex = deviceBHex,
             storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
         )
         val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
@@ -306,7 +306,7 @@ class SiblingSyncTest {
         val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
 
         val transport = SiblingDialTransport(
-            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingNodeIdHex = deviceBHex,
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingEndpointIdHex = deviceBHex,
             storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
         )
         val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))

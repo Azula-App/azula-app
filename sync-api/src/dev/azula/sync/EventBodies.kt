@@ -44,19 +44,19 @@ data class ReadMarkerBody(
 )
 
 /**
- * `0x04 contact_add` / `0x05 contact_remove`: `{root_pk | node_id, name?}` -- exactly
- * one of [rootPk]/[nodeId] is set. [key] is the contact/conversation key this entry
- * names: the hex root public key for a certified contact, or the hex node id for a
+ * `0x04 contact_add` / `0x05 contact_remove`: `{root_pk | endpoint_id, name?}` -- exactly
+ * one of [rootPk]/[endpointId] is set. [key] is the contact/conversation key this entry
+ * names: the hex root public key for a certified contact, or the hex endpoint id for a
  * legacy one (spec: "conversation keys are the contact's root public key in hex, or
- * node id in hex for legacy contacts").
+ * endpoint id in hex for legacy contacts").
  */
 @Serializable
 data class ContactKeyBody(
     @SerialName("root_pk") val rootPk: String? = null,
-    @SerialName("node_id") val nodeId: String? = null,
+    @SerialName("endpoint_id") val endpointId: String? = null,
     val name: String? = null,
 ) {
-    val key: String? get() = rootPk ?: nodeId
+    val key: String? get() = rootPk ?: endpointId
 }
 
 /** `0x06 device_add`: `{cert}` -- an `"azd…"`-encoded [dev.azula.core.DeviceCert]. */
@@ -79,7 +79,7 @@ data class ProfileUpdateBody(
 /**
  * `0x09 agent_in`: `{conversation, text, id?, from_name?}` -- cli-multi-session-relay's
  * relay-carried agent chat. [conversation] is the SESSION's public key in hex (not a
- * contact root/node id -- a session conversation's key space, distinct from peer
+ * contact root/endpoint id -- a session conversation's key space, distinct from peer
  * conversations). [fromName] is the session's announced display name, when known. Field
  * order here is pinned: it must match azula-cli's `eventlog.rs` byte-for-byte (see the
  * cross-language vector in `core/test/CrossLanguageVectorTest.kt`).

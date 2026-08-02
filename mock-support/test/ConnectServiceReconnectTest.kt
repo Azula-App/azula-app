@@ -276,7 +276,7 @@ private class ScriptedTransport(
     private val peerId: String,
     private val successAlpn: String = Alpns.CHAT,
 ) : IrohTransport {
-    override var nodeId: String? = "self"
+    override var endpointId: String? = "self"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
     override suspend fun myTicket(): String = ""
@@ -333,7 +333,7 @@ private class InboundOnlyTransport(
     private val remoteId: String,
     private val pipe: PeerPipe,
 ) : IrohTransport {
-    override var nodeId: String? = "test-node"
+    override var endpointId: String? = "test-endpoint"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
     override suspend fun myTicket(): String = ""

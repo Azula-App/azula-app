@@ -11,9 +11,9 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * A contact entry inside an [IdentityBundle] snapshot: pins either the
- * contact's root public key (a certified contact) or its legacy node id --
+ * contact's root public key (a certified contact) or its legacy endpoint id --
  * exactly one of the two, never both -- plus an optional display name.
- * Senders are responsible for setting exactly one of [rootPk]/[nodeId]; this
+ * Senders are responsible for setting exactly one of [rootPk]/[endpointId]; this
  * isn't enforced at the type level, matching the Rust `Contact`'s convention
  * of leaving encode-side invariants to the caller. Unlike the rest of this
  * file's frames, absent fields here are omitted entirely (never emitted as
@@ -22,7 +22,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable
 data class Contact(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val rootPk: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val nodeId: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val endpointId: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val name: String? = null,
 )
 
@@ -57,7 +57,7 @@ sealed class Frame {
      * Client → peer/server: the first frame on a new outbound connection — a
      * presence "ping" that announces this device and (importantly) unblocks the
      * bridge's accept loop so it flushes any mail queued for us. [name] is a
-     * display fallback; a paired bridge identifies us by node id regardless.
+     * display fallback; a paired bridge identifies us by endpoint id regardless.
      * [invite] is the full encoded invite string (`azi…`, see
      * `dev.azula.link.InviteCodec`), sent by a redeemer dialing a stranger until
      * the issuer has accepted it (see azula-docs/openspec/specs/invitations/design.md). Known
@@ -268,7 +268,7 @@ sealed class Frame {
 
     /**
      * New device → root-holding device (link ALPN): first frame,
-     * presenting the new device's freshly generated node public key,
+     * presenting the new device's freshly generated endpoint public key,
      * requested display name, and requested roles bitfield.
      */
     @Serializable

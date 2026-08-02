@@ -90,7 +90,7 @@ class ConnectService(
     var allowLegacyInbound: Boolean = true
 
     // ---- connect UI state (read by the connect screen) ----
-    var nodeId by mutableStateOf<String?>(null)
+    var endpointId by mutableStateOf<String?>(null)
         private set
     var myCode by mutableStateOf("")
         private set
@@ -99,7 +99,7 @@ class ConnectService(
     var connectStep by mutableStateOf(0)
         private set
     var connectInput by mutableStateOf("")
-    val shortCode: String get() = nodeId?.let { convStore.mnemonicCode(it) } ?: "connecting…"
+    val shortCode: String get() = endpointId?.let { convStore.mnemonicCode(it) } ?: "connecting…"
 
     /** True when the transport failed to bind — we stay offline (no auto-reconnect). */
     private var offline = false
@@ -134,11 +134,11 @@ class ConnectService(
 
     fun peerIdForTicket(ticket: String): String? = transport.peerIdForTicket(ticket)
 
-    /** The peer node id for a saved [PeerStore] entry -- a bare ticket, or a full
+    /** The peer endpoint id for a saved [PeerStore] entry -- a bare ticket, or a full
      *  encoded invite string -- resolving the latter first (see [resolveTicket]). */
     fun peerIdForEntry(entry: String): String? = resolveTicket(entry)?.let { transport.peerIdForTicket(it) }
 
-    /** The peer node id referenced by a pasted connect input (URL or bare ticket). */
+    /** The peer endpoint id referenced by a pasted connect input (URL or bare ticket). */
     fun peerIdForInput(input: String): String? {
         val ticket = AzulaLinks.parse(input) ?: input.trim()
         if (ticket.isEmpty()) return null
@@ -167,8 +167,8 @@ class ConnectService(
      * On a valid phrase:
      * 1. The decoded root secret is persisted ([IrohTransport.importRootSecret]) -- unlike
      *    the pre-multi-device-identity restore flow, this never touches this device's own
-     *    node key or rebinds the transport just to adopt the secret: the device keeps (or,
-     *    on a fresh install, already minted at its first [bind]) its own node keypair
+     *    endpoint key or rebinds the transport just to adopt the secret: the device keeps (or,
+     *    on a fresh install, already minted at its first [bind]) its own endpoint keypair
      *    regardless of which identity it now holds root authority for.
      * 2. This device self-issues its own certificate under the newly-held root and appends
      *    a `device_add` log entry for it ([AccountSyncService.ensureSelfCertified]) --
@@ -221,7 +221,7 @@ class ConnectService(
         }
 
         runCatching {
-            val devicePk = transport.nodeId?.hexToByteArrayOrNull()
+            val devicePk = transport.endpointId?.hexToByteArrayOrNull()
             val deviceSecret = transport.secretKeyBytes()
             val rootPk = transport.publicKeyFor(newRoot)
             if (devicePk != null && deviceSecret != null && rootPk != null) {
@@ -290,18 +290,18 @@ class ConnectService(
         // multi-device-identity tasks 4.4/4.5 (revised by task 3.4): this device's signing
         // identity for the event log, re-derived on every call (not snapshotted) so it
         // reflects whatever's currently bound. Entries are always signed by the DEVICE's
-        // own node secret, never the root secret ("Key Roles and Signing Boundaries" --
+        // own endpoint secret, never the root secret ("Key Roles and Signing Boundaries" --
         // the log-entry wire format's signature is "by the device key"), and verified
-        // against `entry.authorDevicePk`, which is this same node public key. Using
+        // against `entry.authorDevicePk`, which is this same endpoint public key. Using
         // secretKeyBytes() (not rootSecretBytes()) is what makes this correct once a
-        // phrase-enrolled device's own node key differs from the identity's root key
+        // phrase-enrolled device's own endpoint key differs from the identity's root key
         // (task 3.4, importRecoveryPhrase below): signing with the root secret there would
         // produce a signature that doesn't verify against this device's own devicePk at
         // all. Before task 3.4, every device was root-holding by construction (device_pk
         // == root_pk), which is why this used to read rootSecretBytes() interchangeably.
         accountSyncService.deviceIdentity = {
             val secret = transport.secretKeyBytes()
-            val devicePk = transport.nodeId?.hexToByteArrayOrNull()
+            val devicePk = transport.endpointId?.hexToByteArrayOrNull()
             if (secret != null && devicePk != null) devicePk to secret else null
         }
         // Wire an accepted stranger's held stream into a live conversation. No
@@ -312,11 +312,11 @@ class ConnectService(
         // held stream is ever on, see the incoming loop). multi-device-identity
         // task 7.2/7.3: a certified stranger's accepted conversation is keyed by its
         // pinned root pk (InviteService.accept already recorded the contact that way)
-        // rather than by node id -- transportNodeId stays the real connection id either
+        // rather than by endpoint id -- transportEndpointId stays the real connection id either
         // way, for any future cert this same stream presents.
         inviteService.onAccept = { req, profile ->
-            val peerId = req.certifiedRootPk?.toHexLower() ?: req.nodeId
-            val convId = wireStream(req.alpn, req.stream, peerId, transportNodeId = req.nodeId)
+            val peerId = req.certifiedRootPk?.toHexLower() ?: req.endpointId
+            val convId = wireStream(req.alpn, req.stream, peerId, transportEndpointId = req.endpointId)
             if (convId != null && profile != null && req.alpn == Alpns.CHAT) {
                 convStore.convOrNull(convId)?.stream?.let { s ->
                     scope.launch { runCatching { s.sendLine(FrameCodec.encode(profile)) } }
@@ -331,7 +331,7 @@ class ConnectService(
             }
         }
         transport.onCameOnline = {
-            nodeId = transport.nodeId
+            endpointId = transport.endpointId
             // Only for a RE-bind (recovery-phrase restore, Android foreground
             // resume). The first bind's loop is started by this function below --
             // and the test fakes' `bind` never invokes this callback at all, so
@@ -359,7 +359,7 @@ class ConnectService(
             offline = true
         }
         bound = true
-        nodeId = transport.nodeId
+        endpointId = transport.endpointId
         myCode = runCatching { transport.myTicket() }.getOrDefault("")
         startIncomingLoop()
         // Register the deeplink handler AFTER bind so a buffered/cold-start token
@@ -387,7 +387,7 @@ class ConnectService(
     /**
      * See [start]'s call site. This path only ever runs for a device that IS the root
      * (the upgrade-in-place/fresh-install migration -- design.md's Migration Plan step 2):
-     * nothing here mints a *distinct* node key and then separately adopts a different root
+     * nothing here mints a *distinct* endpoint key and then separately adopts a different root
      * secret -- that only happens via [importRecoveryPhrase] (task 3.4's enrollment path,
      * which calls [AccountSyncService.ensureSelfCertified] directly with an
      * independently-derived `rootPk`). So `rootPk == devicePk` is correct here, not a
@@ -396,7 +396,7 @@ class ConnectService(
      */
     private suspend fun ensureSelfCertifiedIfHoldingRoot() {
         val rootSecret = transport.rootSecretBytes() ?: return
-        val devicePk = transport.nodeId?.hexToByteArrayOrNull() ?: return
+        val devicePk = transport.endpointId?.hexToByteArrayOrNull() ?: return
         val deviceSecret = transport.secretKeyBytes() ?: return
         runCatching { accountSyncService.ensureSelfCertified(devicePk, rootSecret, devicePk, deviceSecret) }
     }
@@ -566,7 +566,7 @@ class ConnectService(
     }
 
     private suspend fun ping(stream: P2pStream, invite: String? = null) {
-        stream.sendLine(FrameCodec.encode(Frame.Hello(transport.nodeId ?: "", invite)))
+        stream.sendLine(FrameCodec.encode(Frame.Hello(transport.endpointId ?: "", invite)))
     }
 
     /**
@@ -712,7 +712,7 @@ class ConnectService(
                 val stream = runCatching { transport.connect(ticket, Alpns.CHAT) }.getOrNull() ?: continue
                 runCatching { ping(stream) }
                 runCatching { stream.sendLine(FrameCodec.encode(frame)) }
-                wireConv(convId, stream, isTerminal = false, transportNodeId = deviceHex, dialedTicket = ticket)
+                wireConv(convId, stream, isTerminal = false, transportEndpointId = deviceHex, dialedTicket = ticket)
                 return@launch
             }
         }
@@ -742,13 +742,13 @@ class ConnectService(
     /**
      * This identity's root public key, from whichever side of enrollment this device took: a
      * QR-linked device's own granted certificate embeds it (task 6.1); a root-holding device's
-     * root pk is its own node key by construction (device_pk == root_pk -- the migration/
+     * root pk is its own endpoint key by construction (device_pk == root_pk -- the migration/
      * self-certify invariant `ensureSelfCertifiedIfHoldingRoot` establishes). Null before either
      * is known (offline before the first bind/self-certify).
      */
     private fun currentRootPk(): ByteArray? {
         settingsService.linkedDeviceCert?.let { return DeviceCertCodec.decode(it)?.rootPk }
-        return transport.nodeId?.takeIf { transport.rootSecretBytes() != null }?.hexToByteArrayOrNull()
+        return transport.endpointId?.takeIf { transport.rootSecretBytes() != null }?.hexToByteArrayOrNull()
     }
 
     /**
@@ -760,7 +760,7 @@ class ConnectService(
      */
     private suspend fun myCertString(): String? {
         settingsService.linkedDeviceCert?.let { return it }
-        val devicePk = transport.nodeId?.hexToByteArrayOrNull() ?: return null
+        val devicePk = transport.endpointId?.hexToByteArrayOrNull() ?: return null
         return accountSyncService.ownCertString(devicePk)
     }
 
@@ -860,7 +860,7 @@ class ConnectService(
         if (offline) return
         val tickets = settingsService.siblingTickets
         if (tickets.isEmpty()) return
-        val myDeviceHex = transport.nodeId
+        val myDeviceHex = transport.endpointId
         for ((deviceHex, ticket) in tickets) {
             if (deviceHex == myDeviceHex) continue
             if (!siblingDialsInFlight.add(deviceHex)) continue // already dialing this sibling
@@ -893,26 +893,26 @@ class ConnectService(
     // ---- stranger gate (inbound peer-ALPN connections) ----
 
     /**
-     * A connecting peer is known if its node id matches an existing
+     * A connecting peer is known if its endpoint id matches an existing
      * conversation (restored from persistence on a known peer, or created
      * earlier this session), a saved [peerStore] entry (a peer we've dialed
      * out to before), or is in [InviteService]'s accepted-contacts list. Known
      * peers connect exactly as before -- no gate (see
      * azula-docs/openspec/specs/invitations/design.md's verification model).
      *
-     * This is deliberately node-id-only -- multi-device-identity task 7.2's
+     * This is deliberately endpoint-id-only -- multi-device-identity task 7.2's
      * additional "known by a presented certificate's root" path lives in
      * [handleCertOrStrangerConnection] instead (reached only when this returns
      * false), since checking it here would require reading the connection's first
      * frame before this synchronous gate can even run.
      */
-    private fun isKnownPeer(nodeId: String): Boolean =
-        convStore.conversationOrNull(nodeId) != null ||
-            inviteService.isKnown(nodeId) ||
-            peerStore?.load().orEmpty().any { peerIdForEntry(it) == nodeId }
+    private fun isKnownPeer(endpointId: String): Boolean =
+        convStore.conversationOrNull(endpointId) != null ||
+            inviteService.isKnown(endpointId) ||
+            peerStore?.load().orEmpty().any { peerIdForEntry(it) == endpointId }
 
     /**
-     * A CHAT/LLM/TERM connection from a peer not already known by node id, and not a
+     * A CHAT/LLM/TERM connection from a peer not already known by endpoint id, and not a
      * previously-admitted session conversation needing re-validation ([isKnownPeer]
      * false, [ConversationState.sessionExpiresAt] null or unset -- see
      * [startIncomingLoop]). Reads the first frame (15 s timeout, shared with
@@ -960,7 +960,7 @@ class ConnectService(
         val connectionDevicePk = inc.remoteId.hexToByteArrayOrNull() ?: return false
         val cert = accountSyncService.checkSessionCert(hello?.cert, connectionDevicePk, inviteService.knownContactIds()) ?: return false
         val peerId = cert.devicePk.toHexLower()
-        val convId = wireStream(inc.alpn, inc.stream, peerId, transportNodeId = inc.remoteId) ?: return true
+        val convId = wireStream(inc.alpn, inc.stream, peerId, transportEndpointId = inc.remoteId) ?: return true
         // expires_at == 0 means "never" (DeviceCertCodec's convention) -- keep that
         // meaning distinct from "not a session at all" (null) by using a sentinel
         // rather than leaving it null too; see ConversationState.sessionExpiresAt's kdoc.
@@ -1024,7 +1024,7 @@ class ConnectService(
             CertCheck.Absent
         }
         if (certCheck is CertCheck.KnownByRoot) {
-            val convId = wireStream(inc.alpn, inc.stream, certCheck.cert.rootPk.toHexLower(), transportNodeId = inc.remoteId)
+            val convId = wireStream(inc.alpn, inc.stream, certCheck.cert.rootPk.toHexLower(), transportEndpointId = inc.remoteId)
             // Bookkeeping only (task 7.4): an inbound connection leaves no ticket to
             // redial (same rule as ConversationState.sourceTicket everywhere else), so
             // this never adds a new dial candidate -- it just keeps lastSeenMs/isMailbox
@@ -1063,12 +1063,12 @@ class ConnectService(
     }
 
     /**
-     * [transportNodeId] is the connection's actual transport-level peer id -- normally
+     * [transportEndpointId] is the connection's actual transport-level peer id -- normally
      * identical to [peerId] (the key the conversation is created/looked-up under), but
      * distinct for multi-device-identity task 7.2's known-by-root fast path, where a
      * never-before-seen device is wired straight into an existing root-pk-keyed
-     * conversation ([peerId] = the contact's root pk hex) while [transportNodeId] stays
-     * that specific device's own node id -- exactly what a presented certificate's
+     * conversation ([peerId] = the contact's root pk hex) while [transportEndpointId] stays
+     * that specific device's own endpoint id -- exactly what a presented certificate's
      * "binds to this connection" check (task 7.2/7.3) needs to verify against.
      * [dialedTicket] is the ticket used to reach this stream, when this device dialed
      * out (null for an inbound-accepted connection) -- task 7.4's dial address book
@@ -1080,12 +1080,12 @@ class ConnectService(
         peerId: String,
         announcedName: String? = null,
         replace: Boolean = true,
-        transportNodeId: String = peerId,
+        transportEndpointId: String = peerId,
         dialedTicket: String? = null,
     ): String? {
         if (peerId.isBlank()) { scope.launch { runCatching { stream.close() } }; return null }
         val convId = convStore.ensureConv(peerId, kindForAlpn(alpn), announcedName)
-        wireConv(convId, stream, isTerminal = alpn == Alpns.TERM, replace = replace, transportNodeId = transportNodeId, dialedTicket = dialedTicket)
+        wireConv(convId, stream, isTerminal = alpn == Alpns.TERM, replace = replace, transportEndpointId = transportEndpointId, dialedTicket = dialedTicket)
         return convId
     }
 
@@ -1094,7 +1094,7 @@ class ConnectService(
         stream: P2pStream,
         isTerminal: Boolean,
         replace: Boolean = true,
-        transportNodeId: String = convId,
+        transportEndpointId: String = convId,
         dialedTicket: String? = null,
     ) {
         val cs = convStore.conv(convId)
@@ -1126,7 +1126,7 @@ class ConnectService(
             scope.launch { runCatching { stream.sendLine(FrameCodec.encode(Frame.TermAttach(cs.termSessionId))) } }
         }
         cs.online = true
-        receiveLoop(convId, stream, transportNodeId, dialedTicket)
+        receiveLoop(convId, stream, transportEndpointId, dialedTicket)
         pollRtt(cs, stream)
     }
 
@@ -1145,15 +1145,15 @@ class ConnectService(
     }
 
     /**
-     * [transportNodeId] is this stream's actual transport-level peer id (see
+     * [transportEndpointId] is this stream's actual transport-level peer id (see
      * [wireConv]'s kdoc) -- fixed for the stream's whole lifetime, used only for a
      * presented certificate's "binds to this connection" check. [convId] is a `var`
      * locally ([activeConvId]) because multi-device-identity task 7.3's merge can
      * re-key the conversation mid-stream: once a peer's `Hello` presents its first
      * valid certificate, every frame from that point on (on this same connection)
-     * routes to the root-pk-keyed conversation instead of the legacy node-id one.
+     * routes to the root-pk-keyed conversation instead of the legacy endpoint-id one.
      */
-    private fun receiveLoop(convId: String, stream: P2pStream, transportNodeId: String = convId, dialedTicket: String? = null) {
+    private fun receiveLoop(convId: String, stream: P2pStream, transportEndpointId: String = convId, dialedTicket: String? = null) {
         scope.launch {
             var activeConvId = convId
             try {
@@ -1165,7 +1165,7 @@ class ConnectService(
                         if (frame.name.isNotBlank() && frame.name != activeConvId) {
                             convStore.ensureConv(activeConvId, convStore.conversationOrNull(activeConvId)?.kind ?: kindForAlpn(Alpns.LLM), frame.name)
                         }
-                        activeConvId = applyPresentedCertToConversation(activeConvId, frame.cert, transportNodeId, dialedTicket, stream)
+                        activeConvId = applyPresentedCertToConversation(activeConvId, frame.cert, transportEndpointId, dialedTicket, stream)
                         continue
                     }
                     if (frame is Frame.FileBegin) {
@@ -1206,7 +1206,7 @@ class ConnectService(
      * multi-device-identity tasks 7.3/7.4: called for every `Hello` a wired stream
      * receives. Checks [certStr] against this identity's known contacts/revocations
      * ([AccountSyncService.checkPresentedCert]); a cert that fails to verify, doesn't
-     * bind to [transportNodeId] (this connection's actual peer id), or names a revoked
+     * bind to [transportEndpointId] (this connection's actual peer id), or names a revoked
      * device is [CertCheck.Absent] and this is a complete no-op -- [currentConvId] is
      * returned unchanged, exactly preserving pre-multi-device-identity behavior for a
      * legacy peer or a broken certificate alike.
@@ -1233,14 +1233,14 @@ class ConnectService(
     private suspend fun applyPresentedCertToConversation(
         currentConvId: String,
         certStr: String?,
-        transportNodeId: String,
+        transportEndpointId: String,
         dialedTicket: String?,
         stream: P2pStream,
     ): String {
         if (certStr == null) return currentConvId
         if (convStore.convOrNull(currentConvId)?.sessionExpiresAt != null) return currentConvId
         if (convStore.conversationOrNull(currentConvId)?.kind != ConversationKind.PEER) return currentConvId
-        val connectionDevicePk = transportNodeId.hexToByteArrayOrNull() ?: return currentConvId
+        val connectionDevicePk = transportEndpointId.hexToByteArrayOrNull() ?: return currentConvId
         val check = accountSyncService.checkPresentedCert(certStr, connectionDevicePk, inviteService.knownContactIds(), bundleRevocationStrings())
         val cert = check.certOrNull ?: return currentConvId
         val rootHex = cert.rootPk.toHexLower()
@@ -1272,16 +1272,16 @@ class ConnectService(
     /**
      * multi-device-identity task 7.3: [oldConvId]'s conversation just learned (via
      * [applyPresentedCertToConversation]) that its peer's identity is actually rooted
-     * at [rootPkHex] -- re-key it from node id to root pk so any other certified device
+     * at [rootPkHex] -- re-key it from endpoint id to root pk so any other certified device
      * of the same identity lands in the same place (spec: "The contact's conversation
      * SHALL be keyed by root public key"). If a root-keyed conversation already exists
      * (a sibling device of this identity was accepted first), [oldConvId]'s history is
      * merged into it (prepended, oldest-first, ahead of whatever the root-keyed one
-     * already holds) and the node-id entry is dropped entirely -- "don't strand history
+     * already holds) and the endpoint-id entry is dropped entirely -- "don't strand history
      * under the old key." Otherwise the existing entry is renamed in place (same
      * [ConversationState] instance, so its live stream/messages/etc. all carry over
      * unchanged). No-op (returns [oldConvId]) if they're already the same key (a
-     * root-holding single-device peer, where node id and root pk coincide) or no
+     * root-holding single-device peer, where endpoint id and root pk coincide) or no
      * conversation exists at [oldConvId] to move.
      */
     private fun mergeIntoRootKeyedConversation(oldConvId: String, rootPkHex: String): String {
@@ -1347,7 +1347,7 @@ class ConnectService(
 
     /**
      * Begin the new-device side of a QR-link enrollment: generate this device's link
-     * payload (its own already-bound node key -- not a separate identity, unlike the CLI's
+     * payload (its own already-bound endpoint key -- not a separate identity, unlike the CLI's
      * `azula link`, since the app has only ever had the one) and wait for a root-holding
      * device to scan it and dial in. No-op if a link attempt is already in progress.
      *
@@ -1361,7 +1361,7 @@ class ConnectService(
     fun beginDeviceLink(name: String) {
         if (deviceLinkStage != DeviceLinkStage.IDLE) return
         transport.forgetRootSecret()
-        val myDevicePkHex = transport.nodeId
+        val myDevicePkHex = transport.endpointId
         val myDevicePk = myDevicePkHex?.hexToByteArrayOrNull()
         if (myDevicePk == null) {
             deviceLinkStage = DeviceLinkStage.FAILED
@@ -1511,7 +1511,7 @@ class ConnectService(
         val rawPayload = AzulaLinks.parseDeviceLink(payload) ?: payload.trim()
         val parsed = LinkPayloadCodec.decode(rawPayload)
         val ticket = parsed?.let { transport.ticketFromBytes(it.ticket) }
-        val myDevicePk = transport.nodeId?.hexToByteArrayOrNull()
+        val myDevicePk = transport.endpointId?.hexToByteArrayOrNull()
         if (parsed == null || ticket == null || myDevicePk == null) {
             grantFailReason = "that isn't a valid link code"
             grantStage = GrantStage.FAILED
@@ -1684,7 +1684,7 @@ class ConnectService(
             devices = emptyList()
             return
         }
-        val myHex = transport.nodeId
+        val myHex = transport.endpointId
         val localNames = settingsService.deviceLocalNames
         devices = accountSyncService.currentDeviceSet(rootPk)
             .map { cert ->

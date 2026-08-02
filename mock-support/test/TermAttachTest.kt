@@ -221,7 +221,7 @@ class TermAttachTest {
  * (in particular, the `Frame.TermAttach` first frame).
  */
 private class TermTestTransport(private val peerId: String) : IrohTransport {
-    override var nodeId: String? = "self"
+    override var endpointId: String? = "self"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
     override suspend fun myTicket(): String = ""

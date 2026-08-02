@@ -35,7 +35,7 @@ import kotlin.test.assertTrue
  * `SettingsService.saveLinkedIdentity`), not a mocked-out stand-in for it.
  *
  * [LinkTestTransport] mirrors `AccountSyncWiringTest.kt`'s own `IdentityFakeTransport` (a
- * separate, top-level copy in this file -- same reasoning: bare [FakeTransport]'s `nodeId`
+ * separate, top-level copy in this file -- same reasoning: bare [FakeTransport]'s `endpointId`
  * is a random `"self<hex>"` string, which isn't valid hex at all and fails
  * `hexToByteArrayOrNull()`, exactly what `ConnectService.beginDeviceLink` calls on it) plus
  * a mutable, nullable root secret so [dev.azula.net.IrohTransport.forgetRootSecret] is
@@ -82,7 +82,7 @@ class DeviceLinkFlowTest {
         assertEquals(ConnectService.DeviceLinkStage.VERIFYING, azulaState.deviceLinkStage)
 
         val hello = FrameCodec.decode(grantingDeviceEnd.receiveLine()!!) as Frame.LinkHello
-        assertEquals(devicePkHex, hello.devicePk, "LinkHello must present this device's own node key")
+        assertEquals(devicePkHex, hello.devicePk, "LinkHello must present this device's own endpoint key")
         assertEquals("my-phone", hello.name)
         assertEquals(0, hello.roles, "the app never requests the mailbox role for itself")
 
@@ -255,7 +255,7 @@ private fun fakePublicKey(secret: ByteArray): ByteArray = Sha256.hash(secret)
 private fun fixedKey(fill: Int): ByteArray = ByteArray(32) { ((fill + it) and 0xFF).toByte() }
 
 /**
- * A test-only [IrohTransport] whose `nodeId` is a real, [LinkFakeEd25519]-consistent hex device
+ * A test-only [IrohTransport] whose `endpointId` is a real, [LinkFakeEd25519]-consistent hex device
  * key (unlike bare [FakeTransport]'s random `"self<hex>"` id) -- see this file's kdoc.
  * Delegates everything else (bind/connect/incoming/the LINK-alpn accept loop) to a real
  * [FakeTransport] instance, so `ConnectService`'s existing dial/accept/receive paths behave
@@ -269,10 +269,10 @@ private fun fixedKey(fill: Int): ByteArray = ByteArray(32) { ((fill + it) and 0x
  */
 private class LinkTestTransport(
     private val secret: ByteArray,
-    private val fixedNodeIdHex: String,
+    private val fixedEndpointIdHex: String,
     private val delegate: FakeTransport = FakeTransport(),
 ) : IrohTransport by delegate {
-    override val nodeId: String? get() = fixedNodeIdHex
+    override val endpointId: String? get() = fixedEndpointIdHex
     private var root: ByteArray? = secret
     override fun rootSecretBytes(): ByteArray? = root
     override fun secretKeyBytes(): ByteArray = secret

@@ -204,17 +204,17 @@ class ProtocolTest {
     }
 
     @Test
-    fun linkGrantBundleOmitsMailboxAndUsesNodeIdContactWhenAbsent() {
+    fun linkGrantBundleOmitsMailboxAndUsesEndpointIdContactWhenAbsent() {
         val bundle = IdentityBundle(
             rootPk = "root-hex",
             certs = emptyList(),
             revocations = emptyList(),
-            contacts = listOf(Contact(nodeId = "legacy-node")),
+            contacts = listOf(Contact(endpointId = "legacy-endpoint")),
         )
         val encoded = FrameCodec.encode(Frame.LinkGrant("azd-mine", bundle))
         assertEquals(
             """{"type":"link_grant","cert":"azd-mine","bundle":{"rootPk":"root-hex","certs":[],""" +
-                """"revocations":[],"contacts":[{"nodeId":"legacy-node"}]}}""",
+                """"revocations":[],"contacts":[{"endpointId":"legacy-endpoint"}]}}""",
             encoded,
         )
         val decoded = FrameCodec.decode(encoded)
@@ -224,10 +224,10 @@ class ProtocolTest {
 
     @Test
     fun contactWithoutNameOmitsNameField() {
-        // Exactly one of rootPk/nodeId, no name: pinned as {"nodeId":"legacy-node"}
+        // Exactly one of rootPk/endpointId, no name: pinned as {"endpointId":"legacy-endpoint"}
         // with no other keys present.
-        val encoded = FrameCodec.json.encodeToString(Contact.serializer(), Contact(nodeId = "legacy-node"))
-        assertEquals("""{"nodeId":"legacy-node"}""", encoded)
+        val encoded = FrameCodec.json.encodeToString(Contact.serializer(), Contact(endpointId = "legacy-endpoint"))
+        assertEquals("""{"endpointId":"legacy-endpoint"}""", encoded)
     }
 
     @Test

@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * multi-device-identity task 3.1: the root secret and node key live under distinct entries
+ * multi-device-identity task 3.1: the root secret and endpoint key live under distinct entries
  * (see the `identity` capability's modified Per-Platform Key-at-Rest Storage requirement),
  * modeled here as a nullable [SingleSlotKeyStore] per entry composed by
  * [LayeredSecretKeyStore]. Exercised against [FileSecretKeyStore] (desktop's off-mac
@@ -25,46 +25,46 @@ class LayeredSecretKeyStoreTest {
     }
 
     private fun newStore(): LayeredSecretKeyStore = LayeredSecretKeyStore(
-        node = FileSecretKeyStore(File(tempDir, "endpoint.key").absolutePath),
+        endpoint = FileSecretKeyStore(File(tempDir, "endpoint.key").absolutePath),
         root = FileSecretKeyStore(File(tempDir, "root.key").absolutePath),
     )
 
     @Test
-    fun nodeKeyAndRootSecretAreIndependentlyReadableAndWritable() {
+    fun endpointKeyAndRootSecretAreIndependentlyReadableAndWritable() {
         val store = newStore()
-        val nodeKey = ByteArray(32) { 1 }
+        val endpointKey = ByteArray(32) { 1 }
         val rootSecret = ByteArray(32) { 2 }
 
-        store.saveNodeKey(nodeKey)
+        store.saveEndpointKey(endpointKey)
         store.saveRootSecret(rootSecret)
 
-        assertEquals(nodeKey.toList(), store.loadNodeKey()?.toList())
+        assertEquals(endpointKey.toList(), store.loadEndpointKey()?.toList())
         assertEquals(rootSecret.toList(), store.loadRootSecret()?.toList())
     }
 
     @Test
     fun writingOneEntryDoesNotClobberTheOther() {
         val store = newStore()
-        val nodeKey = ByteArray(32) { 3 }
-        store.saveNodeKey(nodeKey)
+        val endpointKey = ByteArray(32) { 3 }
+        store.saveEndpointKey(endpointKey)
 
-        // The root entry is untouched by a node-key write (and vice versa) -- distinct
+        // The root entry is untouched by a endpoint-key write (and vice versa) -- distinct
         // entries, not two views onto the same slot.
         assertNull(store.loadRootSecret())
-        assertEquals(nodeKey.toList(), store.loadNodeKey()?.toList())
+        assertEquals(endpointKey.toList(), store.loadEndpointKey()?.toList())
 
         val rootSecret = ByteArray(32) { 4 }
         store.saveRootSecret(rootSecret)
-        assertEquals(nodeKey.toList(), store.loadNodeKey()?.toList(), "saving root must not disturb the node entry")
+        assertEquals(endpointKey.toList(), store.loadEndpointKey()?.toList(), "saving root must not disturb the endpoint entry")
         assertEquals(rootSecret.toList(), store.loadRootSecret()?.toList())
     }
 
     @Test
-    fun aNodeKeyWithNoRootSecretIsAValidState() {
-        // The QR-linked-device shape: a node key exists, no root secret ever has -- this
-        // must read as "no root secret" (null), never fall back to the node key.
+    fun aEndpointKeyWithNoRootSecretIsAValidState() {
+        // The QR-linked-device shape: a endpoint key exists, no root secret ever has -- this
+        // must read as "no root secret" (null), never fall back to the endpoint key.
         val store = newStore()
-        store.saveNodeKey(ByteArray(32) { 5 })
+        store.saveEndpointKey(ByteArray(32) { 5 })
 
         assertNull(store.loadRootSecret())
     }
@@ -73,19 +73,19 @@ class LayeredSecretKeyStoreTest {
     fun bothEntriesAbsentOnAFreshStore() {
         val store = newStore()
 
-        assertNull(store.loadNodeKey())
+        assertNull(store.loadEndpointKey())
         assertNull(store.loadRootSecret())
     }
 
     @Test
-    fun rootSecretCanExistWithoutBeingRewrittenByANodeKeyRead() {
-        // Reads must be side-effect-free: repeatedly reading the node entry must never
+    fun rootSecretCanExistWithoutBeingRewrittenByAEndpointKeyRead() {
+        // Reads must be side-effect-free: repeatedly reading the endpoint entry must never
         // populate or change the root entry.
         val store = newStore()
         store.saveRootSecret(ByteArray(32) { 6 })
-        repeat(3) { store.loadNodeKey() }
+        repeat(3) { store.loadEndpointKey() }
 
         assertTrue(ByteArray(32) { 6 }.contentEquals(store.loadRootSecret()))
-        assertNull(store.loadNodeKey())
+        assertNull(store.loadEndpointKey())
     }
 }

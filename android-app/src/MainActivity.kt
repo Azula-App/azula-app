@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
 
-        // The node is owned by the Application (process-scoped) so it survives
+        // The endpoint is owned by the Application (process-scoped) so it survives
         // backgrounding; rememberAzulaState returns this singleton. The
         // ProcessLifecycleOwner observer + foreground service live in
         // AzulaApplication — we no longer pause()/shutdown() on background.

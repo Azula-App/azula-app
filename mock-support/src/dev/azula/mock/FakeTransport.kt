@@ -46,7 +46,7 @@ import kotlin.random.Random
  *
  * [rootless] models a QR-linked device (see the `identity` capability's "QR-linked
  * device stores no root secret" / "Device keys have no phrase" scenarios): `true` makes
- * [rootSecretBytes] permanently null while [nodeId]/[secretKeyBytes] stay normal, so a
+ * [rootSecretBytes] permanently null while [endpointId]/[secretKeyBytes] stay normal, so a
  * UI test can drive the reveal-recovery-phrase flow's rootless copy without a second,
  * bespoke transport. Default `false` keeps every existing caller root-holding, as before.
  */
@@ -55,7 +55,7 @@ class FakeTransport(
     hasPersistedIdentity: Boolean = true,
     private val rootless: Boolean = false,
 ) : IrohTransport {
-    override var nodeId: String? = null
+    override var endpointId: String? = null
         private set
 
     override var onCameOnline: (() -> Unit)? = null
@@ -111,11 +111,11 @@ class FakeTransport(
     // with the demo peers' "mo · …"/"bu · …" -- the same first-two-chars rule the
     // incoming() doc calls out, which applies to our own id as much as to a peer's.
     override suspend fun bind(alpns: List<String>) {
-        nodeId = "self" + Random.nextInt(0x10000, 0xfffff).toString(16)
+        endpointId = "self" + Random.nextInt(0x10000, 0xfffff).toString(16)
         onCameOnline?.invoke()
     }
 
-    override suspend fun myTicket(): String = "azula-mock-${nodeId ?: "offline"}"
+    override suspend fun myTicket(): String = "azula-mock-${endpointId ?: "offline"}"
 
     /** A stable fake 32-byte key so the mock build can render a recovery phrase. */
     override fun secretKeyBytes(): ByteArray = ByteArray(32) { (it + 1).toByte() }
@@ -125,10 +125,10 @@ class FakeTransport(
     /**
      * Mirrors [secretKeyBytes]: the mock's throwaway identity is root-holding by default,
      * same as any single-device install that hasn't linked a second device (see
-     * multi-device-identity's migration -- root and node coincide until a device is
-     * linked). `-mock` apps persist nothing either way, so there's no real root/node
+     * multi-device-identity's migration -- root and endpoint coincide until a device is
+     * linked). `-mock` apps persist nothing either way, so there's no real root/endpoint
      * distinction to model here -- except when [rootless] opts into modeling a QR-linked
-     * device instead (permanently no root secret, node key unaffected).
+     * device instead (permanently no root secret, endpoint key unaffected).
      */
     override fun rootSecretBytes(): ByteArray? = if (rootless || rootForgotten) null else secretKeyBytes()
 
@@ -192,9 +192,9 @@ class FakeTransport(
 
     /**
      * A stable fake peer id derived from the ticket, so mock conversations key
-     * consistently. Special-cases [myTicket]'s own `"azula-mock-<nodeId>"` shape
-     * so it resolves back to that exact [nodeId] -- the invariant a real
-     * transport's ticket always has (its node id is embedded in it), and which
+     * consistently. Special-cases [myTicket]'s own `"azula-mock-<endpointId>"` shape
+     * so it resolves back to that exact [endpointId] -- the invariant a real
+     * transport's ticket always has (its endpoint id is embedded in it), and which
      * invite self-verification relies on (see InviteService.verifyInbound).
      */
     override fun peerIdForTicket(ticket: String): String =
@@ -217,7 +217,7 @@ class FakeTransport(
      *  different "mo · onyx · ember" -- still *renders* as "mo · onyx · …", i.e. two
      *  visually identical rows. "buildbot" gives "bu · kite · lyra", which reads apart at
      *  a glance. Keep any further demo peer distinct in those first two characters --
-     *  and note our own node id ([bind]) is subject to the same rule, since the YOUR CODE
+     *  and note our own endpoint id ([bind]) is subject to the same rule, since the YOUR CODE
      *  box labels it through the very same mnemonicCode.
      *  Merged with [incomingConnections] so a test can additionally push arbitrary
      *  connections via [injectIncomingConnection] on top of the fixed demo one(s) -- all
@@ -243,13 +243,13 @@ class FakeTransport(
     override suspend fun shutdown() {}
 
     /** A deterministic fake 64-byte "signature" (not real crypto) so the mock invite flow round-trips. */
-    override fun signWithNodeKey(data: ByteArray): ByteArray {
+    override fun signWithEndpointKey(data: ByteArray): ByteArray {
         val sum = data.sum()
         return ByteArray(64) { (sum + it).toByte() }
     }
 
     /** Mock always trusts -- there's no real key material to check. */
-    override fun verifyNodeSignature(nodeIdHex: String, data: ByteArray, sig: ByteArray): Boolean = true
+    override fun verifyEndpointSignature(endpointIdHex: String, data: ByteArray, sig: ByteArray): Boolean = true
 
     /** Mock tickets are plain strings, so bytes/string round-trip via UTF-8. */
     override fun ticketBytes(ticket: String): ByteArray = ticket.encodeToByteArray()

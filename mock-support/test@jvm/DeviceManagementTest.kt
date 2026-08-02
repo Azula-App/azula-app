@@ -65,11 +65,11 @@ class DeviceManagementTest {
      *  at all -- `false` models a QR-linked device for the non-root-holding revoke test. */
     private class ManagementTestTransport(
         private val secret: ByteArray,
-        private val fixedNodeIdHex: String,
+        private val fixedEndpointIdHex: String,
         private val holdsRoot: Boolean,
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
-        override val nodeId: String? get() = fixedNodeIdHex
+        override val endpointId: String? get() = fixedEndpointIdHex
         override fun rootSecretBytes(): ByteArray? = if (holdsRoot) secret else null
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)

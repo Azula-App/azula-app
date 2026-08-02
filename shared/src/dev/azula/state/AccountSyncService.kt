@@ -52,7 +52,7 @@ import kotlinx.serialization.json.JsonObject
 //
 // `conversation` keys used throughout this file are exactly the existing per-peer
 // conversation id ([dev.azula.state.ConversationStore.ensureConv]'s `peerId`): a legacy
-// node id, or -- since multi-device-identity task 7.3 -- a certified contact's root pk
+// endpoint id, or -- since multi-device-identity task 7.3 -- a certified contact's root pk
 // hex (see [dev.azula.state.ConnectService]'s `mergeIntoRootKeyedConversation`). Either
 // way this file only ever sees it as an opaque string key; nothing here needs to know
 // which kind it is.
@@ -132,14 +132,14 @@ class AccountSyncService(
      * [rebuildProjection]'s `rootPk` line) rather than hidden inside call sites.
      *
      * The same `device_pk == root_pk` simplification is why [eventLogStore]'s
-     * on-disk directory can be namespaced from `transport.nodeId` alone today
+     * on-disk directory can be namespaced from `transport.endpointId` alone today
      * (multi-device-identity task 4.6 -- see `platformEventLogStore`'s kdoc in
      * `sync-real`): the composition root (`AppEntry.kt`/`AzulaApplication.kt`) builds
      * that store with a lazy root-pk supplier reading the same transport this class's
      * `deviceIdentity` reads, ahead of when either is actually known (both only
      * resolve once [ConnectService.start] has bound the transport). A future
      * non-root-holding device needs that supplier to read this class's own future
-     * root-pk seam instead of `transport.nodeId` directly -- the same seam this
+     * root-pk seam instead of `transport.endpointId` directly -- the same seam this
      * kdoc already calls out for [rebuildProjection].
      */
     var deviceIdentity: (() -> Pair<ByteArray, ByteArray>?)? = null
@@ -172,7 +172,7 @@ class AccountSyncService(
     /**
      * Append `message_in` for a received chat message. [fromDevicePk] is the sender's
      * device public key hex when known (a certified contact); for a legacy (no-cert)
-     * peer there is no such key, so callers pass the peer's node id instead -- the same
+     * peer there is no such key, so callers pass the peer's endpoint id instead -- the same
      * value already used as [conversation] for a legacy contact (spec: "Legacy Peers Are
      * Unaffected" -- "An identity's own devices SHALL still log ... `message_in`/
      * `message_out` for conversations with legacy peers"). [id] is the wire `Chat.id` the
@@ -215,7 +215,7 @@ class AccountSyncService(
     }
 
     /**
-     * Self-certifies [devicePk] (this device's own signing identity -- its node public
+     * Self-certifies [devicePk] (this device's own signing identity -- its endpoint public
      * key) as a member of the identity whose root public key is [rootPk], and appends the
      * resulting certificate as a `device_add` entry authored by [devicePk]/[deviceSecret]
      * -- log entries are always signed by the *device* key, never the root key ("Key Roles
@@ -241,7 +241,7 @@ class AccountSyncService(
      *   discards its copy; this call recomputes and durably logs the same bytes.
      * - `ConnectService.importRecoveryPhrase` (task 3.4's enrollment path): [rootPk] is
      *   independently derived from the imported phrase's decoded secret and may differ
-     *   from [devicePk] entirely -- a phrase-enrolled device keeps its own node key (see
+     *   from [devicePk] entirely -- a phrase-enrolled device keeps its own endpoint key (see
      *   the identity capability's "Restore Recovers the Identity Onto This Device").
      *
      * **Known caveat, not fixed by this task**: [eventLogStore]'s concrete on-disk
@@ -534,7 +534,7 @@ class AccountSyncService(
      * the *transport*-level peer id of the exact connection the cert arrived on --
      * required so a cert can't be replayed over a connection it wasn't issued for
      * ("binds to this connection"). [knownRootPkHexes] is the accepted-contacts set
-     * (root pk hex, or node id hex for a legacy contact -- see
+     * (root pk hex, or endpoint id hex for a legacy contact -- see
      * [InviteService.knownContactIds]) and [bundleRevocations] is this device's bundle
      * baseline (see [currentRevokedDevicePks]'s kdoc for why that must be merged with a
      * fresh log scan on every call, never cached).
@@ -578,7 +578,7 @@ class AccountSyncService(
      * 4. Its `root_pk` is already a paired machine contact -- [knownRootPkHexes], the
      *    same known-contact id set an identity cert's root is checked against
      *    ([InviteService.knownContactIds]); a machine's root pk and its legacy bridge
-     *    node id are the same 32 bytes, so no separate lookup exists. A self-certified
+     *    endpoint id are the same 32 bytes, so no separate lookup exists. A self-certified
      *    session cert (`device_pk == root_pk`) only passes this if that exact key is
      *    itself already a paired contact -- the scan-per-session case, admitted via the
      *    ordinary invite redeemed from the phone, never through this gate.

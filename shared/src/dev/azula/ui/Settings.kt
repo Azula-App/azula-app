@@ -213,9 +213,9 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
     val phrase = remember { state.exportRecoveryPhrase() }
     // exportRecoveryPhrase() is built directly from the transport's independently-nullable
     // root-secret entry (ConnectService.exportRecoveryPhrase) -- `phrase == null` IS "no
-    // root secret", not something inferred from another signal. Paired with a known node
+    // root secret", not something inferred from another signal. Paired with a known endpoint
     // id, that's the permanent QR-linked case rather than "not bound yet".
-    val rootless = remember { phrase == null && state.nodeId != null }
+    val rootless = remember { phrase == null && state.endpointId != null }
     val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onClose,
@@ -241,7 +241,7 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
                 )
                 phrase == null -> Text(
-                    "Your key isn't ready yet. Connect once so the node comes online, then try again.",
+                    "Your key isn't ready yet. Connect once so the endpoint comes online, then try again.",
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 13.sp, lineHeight = 18.sp,
                 )
                 else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -274,7 +274,7 @@ private fun RevealPhraseDialog(state: AzulaState, onClose: () -> Unit) {
 /**
  * Paste a recovery phrase to enroll this device into the identity it encodes
  * (multi-device-identity task 3.4: restore no longer replaces anything in place -- it
- * keeps this device's own node key and joins the identity as another device). Overwriting
+ * keeps this device's own endpoint key and joins the identity as another device). Overwriting
  * an already-held *different* identity's root secret is the one genuinely destructive
  * case, so it's gated behind a second confirmation step (task 3.5a) -- detected via
  * [AzulaState.isDifferentIdentityRestore] before ever committing. A fresh device (nothing

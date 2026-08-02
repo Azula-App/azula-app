@@ -362,7 +362,7 @@ class DeviceLinkProtocolTest {
 
         val deviceAddBody = encodeDeviceAddBody(DeviceAddBody(cert = DeviceCertCodec.encode(existingCert)))
         val contactAddBody = encodeContactKeyBody(ContactKeyBody(rootPk = "contact-root-pk", name = "Alice"))
-        val contactRemoveBody = encodeContactKeyBody(ContactKeyBody(nodeId = "legacy-node-id"))
+        val contactRemoveBody = encodeContactKeyBody(ContactKeyBody(endpointId = "legacy-endpoint-id"))
 
         val entries = listOf(
             LogEntryCodec.sign(EventKind.DEVICE_ADD.wireValue, existingDevicePk, 1L, 1L, 1000L, ZERO_PREV_HASH, deviceAddBody, existingDeviceSecret, ed25519),

@@ -8,10 +8,10 @@ import androidx.security.crypto.MasterKeys
 import dev.azula.net.SecretKeyStore
 
 /**
- * Stores azula's two independently-present secrets -- the iroh node key and the identity
+ * Stores azula's two independently-present secrets -- the iroh endpoint key and the identity
  * root secret (see the `identity` capability's Per-Platform Key-at-Rest Storage
  * requirement) -- as two named entries inside one EncryptedSharedPreferences file, so the
- * device keeps a stable node id across launches. Injected into [dev.azula.net.IrohConfig]
+ * device keeps a stable endpoint id across launches. Injected into [dev.azula.net.IrohConfig]
  * from MainActivity. Uses the security-crypto 1.0.0 API (MasterKeys + 5-arg create).
  *
  * Both entries share the same underlying prefs file deliberately: self-healing a corrupt
@@ -47,8 +47,8 @@ class AndroidSecretKeyStore(private val context: Context) : SecretKeyStore {
         }
     }
 
-    override fun loadNodeKey(): ByteArray? = loadEntry(KEY_NODE)
-    override fun saveNodeKey(bytes: ByteArray) = saveEntry(KEY_NODE, bytes)
+    override fun loadEndpointKey(): ByteArray? = loadEntry(KEY_NODE)
+    override fun saveEndpointKey(bytes: ByteArray) = saveEntry(KEY_NODE, bytes)
     override fun loadRootSecret(): ByteArray? = loadEntry(KEY_ROOT)
     override fun saveRootSecret(bytes: ByteArray) = saveEntry(KEY_ROOT, bytes)
 
@@ -69,7 +69,7 @@ class AndroidSecretKeyStore(private val context: Context) : SecretKeyStore {
 
     private companion object {
         // Unchanged from the pre-multi-device-identity single-key name, so an existing
-        // install's node key (and therefore its node id) is read back unchanged.
+        // install's endpoint key (and therefore its endpoint id) is read back unchanged.
         const val KEY_NODE = "endpoint_key"
         const val KEY_ROOT = "root_secret_key"
     }

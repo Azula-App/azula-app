@@ -25,7 +25,7 @@ data class InvitePayload(
     val ticket: ByteArray,
     val signature: ByteArray?,
 ) {
-    /** flags bit 0: [signature] is present and should verify against the issuer's node key. */
+    /** flags bit 0: [signature] is present and should verify against the issuer's endpoint key. */
     val signed: Boolean get() = (flags and 0x01) != 0
 
     /** flags bit 1: the invite is consumed after the first successful accept. */

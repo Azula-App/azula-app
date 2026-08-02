@@ -21,7 +21,7 @@ import kotlin.concurrent.Volatile
 
 /**
  * Lets a platform own [AzulaState] outside the composition. Android sets this to a
- * process-scoped singleton (created by its `Application`) so the iroh node keeps
+ * process-scoped singleton (created by its `Application`) so the iroh endpoint keeps
  * running while the Activity is backgrounded/destroyed — see the foreground
  * service. iOS/desktop leave it null and create per-composition (below).
  */
@@ -65,11 +65,11 @@ fun rememberAzulaState(): AzulaState {
             // The root pk isn't known yet -- transport hasn't bound -- so this is a
             // LAZY supplier, evaluated only once ConnectService.start() has actually
             // bound the transport (see platformEventLogStore's kdoc). Namespaces by the
-            // identity's actual root public key (task 4.6), NOT this device's own node
+            // identity's actual root public key (task 4.6), NOT this device's own endpoint
             // id: before multi-device-identity task 3.4 those always coincided (every
             // device was root-holding by construction), but a phrase-enrolled device now
-            // keeps its own node key while adopting a *different* root secret -- keying
-            // by node id there would reuse the same on-disk directory across an identity
+            // keeps its own endpoint key while adopting a *different* root secret -- keying
+            // by endpoint id there would reuse the same on-disk directory across an identity
             // switch, silently reopening the exact cross-identity history leak task 4.6
             // fixed. transport.publicKeyFor derives the root secret's actual public key;
             // see IrohTransport.publicKeyFor's kdoc.

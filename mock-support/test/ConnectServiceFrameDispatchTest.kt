@@ -190,7 +190,7 @@ private class OneShotIncomingTransport(
     private val alpn: String,
     private val pipe: PeerPipe,
 ) : IrohTransport {
-    override var nodeId: String? = "test-node"
+    override var endpointId: String? = "test-endpoint"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
     override suspend fun myTicket(): String = ""

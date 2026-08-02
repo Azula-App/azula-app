@@ -17,7 +17,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import dev.azula.net.IrohConfig
 
 /**
- * Keeps the process — and thus the iroh node owned by [AzulaApplication] — alive
+ * Keeps the process — and thus the iroh endpoint owned by [AzulaApplication] — alive
  * while the app is backgrounded, so messages arrive in real time.
  *
  * The persistent "connected" notification only makes sense in the background:
@@ -49,7 +49,7 @@ class IrohService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // The user tapped "Stop" on the notification: shut the node down so it
+        // The user tapped "Stop" on the notification: shut the endpoint down so it
         // stops listening in the background, drop the service + its notification,
         // and don't auto-restart. Reopening the app rebinds (AzulaApplication.onStart).
         if (intent?.action == ACTION_STOP) {
@@ -59,7 +59,7 @@ class IrohService : Service() {
             return START_NOT_STICKY
         }
 
-        // Guarantee the node exists even on a headless START_STICKY restart.
+        // Guarantee the endpoint exists even on a headless START_STICKY restart.
         runCatching { (application as AzulaApplication).obtainState() }
 
         // Reflect the app's current state: hidden in the foreground, shown in the

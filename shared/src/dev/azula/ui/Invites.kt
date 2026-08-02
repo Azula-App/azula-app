@@ -107,7 +107,7 @@ fun InvitesContent(state: AzulaState, modifier: Modifier = Modifier) {
                     }
                 }
             }
-            items(state.pendingInvites, key = { it.nodeId }) { req ->
+            items(state.pendingInvites, key = { it.endpointId }) { req ->
                 PendingRequestRow(req, onClick = { reviewing = req })
             }
         }
@@ -133,7 +133,7 @@ private fun PendingRequestRow(req: PendingConnectionRequest, onClick: () -> Unit
         Modifier.fillMaxWidth().clip(AzulaShapes.rMd).background(AzulaColors.bg2)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("pending-request-${req.nodeId}"),
+            .testTag("pending-request-${req.endpointId}"),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {

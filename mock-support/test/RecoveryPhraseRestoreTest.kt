@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
  * Exercises the restore path the Settings UI drives: [AzulaState.exportRecoveryPhrase] /
  * [AzulaState.importRecoveryPhrase] (backed by [dev.azula.state.ConnectService]), retargeted
  * (multi-device-identity task 3.3) to the identity's root secret rather than the device's
- * node key -- see [RootSecretTransport] for why none of this ever touches the node id.
+ * endpoint key -- see [RootSecretTransport] for why none of this ever touches the endpoint id.
  * Task 3.4 reworks restore into enrollment (self-cert + `device_add`, tested against a real
  * event log in `AccountSyncWiringTest.kt` instead -- these tests here don't wire one), and
  * tasks 3.5a-c add the second-confirmation/peer-ticket/rebind behavior for the one
@@ -49,24 +49,24 @@ class RecoveryPhraseRestoreTest {
         val azulaState = testAzulaState(backgroundScope, transport)
         azulaState.start()
         runCurrent()
-        val nodeIdBefore = azulaState.nodeId
+        val endpointIdBefore = azulaState.endpointId
         val rootBefore = transport.rootSecretBytes()
 
         val ok = azulaState.importRecoveryPhrase("not a real recovery phrase at all")
         runCurrent()
 
         assertFalse(ok, "a malformed phrase must be rejected")
-        assertEquals(nodeIdBefore, azulaState.nodeId, "a rejected phrase must not touch the node id")
+        assertEquals(endpointIdBefore, azulaState.endpointId, "a rejected phrase must not touch the endpoint id")
         assertEquals(rootBefore?.toList(), transport.rootSecretBytes()?.toList(), "a rejected phrase must not touch the root secret")
     }
 
     @Test
-    fun importingAValidPhraseSetsTheRootSecretWithoutTouchingNodeId() = runTest {
+    fun importingAValidPhraseSetsTheRootSecretWithoutTouchingEndpointId() = runTest {
         val transport = RootSecretTransport()
         val azulaState = testAzulaState(backgroundScope, transport)
         azulaState.start()
         runCurrent()
-        val nodeIdBefore = azulaState.nodeId
+        val endpointIdBefore = azulaState.endpointId
 
         val key = ByteArray(32) { (it * 7).toByte() }
         val phrase = RecoveryPhrase.encode(key)
@@ -75,13 +75,13 @@ class RecoveryPhraseRestoreTest {
         runCurrent()
 
         assertTrue(ok, "a well-formed, checksum-valid phrase must be accepted")
-        assertEquals(nodeIdBefore, azulaState.nodeId, "importing a phrase must not change the node id")
+        assertEquals(endpointIdBefore, azulaState.endpointId, "importing a phrase must not change the endpoint id")
         assertTrue(key.contentEquals(transport.rootSecretBytes()!!), "the decoded phrase must become the root secret")
     }
 
     @Test
-    fun aDeviceWithANodeKeyAndNoRootSecretIsAValidState() = runTest {
-        // A QR-linked device: it has its own node id but holds no root secret until (if
+    fun aDeviceWithAEndpointKeyAndNoRootSecretIsAValidState() = runTest {
+        // A QR-linked device: it has its own endpoint id but holds no root secret until (if
         // ever) it's given root authority -- see the `identity` capability's "QR-linked
         // device stores no root secret" scenario.
         val transport = RootSecretTransport(root = null)
@@ -89,7 +89,7 @@ class RecoveryPhraseRestoreTest {
         azulaState.start()
         runCurrent()
 
-        assertNotNull(azulaState.nodeId, "a node id exists independent of root-secret possession")
+        assertNotNull(azulaState.endpointId, "a endpoint id exists independent of root-secret possession")
         assertNull(azulaState.exportRecoveryPhrase(), "no root secret means no recovery phrase to show")
     }
 
@@ -224,10 +224,10 @@ class RecoveryPhraseRestoreTest {
 }
 
 /**
- * A transport that actually models the root/node split, which [FakeTransport] does not (it
+ * A transport that actually models the root/endpoint split, which [FakeTransport] does not (it
  * mirrors one fixed fake key as both). [root] seeds the initial root-secret state (null
  * models a QR-linked device); [importRootSecret] mutates it in place with no effect on
- * [nodeId] -- exactly the multi-device-identity task 3.3 behavior. [failImport]
+ * [endpointId] -- exactly the multi-device-identity task 3.3 behavior. [failImport]
  * simulates a key-store write that throws (a locked Keychain, an unrecoverable corrupt
  * keyset, ...). [failRebind] simulates [rebind] failing (network unavailable) -- task
  * 3.4/3.5a's "a failed transport re-bind SHALL NOT fail the restore"; [rebindCount] lets a
@@ -239,7 +239,7 @@ private class RootSecretTransport(
     private val failImport: Boolean = false,
     private val failRebind: Boolean = false,
 ) : IrohTransport {
-    override var nodeId: String? = "self"
+    override var endpointId: String? = "self"
     override var onCameOnline: (() -> Unit)? = null
 
     private var root: ByteArray? = root
@@ -270,7 +270,7 @@ private class RootSecretTransport(
 
     override fun incoming(): Flow<IncomingConnection> = emptyFlow()
 
-    override suspend fun myTicket(): String = "ticket-$nodeId"
+    override suspend fun myTicket(): String = "ticket-$endpointId"
     override fun secretKeyBytes(): ByteArray = ByteArray(32) { 1 }
     override suspend fun importSecretKey(bytes: ByteArray) { /* not exercised here */ }
     override fun peerIdForTicket(ticket: String): String? = null

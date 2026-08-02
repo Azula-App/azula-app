@@ -28,7 +28,7 @@ import kotlin.random.Random
  * unreachable) after one.
  */
 data class PendingConnectionRequest(
-    val nodeId: String,
+    val endpointId: String,
     val inviteId: String?,
     val peerCode: String,
     val unverified: Boolean,
@@ -41,7 +41,7 @@ data class PendingConnectionRequest(
      *  KnownByRoot peer never reaches the pending inbox at all -- see
      *  ConnectService.handleCertOrStrangerConnection -- so this is only ever set for a
      *  genuine "certified stranger"). Accepting pins the contact by this root instead of
-     *  by [nodeId] (invitations spec: "Accepting a certified stranger pins the root"). */
+     *  by [endpointId] (invitations spec: "Accepting a certified stranger pins the root"). */
     val certifiedRootPk: ByteArray? = null,
 )
 
@@ -74,7 +74,7 @@ class InviteService(
     /** Inbound strangers awaiting accept/decline, oldest first. */
     val pending = mutableStateListOf<PendingConnectionRequest>()
 
-    /** Node ids of peers we've already accepted an invite from (or otherwise know). */
+    /** Endpoint ids of peers we've already accepted an invite from (or otherwise know). */
     private val contacts = mutableSetOf<String>()
 
     fun load() {
@@ -88,28 +88,28 @@ class InviteService(
         invitationsStore?.save(
             InvitationsBook(
                 issued = issued.toList(),
-                pending = pending.map { PendingInvite(it.nodeId, it.inviteId, it.receivedAt, it.peerCode, it.unverified) },
+                pending = pending.map { PendingInvite(it.endpointId, it.inviteId, it.receivedAt, it.peerCode, it.unverified) },
                 contacts = contacts.toList(),
             ),
         )
     }
 
-    /** True if [nodeIdHex] is a peer we've already accepted (the "known peer,
+    /** True if [endpointIdHex] is a peer we've already accepted (the "known peer,
      *  connect with no gate" branch of the verification model). */
-    fun isKnown(nodeIdHex: String): Boolean = nodeIdHex in contacts
+    fun isKnown(endpointIdHex: String): Boolean = endpointIdHex in contacts
 
     /** multi-device-identity task 7.2: the full known-contacts set, exposed read-only so
      *  a presented certificate's root public key (hex) can be checked against it too --
-     *  [contacts] holds root pk hexes exactly like node id hexes (see [accept]/
+     *  [contacts] holds root pk hexes exactly like endpoint id hexes (see [accept]/
      *  [pinContactRoot]), so no separate root-contacts store exists or is needed. */
     fun knownContactIds(): Set<String> = contacts.toSet()
 
     /**
      * Directly pins [idHex] (a root public key hex, per multi-device-identity) as a
      * known contact -- used when an already-known peer's stream first presents a valid
-     * device certificate (ConnectService's node-id-to-root-pk conversation merge) to
+     * device certificate (ConnectService's endpoint-id-to-root-pk conversation merge) to
      * promote its identifier without going through the accept flow: there is no pending
-     * request here, the peer was already known by node id. Returns false (no-op) if
+     * request here, the peer was already known by endpoint id. Returns false (no-op) if
      * already known.
      */
     fun pinContactRoot(idHex: String): Boolean {
@@ -139,7 +139,7 @@ class InviteService(
         val expiresAt = expiresInSeconds?.let { now + it } ?: 0L
         var payload = InvitePayload(1, flags, inviteId, now, expiresAt, ticketBytes, null)
         if (sign) {
-            val sig = transport.signWithNodeKey(payload.signedInputBytes()) ?: return null
+            val sig = transport.signWithEndpointKey(payload.signedInputBytes()) ?: return null
             payload = payload.copy(signature = sig)
         }
         issued.add(IssuedInvite(payload.fingerprint, now, expiresAt, flags, label, consumed = false))
@@ -163,14 +163,14 @@ class InviteService(
         if (inviteEncoded.isNullOrBlank()) return null
         val payload = InviteCodec.decode(inviteEncoded) ?: return null
         if (payload.version != 1) return null
-        val myNodeId = transport.nodeId ?: return null
+        val myEndpointId = transport.endpointId ?: return null
         val ticketStr = transport.ticketFromBytes(payload.ticket) ?: return null
-        if (transport.peerIdForTicket(ticketStr) != myNodeId) return null
+        if (transport.peerIdForTicket(ticketStr) != myEndpointId) return null
         val issuedInvite = issued.firstOrNull { it.id == payload.fingerprint } ?: return null
         if (issuedInvite.expiresAt != 0L && epochSeconds() >= issuedInvite.expiresAt) return null
         if (payload.signed) {
             val sig = payload.signature ?: return null
-            if (!transport.verifyNodeSignature(myNodeId, payload.signedInputBytes(), sig)) return null
+            if (!transport.verifyEndpointSignature(myEndpointId, payload.signedInputBytes(), sig)) return null
         }
         if (payload.singleUse && issuedInvite.consumed) return null
         return issuedInvite
@@ -182,7 +182,7 @@ class InviteService(
      * sentinel conversation id "invites" -- rather than one per request.
      */
     fun enqueuePending(
-        nodeId: String,
+        endpointId: String,
         inviteId: String?,
         peerCode: String,
         stream: P2pStream,
@@ -190,11 +190,11 @@ class InviteService(
         unverified: Boolean,
         certifiedRootPk: ByteArray? = null,
     ) {
-        if (pending.any { it.nodeId == nodeId }) {
+        if (pending.any { it.endpointId == endpointId }) {
             scope.launch { runCatching { stream.close() } } // already have one from this peer
             return
         }
-        pending.add(PendingConnectionRequest(nodeId, inviteId, peerCode, unverified, stream, alpn, epochSeconds(), certifiedRootPk))
+        pending.add(PendingConnectionRequest(endpointId, inviteId, peerCode, unverified, stream, alpn, epochSeconds(), certifiedRootPk))
         persist()
         if (!foreground()) {
             notifier?.postConnectionRequest(pending.size, peerCode)
@@ -203,14 +203,14 @@ class InviteService(
 
     /** Accept [req]: adds the peer to contacts -- by its certified root public key
      *  (multi-device-identity task 7.2's "Accepting a certified stranger pins the
-     *  root") when [PendingConnectionRequest.certifiedRootPk] is set, by node id
+     *  root") when [PendingConnectionRequest.certifiedRootPk] is set, by endpoint id
      *  otherwise, exactly as before -- marks a single-use invite consumed, and wires
      *  the held stream via [onAccept] -- optionally sharing [profile] back over it
      *  (guest accept never requires one; this is purely the "share your name back"
      *  opt-in). */
     fun accept(req: PendingConnectionRequest, profile: Frame.Profile? = null) {
         if (!pending.remove(req)) return
-        contacts.add(req.certifiedRootPk?.toHexLower() ?: req.nodeId)
+        contacts.add(req.certifiedRootPk?.toHexLower() ?: req.endpointId)
         req.inviteId?.let { id ->
             val idx = issued.indexOfFirst { it.id == id }
             if (idx >= 0 && (issued[idx].flags and 0x02) != 0) issued[idx] = issued[idx].copy(consumed = true)

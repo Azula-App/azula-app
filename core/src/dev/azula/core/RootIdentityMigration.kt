@@ -1,7 +1,7 @@
 package dev.azula.core
 
 // multi-device-identity design.md Migration Plan step 2 / the `identity` delta's
-// "Identity Is a Root Keypair Above Device Node Keys" requirement: an existing (or
+// "Identity Is a Root Keypair Above Device Endpoint Keys" requirement: an existing (or
 // freshly minted) single-device identity's endpoint secret becomes its root secret
 // unchanged, and the device keeps using that same key as its device key too --
 // a self-certificate where `device_pk == root_pk`.
@@ -21,7 +21,7 @@ package dev.azula.core
  *
  * The recovery phrase, endpoint id, and existing contacts are unaffected by this call: it
  * neither touches a endpoint-key entry nor rebinds any transport -- see
- * [`Identity Is a Root Keypair Above Device Node Keys`](azula-docs/openspec/changes/multi-device-identity/specs/identity/spec.md).
+ * [`Identity Is a Root Keypair Above Device Endpoint Keys`](azula-docs/openspec/changes/multi-device-identity/specs/identity/spec.md).
  *
  * This function still deliberately does NOT persist the resulting certificate anywhere
  * durable or append a `device_add` log entry for it -- `core` has no event-log dependency,

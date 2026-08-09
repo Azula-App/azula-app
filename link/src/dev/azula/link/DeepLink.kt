@@ -9,7 +9,7 @@ package dev.azula.link
  * needs an actual tag, not just another string. See [AzulaLinks.parseTagged].
  */
 sealed class ParsedAzulaLink {
-    /** An invite (`azi…`) or legacy raw ticket/session token -- see [AzulaLinks.parse]. */
+    /** An invite (`azi…`) or a bare raw ticket -- see [AzulaLinks.parse]. */
     data class Connect(val token: String) : ParsedAzulaLink()
 
     /** A device-link (`azl…`) payload -- see [AzulaLinks.parseDeviceLink]. */
@@ -17,24 +17,24 @@ sealed class ParsedAzulaLink {
 }
 
 /**
- * Parses azula deeplinks into a session token (an invite `azi…` string, or a
- * legacy raw iroh ticket / code — callers can't tell which without decoding,
- * see [dev.azula.link.InviteCodec.isInvite]). Accepts the universal/app links
- * and the custom scheme:
+ * Parses azula deeplinks into a session token (an invite `azi…` string — see
+ * [dev.azula.link.InviteCodec.isInvite]). Accepts the universal/app links and
+ * the custom scheme:
  *   - https://azula.app/i/<payload>    (invite; canonical share link)
  *   - azula://i?c=<payload>            (invite; custom-scheme fallback)
  *   - bare azi… string                 (invite; pasteable into the connect box)
- *   - https://azula.app/s/<token>      (legacy; and /connect/<token>)
- *   - azula://connect?code=<token>     (legacy)
+ *
+ * The pre-invite share-link forms (`/s/<token>`, `/connect/<token>`,
+ * `azula://connect?code=<token>`) are **not** parsed: the transition hatch they
+ * belonged to is closed, and those routes no longer exist on azula.app. They
+ * return null like any other unrecognized input. A bare raw ticket pasted into
+ * the connect box still works — callers fall back to the trimmed input.
  *
  * A device-link (`azl…`) form is a separate flow entirely -- see [parseDeviceLink]/[parseTagged].
  */
 object AzulaLinks {
     const val HOST = "azula.app"
     const val SCHEME = "azula"
-
-    /** The canonical web link for a connect [token] — what the QR encodes and share sheets present. */
-    fun webLink(token: String): String = "https://$HOST/s/$token"
 
     /** The canonical web link for an encoded invite [payload] (an `azi…` string). */
     fun inviteLink(payload: String): String = "https://$HOST/i/$payload"
@@ -73,23 +73,6 @@ object AzulaLinks {
             return v.ifEmpty { null }?.let(::percentDecode)
         }
 
-        // azula://connect?code=<token> (legacy)
-        val codeIdx = s.indexOf("code=")
-        if (codeIdx >= 0) {
-            var v = s.substring(codeIdx + "code=".length)
-            v = v.substringBefore('&').substringBefore('#')
-            return v.ifEmpty { null }?.let(::percentDecode)
-        }
-
-        // .../s/<token> or .../connect/<token> (legacy)
-        for (prefix in listOf("/s/", "/connect/")) {
-            val i = s.indexOf(prefix)
-            if (i >= 0) {
-                var v = s.substring(i + prefix.length)
-                v = v.substringBefore('?').substringBefore('#').substringBefore('/')
-                return v.ifEmpty { null }?.let(::percentDecode)
-            }
-        }
         return null
     }
 
@@ -131,7 +114,7 @@ object AzulaLinks {
 
     /**
      * Tag-aware parse distinguishing which flow a deeplink/pasted string targets (multi-device-
-     * identity task 6.6): tries the connect forms first ([parse]: invite/legacy), then
+     * identity task 6.6): tries the connect forms first ([parse]: invite), then
      * device-link forms ([parseDeviceLink]). Null if [raw] matches neither.
      */
     fun parseTagged(raw: String): ParsedAzulaLink? {

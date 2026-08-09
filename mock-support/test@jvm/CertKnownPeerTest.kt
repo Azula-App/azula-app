@@ -111,6 +111,12 @@ class CertKnownPeerTest {
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
         override val endpointId: String? get() = fixedEndpointIdHex
+        // The delegate's myTicket() embeds the *delegate's* endpointId, not the
+        // fixed one this class reports, so an invite minted against it would name
+        // the wrong audience and never self-verify. Re-derive it here, keeping
+        // FakeTransport's `azula-mock-<endpointId>` shape so peerIdForTicket
+        // resolves it straight back.
+        override suspend fun myTicket(): String = "azula-mock-$fixedEndpointIdHex"
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -174,17 +180,21 @@ class CertKnownPeerTest {
         azulaState.start()
         runCurrent()
 
+        // Carries a valid invite, so the *only* thing under test is whether
+        // the revoked cert buys it the root match (it must not).
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
         val pipe = InboundPipe()
         transport.emit(IncomingConnection(phoneHex, Alpns.CHAT, pipe.stream))
         runCurrent()
-        pipe.sendFrame(Frame.Hello(phoneHex, cert = cert(phonePk, "phone")))
+        pipe.sendFrame(Frame.Hello(phoneHex, invite = encoded, cert = cert(phonePk, "phone")))
         runCurrent()
 
         val rootConvId = contactRootPk.toHexLower()
         assertFalse(azulaState.conversations.any { it.id == rootConvId }, "a revoked device must not ride the root match into the contact's conversation")
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.endpointId, "falls all the way through to the ordinary stranger path")
-        assertTrue(pending?.unverified == true, "no invite was presented -- admitted only via allowLegacyInbound, same as any stranger")
+        assertEquals(phoneHex, pending?.endpointId, "falls all the way through to the ordinary invite-gated stranger path")
     }
 
     @Test
@@ -198,21 +208,46 @@ class CertKnownPeerTest {
         val goodCert = DeviceCertCodec.decode(cert(phonePk, "phone"))!!
         val badCert = goodCert.copy(signature = goodCert.signature.copyOf().also { it[0] = (it[0].toInt() xor 0xFF).toByte() })
 
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
         val pipe = InboundPipe()
         transport.emit(IncomingConnection(phoneHex, Alpns.CHAT, pipe.stream))
         runCurrent()
-        pipe.sendFrame(Frame.Hello(phoneHex, cert = DeviceCertCodec.encode(badCert)))
+        pipe.sendFrame(Frame.Hello(phoneHex, invite = encoded, cert = DeviceCertCodec.encode(badCert)))
         runCurrent()
 
         val rootConvId = contactRootPk.toHexLower()
         assertFalse(azulaState.conversations.any { it.id == rootConvId }, "an invalid cert must grant nothing -- even though its (unverifiable) root would otherwise be a known contact")
         val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.endpointId, "a cert that fails verification is treated as absent, NOT a hard rejection -- it still falls to the (unverified) stranger path exactly like a legacy peer")
-        assertTrue(pending?.unverified == true)
+        assertEquals(phoneHex, pending?.endpointId, "a cert that fails verification is treated as absent, NOT a hard rejection -- it still falls to the ordinary invite path exactly like a no-cert peer")
     }
 
     @Test
-    fun legacyNoCertPeerIsUnaffectedByTheCertCheck() = runTest {
+    fun noCertPeerIsGatedPurelyOnItsInvite() = runTest {
+        val transport = IdentityTransport(mySecret, myHex)
+        val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = newStore(), ed25519 = ed25519)
+        azulaState.start()
+        runCurrent()
+
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
+        val pipe = InboundPipe()
+        transport.emit(IncomingConnection(phoneHex, Alpns.CHAT, pipe.stream))
+        runCurrent()
+        pipe.sendFrame(Frame.Hello(phoneHex, invite = encoded)) // no cert, valid invite
+        runCurrent()
+
+        val pending = azulaState.pendingInvites.singleOrNull()
+        assertEquals(phoneHex, pending?.endpointId, "the cert check must not disturb an ordinary invite redemption")
+    }
+
+    /** The retired escape hatch: a peer with no invite used to land in the
+     *  pending inbox flagged "unverified". It is now dropped, whether or not
+     *  it presented a certificate. */
+    @Test
+    fun inviteLessPeerIsDroppedRatherThanHeldUnverified() = runTest {
         val transport = IdentityTransport(mySecret, myHex)
         val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = newStore(), ed25519 = ed25519)
         azulaState.start()
@@ -221,12 +256,11 @@ class CertKnownPeerTest {
         val pipe = InboundPipe()
         transport.emit(IncomingConnection(phoneHex, Alpns.CHAT, pipe.stream))
         runCurrent()
-        pipe.sendFrame(Frame.Hello(phoneHex)) // no cert, no invite -- exactly a legacy peer
+        pipe.sendFrame(Frame.Hello(phoneHex)) // no cert, no invite
         runCurrent()
 
-        val pending = azulaState.pendingInvites.singleOrNull()
-        assertEquals(phoneHex, pending?.endpointId, "a legacy peer must be gated exactly as before this change")
-        assertTrue(pending?.unverified == true)
+        assertTrue(azulaState.pendingInvites.isEmpty(), "an invite-less stranger must not reach the pending inbox")
+        assertTrue(azulaState.conversations.isEmpty(), "and must certainly not be wired into a conversation")
     }
 
     // ---- task 7.3: conversation keying by root pk ----
@@ -274,13 +308,16 @@ class CertKnownPeerTest {
         runCurrent()
 
         // Phone connects fresh, already presenting a valid certificate for a root we
-        // don't know yet -- a "certified stranger" -- admitted via the ordinary
-        // (allowLegacyInbound) pending flow; accepting it lands straight in a
-        // root-pk-keyed conversation, no legacy phase for this device at all.
+        // don't know yet -- a "certified stranger" -- so it still has to redeem an
+        // invite like anyone else; accepting it lands straight in a root-pk-keyed
+        // conversation, no endpoint-id-keyed phase for this device at all.
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
         val phonePipe = InboundPipe()
         transport.emit(IncomingConnection(phoneHex, Alpns.CHAT, phonePipe.stream))
         runCurrent()
-        phonePipe.sendFrame(Frame.Hello(phoneHex, cert = cert(phonePk, "phone")))
+        phonePipe.sendFrame(Frame.Hello(phoneHex, invite = encoded, cert = cert(phonePk, "phone")))
         runCurrent()
         val req = azulaState.pendingInvites.single()
         azulaState.acceptInvite(req)

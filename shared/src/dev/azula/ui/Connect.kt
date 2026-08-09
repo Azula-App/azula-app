@@ -40,7 +40,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.azula.link.AzulaLinks
 import dev.azula.model.ConnectStage
 import dev.azula.state.AzulaState
 import dev.azula.state.toFrame
@@ -140,7 +139,10 @@ private fun ConnectIdle(state: AzulaState, useBottomSheet: Boolean) {
                     color = AzulaColors.textDim2, fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
                 )
                 if (state.myCode.isNotEmpty()) {
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(AzulaLinks.webLink(state.myCode)) }
+                    // The bare ticket, not a wrapped link: the `/s/` route it
+                    // used to point at went away with the invite sunset. The
+                    // invite QR above is the camera-actionable one.
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(state.myCode) }
                 }
             }
         }

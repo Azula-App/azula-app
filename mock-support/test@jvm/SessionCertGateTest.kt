@@ -136,6 +136,12 @@ class SessionCertGateTest {
         private val delegate: FakeTransport = FakeTransport(),
     ) : IrohTransport by delegate {
         override val endpointId: String? get() = fixedEndpointIdHex
+        // The delegate's myTicket() embeds the *delegate's* endpointId, not the
+        // fixed one this class reports, so an invite minted against it would name
+        // the wrong audience and never self-verify. Re-derive it here, keeping
+        // FakeTransport's `azula-mock-<endpointId>` shape so peerIdForTicket
+        // resolves it straight back.
+        override suspend fun myTicket(): String = "azula-mock-$fixedEndpointIdHex"
         override fun rootSecretBytes(): ByteArray = secret
         override fun secretKeyBytes(): ByteArray = secret
         override fun publicKeyFor(secret: ByteArray): ByteArray = Sha256.hash(secret)
@@ -272,15 +278,17 @@ class SessionCertGateTest {
         azulaState.start()
         runCurrent()
 
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
         val pipe = InboundPipe()
         transport.emit(IncomingConnection(sessionHex, Alpns.CHAT, pipe.stream))
         runCurrent()
-        pipe.sendFrame(Frame.Hello(sessionHex)) // no cert, no invite -- a legacy stranger
+        pipe.sendFrame(Frame.Hello(sessionHex, invite = encoded)) // no cert, valid invite
         runCurrent()
 
         val pending = azulaState.pendingInvites.singleOrNull()
         assertEquals(sessionHex, pending?.endpointId, "a CHAT stranger with no session cert must still reach the invite gate")
-        assertTrue(pending?.unverified == true)
         assertTrue(azulaState.conversations.isEmpty())
     }
 
@@ -292,10 +300,13 @@ class SessionCertGateTest {
         azulaState.start()
         runCurrent()
 
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
         val pipe = InboundPipe()
         transport.emit(IncomingConnection(sessionHex, Alpns.CHAT, pipe.stream))
         runCurrent()
-        pipe.sendFrame(Frame.Hello(sessionHex, cert = sessionCert(expiresAt = now - 10)))
+        pipe.sendFrame(Frame.Hello(sessionHex, invite = encoded, cert = sessionCert(expiresAt = now - 10)))
         runCurrent()
 
         assertTrue(azulaState.conversations.isEmpty(), "an expired session cert must not be admitted")

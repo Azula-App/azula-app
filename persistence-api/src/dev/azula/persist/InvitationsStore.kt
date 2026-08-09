@@ -33,7 +33,6 @@ data class PendingInvite(
     val inviteId: String? = null,
     val receivedAt: Long,
     val peerCode: String,
-    val unverified: Boolean = false,
 )
 
 /** Everything [InvitationsStore] persists: invites we issued, strangers awaiting

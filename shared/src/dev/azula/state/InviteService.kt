@@ -31,7 +31,6 @@ data class PendingConnectionRequest(
     val endpointId: String,
     val inviteId: String?,
     val peerCode: String,
-    val unverified: Boolean,
     val stream: P2pStream,
     val alpn: String,
     val receivedAt: Long,
@@ -88,7 +87,7 @@ class InviteService(
         invitationsStore?.save(
             InvitationsBook(
                 issued = issued.toList(),
-                pending = pending.map { PendingInvite(it.endpointId, it.inviteId, it.receivedAt, it.peerCode, it.unverified) },
+                pending = pending.map { PendingInvite(it.endpointId, it.inviteId, it.receivedAt, it.peerCode) },
                 contacts = contacts.toList(),
             ),
         )
@@ -177,9 +176,10 @@ class InviteService(
     }
 
     /**
-     * Hold a validated (or, if [unverified], legacy-allowed) stranger's stream
-     * pending an accept/decline decision. Posts one batched notification --
-     * sentinel conversation id "invites" -- rather than one per request.
+     * Hold a validated stranger's stream pending an accept/decline decision.
+     * Posts one batched notification -- sentinel conversation id "invites" --
+     * rather than one per request. Only reached for a peer whose `Hello.invite`
+     * verified: there is no invite-less admission path.
      */
     fun enqueuePending(
         endpointId: String,
@@ -187,14 +187,13 @@ class InviteService(
         peerCode: String,
         stream: P2pStream,
         alpn: String,
-        unverified: Boolean,
         certifiedRootPk: ByteArray? = null,
     ) {
         if (pending.any { it.endpointId == endpointId }) {
             scope.launch { runCatching { stream.close() } } // already have one from this peer
             return
         }
-        pending.add(PendingConnectionRequest(endpointId, inviteId, peerCode, unverified, stream, alpn, epochSeconds(), certifiedRootPk))
+        pending.add(PendingConnectionRequest(endpointId, inviteId, peerCode, stream, alpn, epochSeconds(), certifiedRootPk))
         persist()
         if (!foreground()) {
             notifier?.postConnectionRequest(pending.size, peerCode)

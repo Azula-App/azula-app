@@ -90,13 +90,18 @@ class InviteReviewSheetE2eTest {
     }
 
     @Test
-    fun decliningAnUnverifiedStrangerClearsThePendingWithoutCreatingAConversation() = desktopE2eTest { state, transport, scope ->
+    fun decliningAStrangerClearsThePendingWithoutCreatingAConversation() = desktopE2eTest { state, transport, scope ->
+        // Every pending request is invite-verified now -- an invite-less peer is
+        // dropped at the gate and never reaches this sheet (see
+        // CertKnownPeerTest.inviteLessPeerIsDroppedRatherThanHeldUnverified).
+        var encodedInvite: String? = null
+        scope.launch { encodedInvite = state.createInvite(expiresInSeconds = 3600) }
+        waitUntil(timeoutMillis = 10_000) { encodedInvite != null }
+
         val pipe = PeerPipe()
         scope.launch {
-            transport.injectIncomingConnection(IncomingConnection(remoteId = "stranger-unverified", alpn = Alpns.CHAT, stream = pipe.clientStream))
-            // No invite -- allowLegacyInbound (default on, see ConnectService)
-            // still holds it pending, but flagged unverified.
-            pipe.sendFrame(Frame.Hello(name = "stranger-unverified", invite = null))
+            transport.injectIncomingConnection(IncomingConnection(remoteId = "stranger-declined", alpn = Alpns.CHAT, stream = pipe.clientStream))
+            pipe.sendFrame(Frame.Hello(name = "stranger-declined", invite = encodedInvite))
         }
 
         // Click the sidebar's "invites" nav row via its testTag, not its label
@@ -106,20 +111,18 @@ class InviteReviewSheetE2eTest {
         // concurrently on `scope` -- the tag is stable regardless of count.
         waitUntilAtLeastOneExists(hasTestTag("nav-invites"), timeoutMillis = 15_000)
         onNodeWithTag("nav-invites").performClick()
-        waitUntilAtLeastOneExists(hasTestTag("pending-request-stranger-unverified"), timeoutMillis = 15_000)
-        onNodeWithTag("pending-request-stranger-unverified").performClick()
+        waitUntilAtLeastOneExists(hasTestTag("pending-request-stranger-declined"), timeoutMillis = 15_000)
+        onNodeWithTag("pending-request-stranger-declined").performClick()
 
         waitUntilAtLeastOneExists(hasTestTag("invite-review-sheet"), timeoutMillis = 10_000)
-        onNodeWithText(
-            "This peer didn't present a valid invite — treat it as unverified. Legacy connections are allowed for now; you can decline if you don't recognize it.",
-        ).assertIsDisplayed()
+        onNodeWithText("This peer presented a valid invite you issued.").assertIsDisplayed()
 
         onNodeWithTag("invite-review-decline").performClick()
-        waitUntilDoesNotExist(hasTestTag("pending-request-stranger-unverified"), timeoutMillis = 10_000)
+        waitUntilDoesNotExist(hasTestTag("pending-request-stranger-declined"), timeoutMillis = 10_000)
 
         assertTrue(state.pendingInvites.isEmpty(), "decline must remove the request from the pending inbox")
         assertFalse(
-            state.conversations.any { it.id == "stranger-unverified" },
+            state.conversations.any { it.id == "stranger-declined" },
             "decline must never wire the held stream into a conversation",
         )
     }

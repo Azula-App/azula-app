@@ -138,14 +138,14 @@ private fun PendingRequestRow(req: PendingConnectionRequest, onClick: () -> Unit
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            GlyphBox(if (req.unverified) GlyphStyle.PEER else GlyphStyle.PINK, req.peerCode.firstOrNull()?.uppercaseChar()?.toString() ?: "•", size = 34.dp)
+            GlyphBox(GlyphStyle.PINK, req.peerCode.firstOrNull()?.uppercaseChar()?.toString() ?: "•", size = 34.dp)
             Column {
                 Text(req.peerCode, color = AzulaColors.text0, fontFamily = Fonts.mono, fontSize = 12.sp)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(relativeTime(req.receivedAt), color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 10.sp)
                     Text(
-                        if (req.unverified) "· unverified" else "· invite verified",
-                        color = if (req.unverified) AzulaColors.pink else AzulaColors.onlineBright,
+                        "· invite verified",
+                        color = AzulaColors.onlineBright,
                         fontFamily = Fonts.mono, fontSize = 10.sp,
                     )
                 }
@@ -219,12 +219,8 @@ fun InviteReviewSheet(state: AzulaState, req: PendingConnectionRequest, onDismis
         ) {
             Text(req.peerCode, color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             Text(
-                if (req.unverified) {
-                    "This peer didn't present a valid invite — treat it as unverified. Legacy connections are allowed for now; you can decline if you don't recognize it."
-                } else {
-                    "This peer presented a valid invite you issued."
-                },
-                color = if (req.unverified) AzulaColors.pink else AzulaColors.onlineBright,
+                "This peer presented a valid invite you issued.",
+                color = AzulaColors.onlineBright,
                 fontFamily = Fonts.ui, fontSize = 12.5.sp, lineHeight = 18.sp,
             )
             Text(

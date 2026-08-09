@@ -516,6 +516,7 @@ jobs:
       # A venv rather than a bare `pip install`: the runner's python3 is
       # externally managed (PEP 668), so installing into it is not reliable.
       - name: Publish the notes to TestFlight and the App Store
+        id: publish_notes
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && steps.notes.outputs.status == 'present' }}
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -531,8 +532,12 @@ jobs:
       # The binaries are already on both stores at this point, so a failure here
       # means "shipped without notes", not "did not ship". Say so, and say what
       # fixes it -- the script re-runs standalone and uploads nothing.
+      # Conditioned on the notes step itself failing, not on the job failing:
+      # `failure()` alone fires for ANY later failure -- a bad archive, a duplicate
+      # build number at validation -- and this message would then claim a build
+      # shipped without its notes when nothing shipped at all.
       - name: Explain how to recover the notes
-        if: ${{ failure() && steps.notes.outcome == 'success' }}
+        if: ${{ failure() && steps.publish_notes.outcome == 'failure' }}
         run: |
           {
             echo "### ⚠️ The build shipped, but its release notes may not have"

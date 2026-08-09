@@ -1,7 +1,19 @@
 name: Release
 
-# Cuts a release: bumps the latest v* tag by major/minor/patch and pushes the new
-# tag. This workflow only decides the version; the tag is the handoff.
+# Cuts a release: bumps the latest v* tag by major/minor/patch, freezes
+# CHANGELOG.md's [Unreleased] section as that version, and pushes the promotion
+# commit plus the new tag. This workflow decides the version and the release
+# notes; the tag is the handoff.
+#
+# The promotion commit has to land BEFORE the tag, and the tag has to point at
+# it: publish.yml reads every repo file from the tag's tree, so notes that are
+# not in the tag do not reach either store. That is also what makes a rebuild
+# reproducible -- re-running publish.yml on a tag a month later ships
+# byte-identical notes, the same way it produces a byte-identical version code.
+#
+# The cut FAILS if [Unreleased] has no store-notes block, no changelog entries,
+# or notes over Google Play's 500-byte limit. Failing here means no tag exists
+# yet and nothing has been uploaded; the fix is a commit and a re-dispatch.
 #
 # It does NOT auto-run publish.yml: a tag pushed by a workflow's GITHUB_TOKEN does not
 # trigger other workflows (GitHub's loop-prevention), so publish.yml's `on: push` never
@@ -46,20 +58,52 @@ jobs:
           BUMP_TYPE: ${{ inputs.version_bump_type }}
         run: bash .github/scripts/get_version.sh
 
-      - name: Create and push the release tag
+      # Validates and freezes the notes. Runs before anything is pushed, so a
+      # release with nothing to say never gets as far as a tag.
+      - name: Freeze the changelog for this version
+        id: notes
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/promote_changelog.sh
+          {
+            echo "text<<CHANGELOG_EOF"
+            NEW_VERSION="$NEW_VERSION" bash -c '
+              source .github/scripts/changelog_lib.sh
+              changelog_store_notes "$NEW_VERSION"
+            '
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Push the promotion commit, then tag it. `git push origin HEAD:main` is
+      # deliberately not forced and not rebased: if main moved while this ran, the
+      # push is a non-fast-forward and the job fails having created no tag, which
+      # is harmless -- re-dispatch. (`concurrency: release` already serializes
+      # releases, so the window is seconds.)
+      - name: Commit the changelog and push the release tag
+        id: tag
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
+          NEW_VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git tag -a "$NEW_TAG" -m "Release $NEW_TAG" "$GITHUB_SHA"
+          git add CHANGELOG.md
+          git commit -m "chore(release): $NEW_VERSION"
+          git push origin HEAD:main
+          # HEAD, not $GITHUB_SHA: the commit we just made is the released one,
+          # and $GITHUB_SHA now predates the notes.
+          git tag -a "$NEW_TAG" -m "Release $NEW_TAG" HEAD
           git push origin "$NEW_TAG"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         env:
           NEW_TAG: ${{ steps.version.outputs.tag }}
           NEW_VERSION: ${{ steps.version.outputs.version }}
           NEW_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          RELEASE_SHA: ${{ steps.tag.outputs.sha }}
+          STORE_NOTES: ${{ steps.notes.outputs.text }}
         run: |
           {
             echo "### Released \`$NEW_TAG\`"
@@ -68,7 +112,13 @@ jobs:
             echo "|---|---|"
             echo "| Version | \`$NEW_VERSION\` |"
             echo "| Android versionCode | \`$NEW_VERSION_CODE\` |"
-            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| Commit | \`$RELEASE_SHA\` |"
+            echo ""
+            echo "**Store notes** — what Play, TestFlight, and the App Store will show:"
+            echo ""
+            echo '```'
+            echo "$STORE_NOTES"
+            echo '```'
             echo ""
             echo "Next: dispatch **Publish** against \`$NEW_TAG\` — \`dry_run=true\` to build + validate,"
             echo "then \`dry_run=false\` with a track to ship. (This tag push does not auto-run Publish.)"

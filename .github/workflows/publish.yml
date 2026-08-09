@@ -120,6 +120,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kotlin-
 
+      # Runs on every dispatch, including dry runs: the validate act is where the
+      # store text should be read, while fixing it is still free. A tag with no
+      # CHANGELOG.md (v0.0.1..v0.0.7) warns and continues; a tag that has the file
+      # but not this version's section fails. See the script.
+      - name: Extract the release notes
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # This job checks out the TAG, so a tag that predates CHANGELOG.md
+          # predates this script too -- reading the tooling from the tag is what
+          # makes the "no notes, ship anyway" path reachable at all. Guarding
+          # inline (rather than in the script) is deliberate: the guard travels
+          # with the workflow file, which comes from the dispatched ref, so it
+          # exists even when nothing else does. Same trap as the committed
+          # ExportOptions.plist -- see specs/release/design.md.
+          if [ ! -f .github/scripts/release_notes.sh ]; then
+            echo "::warning::This tag predates the release-notes tooling -- shipping $RELEASE_VERSION without notes."
+            echo "status=absent" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash .github/scripts/release_notes.sh whatsnew/whatsnew-en-US
+
+      - name: Show the release notes in the job summary
+        run: |
+          {
+            echo "### Google Play release notes (en-US)"
+            echo ""
+            if [ -f whatsnew/whatsnew-en-US ]; then
+              echo '```'
+              cat whatsnew/whatsnew-en-US
+              echo '```'
+            else
+              echo "_None — this tag predates CHANGELOG.md._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Decode the upload keystore
         env:
           KEYFILE_BASE64: ${{ secrets.KEYFILE_BASE64 }}
@@ -216,6 +253,10 @@ jobs:
           tracks: ${{ inputs.track || 'production' }}
           status: completed
           releaseName: ${{ needs.version.outputs.version }}
+          # The notes ride the same API call as the bundle, so "the binary shipped
+          # but its notes didn't" is not a reachable state on Android. Empty when
+          # the tag predates CHANGELOG.md, which the action treats as unset.
+          whatsNewDirectory: ${{ steps.notes.outputs.status == 'present' && 'whatsnew' || '' }}
 
   ios:
     needs: version
@@ -254,6 +295,36 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           printf '%s' "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
           chmod 600 ~/.appstoreconnect/private_keys/AuthKey_"$ASC_KEY_ID".p8
+
+      # Same extraction as the Android job, from the same tag, so both platforms
+      # publish identical text and a dry run shows what each store would receive.
+      - name: Extract the release notes
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # Same guard as the Android job: for a tag older than this change, the
+          # script isn't in the tree being built. See that job for the reasoning.
+          if [ ! -f .github/scripts/release_notes.sh ]; then
+            echo "::warning::This tag predates the release-notes tooling -- shipping $RELEASE_VERSION without notes."
+            echo "status=absent" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash .github/scripts/release_notes.sh "$RUNNER_TEMP/release-notes.txt"
+
+      - name: Show the release notes in the job summary
+        run: |
+          {
+            echo "### TestFlight / App Store notes (en-US)"
+            echo ""
+            if [ -f "$RUNNER_TEMP/release-notes.txt" ]; then
+              echo '```'
+              cat "$RUNNER_TEMP/release-notes.txt"
+              echo '```'
+            else
+              echo "_None — this tag predates CHANGELOG.md._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stamp the version into both platforms
         run: bash .github/scripts/set_version.sh
@@ -437,3 +508,44 @@ jobs:
             -t ios \
             --apiKey "$ASC_KEY_ID" \
             --apiIssuer "$ASC_ISSUER_ID"
+
+      # altool can set neither TestFlight's "What to Test" nor the App Store's
+      # "What's New", so the notes go through the ASC API instead. Skipped for a
+      # tag that predates CHANGELOG.md, which has no notes to publish.
+      #
+      # A venv rather than a bare `pip install`: the runner's python3 is
+      # externally managed (PEP 668), so installing into it is not reliable.
+      - name: Publish the notes to TestFlight and the App Store
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && steps.notes.outputs.status == 'present' }}
+        env:
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          NEW_VERSION_CODE: ${{ needs.version.outputs.version_code }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ascvenv"
+          "$RUNNER_TEMP/ascvenv/bin/pip" install --quiet 'pyjwt[crypto]'
+          "$RUNNER_TEMP/ascvenv/bin/python" .github/scripts/publish_ios_notes.py \
+            --tag "$RELEASE_TAG" \
+            --build-number "$NEW_VERSION_CODE" \
+            --notes-file "$RUNNER_TEMP/release-notes.txt"
+
+      # The binaries are already on both stores at this point, so a failure here
+      # means "shipped without notes", not "did not ship". Say so, and say what
+      # fixes it -- the script re-runs standalone and uploads nothing.
+      - name: Explain how to recover the notes
+        if: ${{ failure() && steps.notes.outcome == 'success' }}
+        run: |
+          {
+            echo "### ⚠️ The build shipped, but its release notes may not have"
+            echo ""
+            echo "\`publish_ios_notes.py\` is standalone and idempotent. Re-run it against"
+            echo "the same tag once App Store Connect has ingested the build:"
+            echo ""
+            echo '```bash'
+            echo "ASC_KEY_ID=... ASC_ISSUER_ID=... python3 .github/scripts/publish_ios_notes.py \\"
+            echo "  --tag ${{ needs.version.outputs.tag }} \\"
+            echo "  --build-number ${{ needs.version.outputs.version_code }} \\"
+            echo "  --notes-file notes.txt"
+            echo '```'
+            echo ""
+            echo "Nothing is re-uploaded and no duplicate build number is risked."
+          } >> "$GITHUB_STEP_SUMMARY"

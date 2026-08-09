@@ -40,9 +40,12 @@ class ConnectServiceFrameDispatchTest {
         azulaState.start()
         runCurrent()
 
-        // A stranger on the CHAT alpn is gated: present a (legacy, invite-less)
-        // Hello and accept the resulting pending request before it's wired.
-        pipe.sendFrame(Frame.Hello("peer-chat"))
+        // A stranger on the CHAT alpn is gated: present a valid invite and
+        // accept the resulting pending request before it's wired.
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
+        pipe.sendFrame(Frame.Hello("peer-chat", invite = encoded))
         runCurrent()
         azulaState.acceptInvite(azulaState.pendingInvites.single())
         runCurrent()
@@ -98,7 +101,10 @@ class ConnectServiceFrameDispatchTest {
         azulaState.start()
         runCurrent()
 
-        pipe.sendFrame(Frame.Hello("peer-a2ui"))
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
+        pipe.sendFrame(Frame.Hello("peer-a2ui", invite = encoded))
         runCurrent()
         azulaState.acceptInvite(azulaState.pendingInvites.single())
         runCurrent()
@@ -126,7 +132,10 @@ class ConnectServiceFrameDispatchTest {
         azulaState.start()
         runCurrent()
 
-        pipe.sendFrame(Frame.Hello("peer-profile"))
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
+        pipe.sendFrame(Frame.Hello("peer-profile", invite = encoded))
         runCurrent()
         azulaState.acceptInvite(azulaState.pendingInvites.single())
         runCurrent()
@@ -193,7 +202,7 @@ private class OneShotIncomingTransport(
     override var endpointId: String? = "test-endpoint"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
-    override suspend fun myTicket(): String = ""
+    override suspend fun myTicket(): String = "ticket-for-$endpointId"
     override fun secretKeyBytes(): ByteArray? = null
     override suspend fun importSecretKey(bytes: ByteArray) = Unit
     override suspend fun connect(ticket: String, alpn: String): P2pStream = error("not used: inbound-only test")
@@ -201,7 +210,13 @@ private class OneShotIncomingTransport(
     // tokenStream test's seeded InMemoryPeerStore) resolves back to it --
     // needed to make LLM/TERM's stranger, which the gate never lets through
     // any accept path, a "known" peer instead.
-    override fun peerIdForTicket(ticket: String): String = ticket
+    override fun peerIdForTicket(ticket: String): String =
+        if (ticket.startsWith("ticket-for-")) ticket.removePrefix("ticket-for-") else ticket
+
+    // Enough ticket plumbing for `createInvite` to mint a real invite: a
+    // stranger needs one to get past the gate at all.
+    override fun ticketBytes(ticket: String): ByteArray = ticket.encodeToByteArray()
+    override fun ticketFromBytes(bytes: ByteArray): String = bytes.decodeToString()
     override fun incoming(): Flow<IncomingConnection> = flow { emit(IncomingConnection(remoteId, alpn, pipe.clientStream)) }
     override suspend fun shutdown() = Unit
 }

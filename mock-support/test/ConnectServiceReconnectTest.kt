@@ -130,9 +130,12 @@ class ConnectServiceReconnectTest {
         azulaState.start()
         runCurrent()
 
-        // A stranger on the CHAT alpn is gated: present a (legacy, invite-less)
-        // Hello and accept the resulting pending request before it's wired.
-        pipe.sendFrame(Frame.Hello("peer-3"))
+        // A stranger on the CHAT alpn is gated: present a valid invite and
+        // accept the resulting pending request before it's wired.
+        val encoded = azulaState.createInvite(expiresInSeconds = 3600)
+        runCurrent()
+
+        pipe.sendFrame(Frame.Hello("peer-3", invite = encoded))
         runCurrent()
         azulaState.acceptInvite(azulaState.pendingInvites.single())
         runCurrent()
@@ -336,11 +339,18 @@ private class InboundOnlyTransport(
     override var endpointId: String? = "test-endpoint"
     override var onCameOnline: (() -> Unit)? = null
     override suspend fun bind(alpns: List<String>) = Unit
-    override suspend fun myTicket(): String = ""
+    override suspend fun myTicket(): String = "ticket-for-$endpointId"
     override fun secretKeyBytes(): ByteArray? = null
     override suspend fun importSecretKey(bytes: ByteArray) = Unit
     override suspend fun connect(ticket: String, alpn: String): P2pStream = error("not used: inbound-only test")
-    override fun peerIdForTicket(ticket: String): String? = null
+    // Resolves only our OWN ticket (so `createInvite` can name us as the
+    // invite's audience); every other ticket stays unresolvable, which is what
+    // keeps an inbound-accepted conversation ticket-less.
+    override fun peerIdForTicket(ticket: String): String? =
+        ticket.removePrefix("ticket-for-").takeIf { it != ticket }
+
+    override fun ticketBytes(ticket: String): ByteArray = ticket.encodeToByteArray()
+    override fun ticketFromBytes(bytes: ByteArray): String = bytes.decodeToString()
     override fun incoming(): Flow<IncomingConnection> = flow { emit(IncomingConnection(remoteId, Alpns.CHAT, pipe.clientStream)) }
     override suspend fun shutdown() = Unit
 }

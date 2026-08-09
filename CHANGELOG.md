@@ -34,7 +34,26 @@
 ### Store notes
 
 ```text
+• A peer that doesn't present a valid invite is now turned away instead of landing in your inbox marked "unverified".
+• Share links from before invites existed no longer open — ask the sender for a current invite link.
 ```
+
+### Changed
+
+- Every connection request in the inbox is now invite-verified. A peer that
+  presents no invite, or one that doesn't verify, is dropped at the connection
+  rather than held for review — the "unverified" state a request could be in is
+  gone, along with the setting that allowed it.
+
+### Removed
+
+- The pre-invite share links (`azula.app/s/…`, `azula.app/connect/…`, and
+  `azula://connect?code=…`) are no longer recognized. Pasting or opening one now
+  does nothing rather than starting a connection; current invite links
+  (`azula.app/i/…`) are unaffected.
+- The QR beside your raw ticket now encodes the ticket itself rather than a
+  link, since the page that link pointed at is gone. The invite QR above it is
+  unchanged and is still the one to share.
 
 ## [0.0.7] - 2026-07-26
 

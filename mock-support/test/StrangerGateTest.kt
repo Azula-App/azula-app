@@ -76,7 +76,6 @@ class StrangerGateTest {
 
         val req = azulaState.pendingInvites.single()
         assertEquals("stranger-chat", req.endpointId)
-        assertFalse(req.unverified, "a stream presenting a valid invite must land in pending as verified")
         assertTrue(azulaState.conversations.isEmpty(), "still holds pending, not wired -- no conversation until accept")
     }
 }

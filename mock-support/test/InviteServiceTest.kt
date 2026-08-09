@@ -78,7 +78,7 @@ class InviteServiceTest {
         val service = InviteService(null, transport, null, backgroundScope)
         val encoded = service.createInvite(singleUse = true)!!
 
-        service.enqueuePending("peer-x", service.issued.single().id, "peer-x-code", FakeStream(), "azula/chat/0", unverified = false)
+        service.enqueuePending("peer-x", service.issued.single().id, "peer-x-code", FakeStream(), "azula/chat/0")
         service.accept(service.pending.single())
 
         assertTrue(service.issued.single().consumed, "accepting a single-use invite must mark it consumed")
@@ -93,7 +93,7 @@ class InviteServiceTest {
         val service = InviteService(null, transport, notifier, backgroundScope)
         service.foreground = { false }
 
-        service.enqueuePending("peer-z", null, "peer-z-code", FakeStream(), "azula/chat/0", unverified = true)
+        service.enqueuePending("peer-z", null, "peer-z-code", FakeStream(), "azula/chat/0")
 
         assertEquals(1, notifier.connectionRequests.size, "must post via postConnectionRequest, not postMessage")
         assertTrue(notifier.messages.isEmpty(), "must not fall back to the generic postMessage channel")
@@ -109,7 +109,7 @@ class InviteServiceTest {
         val service = InviteService(null, transport, notifier, backgroundScope)
         service.foreground = { true }
 
-        service.enqueuePending("peer-w", null, "peer-w-code", FakeStream(), "azula/chat/0", unverified = true)
+        service.enqueuePending("peer-w", null, "peer-w-code", FakeStream(), "azula/chat/0")
 
         assertTrue(notifier.connectionRequests.isEmpty(), "the foreground in-app banner covers this case, not a notification")
     }
@@ -119,7 +119,7 @@ class InviteServiceTest {
         val transport = boundTransport()
         val service = InviteService(null, transport, null, backgroundScope)
         val stream = FakeStream()
-        service.enqueuePending("peer-y", null, "peer-y-code", stream, "azula/chat/0", unverified = true)
+        service.enqueuePending("peer-y", null, "peer-y-code", stream, "azula/chat/0")
         assertEquals(1, service.pending.size)
 
         service.decline(service.pending.single())

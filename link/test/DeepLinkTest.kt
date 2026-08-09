@@ -44,27 +44,22 @@ class DeepLinkTest {
         assertEquals("azi/abc", AzulaLinks.parse("azula://i?c=$encoded"))
     }
 
-    // --- legacy forms must keep working during the transition ---
+    // --- retired legacy forms are unrecognized input, not tickets ---
 
     @Test
-    fun parsesLegacyWebLink() {
-        assertEquals("abc123", AzulaLinks.parse(AzulaLinks.webLink("abc123")))
-        assertEquals("abc123", AzulaLinks.parse("https://azula.app/s/abc123"))
+    fun rejectsLegacyWebLink() {
+        assertNull(AzulaLinks.parse("https://azula.app/s/abc123"))
     }
 
     @Test
-    fun parsesLegacyConnectPathLink() {
-        assertEquals("abc123", AzulaLinks.parse("https://azula.app/connect/abc123"))
+    fun rejectsLegacyConnectPathLink() {
+        assertNull(AzulaLinks.parse("https://azula.app/connect/abc123"))
     }
 
     @Test
-    fun parsesLegacyCustomScheme() {
-        assertEquals("abc123", AzulaLinks.parse("azula://connect?code=abc123"))
-    }
-
-    @Test
-    fun parsesLegacyCustomSchemeWithPercentEncoding() {
-        assertEquals("a b", AzulaLinks.parse("azula://connect?code=a%20b"))
+    fun rejectsLegacyCustomScheme() {
+        assertNull(AzulaLinks.parse("azula://connect?code=abc123"))
+        assertNull(AzulaLinks.parse("azula://connect?code=a%20b"))
     }
 
     @Test
@@ -134,8 +129,10 @@ class DeepLinkTest {
     fun parseTaggedRecognizesConnectForms() {
         val connect = assertIs<ParsedAzulaLink.Connect>(AzulaLinks.parseTagged(AzulaLinks.inviteLink(payload)))
         assertEquals(payload, connect.token)
-        val legacy = assertIs<ParsedAzulaLink.Connect>(AzulaLinks.parseTagged("azula://connect?code=abc123"))
-        assertEquals("abc123", legacy.token)
+        val scheme = assertIs<ParsedAzulaLink.Connect>(AzulaLinks.parseTagged("azula://i?c=$payload"))
+        assertEquals(payload, scheme.token)
+        // A retired legacy form is neither a Connect nor a DeviceLink.
+        assertNull(AzulaLinks.parseTagged("azula://connect?code=abc123"))
     }
 
     @Test

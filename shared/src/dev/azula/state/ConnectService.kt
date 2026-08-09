@@ -82,13 +82,6 @@ class ConnectService(
     /** Set by AzulaState: open a conversation's chat view. */
     var onNavigate: (String) -> Unit = {}
 
-    /**
-     * Transition escape hatch (see azula-docs/openspec/specs/invitations/design.md): route
-     * invite-less strangers into the pending inbox flagged "unverified" instead
-     * of closing the connection outright. Default on for one release.
-     */
-    var allowLegacyInbound: Boolean = true
-
     // ---- connect UI state (read by the connect screen) ----
     var endpointId by mutableStateOf<String?>(null)
         private set
@@ -1009,12 +1002,12 @@ class ConnectService(
      * - [CertCheck.Absent] (no cert, or one that fails to verify/bind, or is
      *   revoked) or [CertCheck.CertifiedStranger] (verifies fine but its root isn't
      *   a contact yet): falls through to exactly the pre-existing
-     *   invite/[allowLegacyInbound] pending-request flow -- a `CertifiedStranger`'s
+     *   invite-gated pending-request flow -- a `CertifiedStranger`'s
      *   root rides along into the pending request so accepting it pins the root
      *   (spec: "Accepting a certified stranger pins the root"). A cert that fails
      *   verification is thus NEVER a hard rejection -- it's simply absent, so a
-     *   legacy (no-cert) peer and a peer with a broken certificate are gated
-     *   identically, and neither is ever worse off than today.
+     *   no-cert peer and a peer with a broken certificate are gated identically.
+     *   Both still need a valid invite: there is no invite-less admission path.
      */
     private suspend fun handleCertOrStrangerConnection(inc: IncomingConnection, hello: Frame.Hello?) {
         val connectionDevicePk = inc.remoteId.hexToByteArrayOrNull()
@@ -1044,12 +1037,10 @@ class ConnectService(
         val certifiedRootPk = certCheck.certOrNull?.rootPk
         val issuedInvite = inviteService.verifyInbound(hello?.invite)
         val peerCode = convStore.mnemonicCode(inc.remoteId)
-        when {
-            issuedInvite != null ->
-                inviteService.enqueuePending(inc.remoteId, issuedInvite.id, peerCode, inc.stream, inc.alpn, unverified = false, certifiedRootPk)
-            allowLegacyInbound ->
-                inviteService.enqueuePending(inc.remoteId, null, peerCode, inc.stream, inc.alpn, unverified = true, certifiedRootPk)
-            else -> runCatching { inc.stream.close() }
+        if (issuedInvite != null) {
+            inviteService.enqueuePending(inc.remoteId, issuedInvite.id, peerCode, inc.stream, inc.alpn, certifiedRootPk)
+        } else {
+            runCatching { inc.stream.close() }
         }
     }
 

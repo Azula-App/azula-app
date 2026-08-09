@@ -45,6 +45,8 @@ import dev.azula.theme.azulaInputSurface
 import dev.azula.theme.azulaMutedPanel
 import dev.azula.ui.AvatarBox
 import dev.azula.ui.ComposePhraseTextField
+import dev.azula.ui.PhraseFieldBoxMinHeight
+import dev.azula.ui.PhraseFieldBoxPadding
 import dev.azula.ui.PhraseFillResult
 import dev.azula.ui.PhraseSaveResult
 import dev.azula.ui.PhraseTextField
@@ -408,9 +410,9 @@ private fun SetupField(
         Text(label.uppercase(), color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 9.sp)
         Box(
             Modifier.fillMaxWidth()
-                .let { if (!singleLine) it.heightIn(min = 84.dp) else it }
+                .let { if (!singleLine) it.heightIn(min = PhraseFieldBoxMinHeight) else it }
                 .azulaInputSurface(AzulaShapes.rSm)
-                .padding(horizontal = 11.dp, vertical = 9.dp),
+                .padding(horizontal = 11.dp, vertical = PhraseFieldBoxPadding),
         ) {
             val fieldModifier = Modifier.fillMaxWidth().testTag(tag)
             if (credentialFill) {

@@ -22,6 +22,7 @@ import platform.Foundation.NSSelectorFromString
 import platform.Foundation.create
 import platform.UIKit.NSForegroundColorAttributeName
 import platform.UIKit.UIColor
+import platform.UIKit.UIControlContentVerticalAlignmentTop
 import platform.UIKit.UIControlEventEditingChanged
 import platform.UIKit.UIFont
 import platform.UIKit.UIFontWeightRegular
@@ -83,6 +84,11 @@ actual fun PhraseTextField(
                 textContentType = UITextContentTypePassword
                 secureTextEntry = false
                 borderStyle = UITextBorderStyle.UITextBorderStyleNone
+                // The control is as tall as the box (see the height modifier below),
+                // but draws one line. Pin that line to the top so it sits exactly
+                // where the wrapping Compose field's first line sits on the platforms
+                // that wrap -- centring it would move the text on iOS only.
+                setContentVerticalAlignment(UIControlContentVerticalAlignmentTop)
                 // A recovery phrase is BIP-39 lowercase ASCII: autocorrect and
                 // capitalisation would corrupt words that are already correct, and the
                 // checksum would then reject a phrase the user filled correctly.
@@ -113,10 +119,16 @@ actual fun PhraseTextField(
             }
         },
         // An interop view has no intrinsic size in Compose's layout -- without an
-        // explicit height it measures to zero and the field is simply invisible. One
-        // 13sp monospace line, top-aligned in the caller's box (which keeps its
-        // multi-line min-height on the platforms that wrap).
-        modifier = modifier.height(PHRASE_FIELD_HEIGHT),
+        // explicit height it measures to zero and the field is simply invisible.
+        //
+        // In the multi-line case it takes the caller box's whole content area rather
+        // than the single line it actually draws. The field is still one line
+        // (`contentVerticalAlignment = .top` keeps that line where it has always
+        // been), but the *control* now covers every pixel that looks like the input.
+        // Sizing it to one line instead left ~46dp of the 66dp box inert: it rendered
+        // as the field, and taps in it did nothing -- which on a phone is most of
+        // where a thumb lands. Verified on the simulator against the restore step.
+        modifier = modifier.height(if (singleLine) PHRASE_FIELD_HEIGHT else PhraseFieldContentMinHeight),
         // The Compose half of the two-way sync: AutoFill and paste land here via
         // `editingChanged` -> onValueChange -> state, and anything that sets the state
         // from outside (a filler, a reset) lands back on the field here. The equality

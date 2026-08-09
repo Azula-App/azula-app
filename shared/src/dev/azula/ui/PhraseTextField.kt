@@ -6,9 +6,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.azula.theme.AzulaColors
 import dev.azula.theme.Fonts
+
+/**
+ * The multi-line phrase box's min height and inner padding, as used by
+ * `SetupField`.
+ *
+ * These live here, next to [PhraseTextField], because the iOS actual has to size
+ * its interop view to the *same* content area. An interop view has no intrinsic
+ * size in Compose's layout, so its height is set explicitly -- and a field
+ * shorter than the box it sits in leaves a band of dead pixels that still looks
+ * like the input. Tapping there does nothing, which on a phone is most of where
+ * a thumb actually lands. Two copies of these numbers would drift into exactly
+ * that bug, so there is one copy.
+ */
+internal val PhraseFieldBoxMinHeight = 84.dp
+internal val PhraseFieldBoxPadding = 9.dp
+
+/** The tappable content area inside [PhraseFieldBoxMinHeight]'s box. */
+internal val PhraseFieldContentMinHeight = PhraseFieldBoxMinHeight - PhraseFieldBoxPadding * 2
 
 /**
  * The recovery-phrase input, as distinct from every other text field in setup:

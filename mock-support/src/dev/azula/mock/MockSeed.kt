@@ -3,7 +3,9 @@ package dev.azula.mock
 import dev.azula.a2ui.A2uiAction
 import dev.azula.a2ui.A2uiExamples
 import dev.azula.model.ConversationKind
+import dev.azula.model.MediaKind
 import dev.azula.model.Role
+import dev.azula.persist.AttachmentDto
 import dev.azula.persist.ConversationDto
 import dev.azula.persist.MessageDto
 import dev.azula.persist.MessageStore
@@ -37,7 +39,7 @@ class SeededMessageStore : MessageStore {
 }
 
 // ---------------------------------------------------------------------------
-// Fixtures -- message ids are a single sequence (m1..m14) across all three
+// Fixtures -- message ids are a single sequence (m1..m16) across all three
 // conversations, so PersistenceCoordinator.restoreAll's max-trailing-digit scan
 // lands on the true highest id no matter which order `list()` iterates.
 // ---------------------------------------------------------------------------
@@ -135,6 +137,24 @@ private fun noriThread(): ConversationDto {
                 "for file transfers — let me know if a killed connection actually resumes now",
         ),
         MessageDto(id = "m11", role = Role.THEM, text = "will do — that one's been biting me every time my laptop sleeps mid-transfer"),
+        // The received-audio fixture. Blob-backed like the image, so it takes the
+        // modern attachment path rather than LegacyAttachmentView.
+        MessageDto(
+            id = "m16",
+            role = Role.THEM,
+            text = "easier to just say it — voice note:",
+            attachments = listOf(
+                AttachmentDto(
+                    id = "att-nori-voice-note",
+                    name = "voice-note.wav",
+                    mime = "audio/wav",
+                    size = TEST_TONE_BYTES.size.toLong(),
+                    kind = MediaKind.AUDIO.wire,
+                    durationMs = 4_000,
+                    blobId = TEST_TONE_BLOB_ID,
+                ),
+            ),
+        ),
     )
     return ConversationDto(
         name = "Nori",
@@ -147,7 +167,18 @@ private fun noriThread(): ConversationDto {
     )
 }
 
-/** A second, shorter peer conversation, so the sidebar has some depth beyond one chat. */
+/**
+ * A second, shorter peer conversation, so the sidebar has some depth beyond one
+ * chat -- and the one that carries a **received image**, so the image viewer has
+ * something to open.
+ *
+ * It hangs off the existing "the code text is small on my phone" exchange, which
+ * is the one place in the seed where a screenshot is the natural next message.
+ * The body is [testCardPng]'s generated test card rather than a committed asset,
+ * served from [InMemoryBlobStore] via [TEST_CARD_BLOB_ID] -- see that constant
+ * for why this is blob-backed instead of inline, which matters more than it
+ * looks.
+ */
 private fun taviThread(): ConversationDto {
     val messages = listOf(
         MessageDto(id = "m12", role = Role.ME, text = "did the invite QR scan ok on your end?"),
@@ -157,13 +188,30 @@ private fun taviThread(): ConversationDto {
             text = "yep, scanned first try. one thing though — the code text underneath is pretty small on my phone",
         ),
         MessageDto(id = "m14", role = Role.ME, text = "noted, I'll bump the font size a notch"),
+        MessageDto(
+            id = "m15",
+            role = Role.THEM,
+            text = "here's the screenshot so you can see how tight it gets",
+            attachments = listOf(
+                AttachmentDto(
+                    id = "att-tavi-screenshot",
+                    name = "invite-code.png",
+                    mime = "image/png",
+                    size = TEST_CARD_BYTES.size.toLong(),
+                    kind = MediaKind.IMAGE.wire,
+                    width = TEST_CARD_WIDTH,
+                    height = TEST_CARD_HEIGHT,
+                    blobId = TEST_CARD_BLOB_ID,
+                ),
+            ),
+        ),
     )
     return ConversationDto(
         name = "Tavi",
         kind = ConversationKind.PEER,
         glyph = "T",
         sub = "7q · onyx · wren",
-        preview = "noted, I'll bump the font size a notch",
+        preview = "here's the screenshot so you can see how tight it gets",
         peerDescription = "running the android build on a pixel 6, minSdk testing",
         messages = messages,
     )

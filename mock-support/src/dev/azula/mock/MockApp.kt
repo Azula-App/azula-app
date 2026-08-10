@@ -35,7 +35,10 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         profileStore = null,
         settingsStore = null,
         peerStore = null,
-        blobStore = InMemoryBlobStore(),
+        // Seeded with the generated media bodies (see MockMedia.kt) so
+        // SeededMessageStore's blob-backed attachments actually resolve --
+        // an unseeded store leaves them as empty tiles.
+        blobStore = InMemoryBlobStore(mockSeedBlobs()),
         invitationsStore = MockInvitationsStore(),
         mediaExporter = null,
         // No real per-device event log for the `-mock` apps -- FakeTransport's

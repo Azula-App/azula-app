@@ -16,9 +16,13 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.text.AnnotatedString
 import dev.azula.mock.FakeTransport
+import dev.azula.net.IrohTransport
 import dev.azula.state.AzulaState
 import dev.azula.theme.AzulaTheme
+import dev.azula.ui.LocalPhraseFiller
 import dev.azula.ui.LocalPhraseSaver
+import dev.azula.ui.PhraseFillResult
+import dev.azula.ui.PhraseFiller
 import dev.azula.ui.PhraseSaveResult
 import dev.azula.ui.PhraseSaver
 import dev.azula.ui.setup.SetupFlow
@@ -53,21 +57,31 @@ import kotlinx.coroutines.launch
 private fun setupFlowE2eTest(
     phraseSaver: PhraseSaver? = null,
     clipboard: ClipboardManager? = null,
+    phraseFiller: PhraseFiller? = null,
+    // Defaults to the same `hasPersistedIdentity = true` FakeTransport() every
+    // other test here uses (harmless per the class doc below) -- overridable for
+    // a test that needs `state.setupRequired` to stay a genuine "fresh install"
+    // signal instead of resolving to false as soon as `state.start()` runs.
+    transport: IrohTransport = FakeTransport(),
     block: ComposeUiTest.(state: AzulaState) -> Unit,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     try {
         runComposeUiTest {
-            val state = testAzulaState(scope, FakeTransport())
+            val state = testAzulaState(scope, transport)
             scope.launch { state.start() }
             // A [phraseSaver] override replaces the platform save sheet (Credential
             // Manager on android, a share sheet on ios), which is a native modal no
             // UI test can drive -- same rationale as [LocalFilePicker]. The
             // clipboard override lets a test assert what did (or didn't) get
-            // written there.
+            // written there. [phraseFiller] is the read-side equivalent, and is
+            // additionally what makes the fill affordance exist at all here: the JVM
+            // actual returns null (no desktop credential store), so without an
+            // override there is deliberately no button to press.
             setContent {
                 CompositionLocalProvider(
                     LocalPhraseSaver provides phraseSaver,
+                    LocalPhraseFiller provides phraseFiller,
                     *(clipboard?.let { arrayOf(LocalClipboardManager provides it) } ?: emptyArray()),
                 ) {
                     AzulaTheme { SetupFlow(state) }
@@ -94,10 +108,19 @@ private class RecordingClipboard : ClipboardManager {
 /** A [PhraseSaver] that reports [result] without presenting anything. */
 private fun fakeSaver(result: PhraseSaveResult) = PhraseSaver { _, onResult -> onResult(result) }
 
+/** A [PhraseFiller] that reports [result] without presenting anything. */
+private fun fakeFiller(result: PhraseFillResult) = PhraseFiller { onResult -> onResult(result) }
+
 /** Advances to the back-up step, where both phrase actions live. */
 private fun ComposeUiTest.gotoBackupStep() {
     onNodeWithTag("setup-fork-create").performClick()
     waitUntilAtLeastOneExists(hasTestTag("setup-backup-phrase"), timeoutMillis = 10_000)
+}
+
+/** Advances to the restore step, where the fill affordance lives. */
+private fun ComposeUiTest.gotoRestoreStep() {
+    onNodeWithTag("setup-fork-restore").performClick()
+    waitUntilAtLeastOneExists(hasTestTag("setup-restore-input"), timeoutMillis = 10_000)
 }
 
 class SetupFlowE2eTest {
@@ -212,6 +235,95 @@ class SetupFlowE2eTest {
             // the one on a 1400 ms timer, so assert it first.
             onNodeWithTag("setup-backup-copy").assertTextEquals("✓ copied")
             onNodeWithTag("setup-backup-save").assertTextEquals("save to password manager")
+        }
+    }
+
+    // ---- fill from password manager (recovery-phrase-credential-fill) ----
+    // Tag-anchored for the same reason as the save tests above.
+
+    @Test
+    fun fillingFromAPasswordManagerFillsTheInputWithoutRestoring() {
+        // The phrase FakeTransport's key exports -- a real, checksum-valid one, so
+        // this test can only pass because fill *doesn't* commit, not because the
+        // phrase happened to be rejected.
+        var phrase: String? = null
+        setupFlowE2eTest(
+            phraseFiller = PhraseFiller { onResult -> onResult(PhraseFillResult.Filled(phrase!!)) },
+            // A fresh install (no persisted identity, no completed flag): with the
+            // default FakeTransport(), `state.start()` marks setup complete on its
+            // own (pre-existing install upgrading) before this block even runs,
+            // which would make the assertion below trivially true regardless of
+            // what filling does.
+            transport = FakeTransport(hasPersistedIdentity = false),
+        ) { state ->
+            phrase = state.exportRecoveryPhrase()
+            assertTrue(phrase != null, "FakeTransport must export a phrase for this test to mean anything")
+            gotoRestoreStep()
+            onNodeWithTag("setup-restore-fill").performClick()
+
+            onNodeWithTag("setup-restore-input").assertTextEquals(phrase!!)
+            // Still on the restore step with Restore un-pressed: a picker selection
+            // must not replace this device's identity key on its own.
+            onNodeWithTag("setup-restore-submit").assertIsDisplayed()
+            assertTrue(state.setupRequired != false, "filling alone must not complete the restore")
+        }
+    }
+
+    @Test
+    fun dismissingTheProviderSheetLeavesTheInputUnchanged() {
+        setupFlowE2eTest(phraseFiller = fakeFiller(PhraseFillResult.Cancelled)) { _ ->
+            gotoRestoreStep()
+            onNodeWithTag("setup-restore-input").performTextInput("half typed")
+            onNodeWithTag("setup-restore-fill").performClick()
+
+            onNodeWithTag("setup-restore-input").assertTextEquals("half typed")
+            // Nothing to report either -- the user declined, they didn't fail.
+            onNodeWithTag("setup-restore-fill").assertTextEquals("fill from password manager")
+        }
+    }
+
+    @Test
+    fun anEmptyVaultSaysSoRatherThanFailingSilently() {
+        setupFlowE2eTest(phraseFiller = fakeFiller(PhraseFillResult.Unavailable)) { _ ->
+            gotoRestoreStep()
+            onNodeWithTag("setup-restore-fill").performClick()
+
+            // Asserted first: this label clears itself after 1400 ms. A silent no-op
+            // here would be indistinguishable from a broken button.
+            onNodeWithTag("setup-restore-fill").assertTextEquals("no saved phrase found")
+            // The field itself stayed empty: an empty BasicTextField's decorationBox
+            // renders the placeholder as a merged sibling Text node, so the node's
+            // accessible text is the placeholder plus an empty editable text, not "".
+            onNodeWithTag("setup-restore-input").assertTextEquals("word word word …", "")
+        }
+    }
+
+    @Test
+    fun aFilledButInvalidPhraseStillShowsTheInlineError() {
+        setupFlowE2eTest(phraseFiller = fakeFiller(PhraseFillResult.Filled("not a real phrase"))) { _ ->
+            gotoRestoreStep()
+            onNodeWithTag("setup-restore-fill").performClick()
+            onNodeWithTag("setup-restore-submit").performClick()
+
+            // A provider handing back a truncated or altered phrase must land on the
+            // existing validate-then-commit path, not a parallel one -- which is the
+            // whole reason fill routes through `input` instead of restoring directly.
+            waitUntilAtLeastOneExists(hasTestTag("setup-restore-error"), timeoutMillis = 10_000)
+            onNodeWithTag("setup-restore-error").assertIsDisplayed()
+            onNodeWithTag("setup-restore-input").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun noAffordanceWhereThePlatformHasNoCredentialStore() {
+        // No filler override, so `rememberPhraseFiller()` falls through to the JVM
+        // actual's null: desktop renders no button at all rather than one whose only
+        // possible answer is "no". The step stays usable by typing.
+        setupFlowE2eTest { _ ->
+            gotoRestoreStep()
+            onNodeWithTag("setup-restore-fill").assertDoesNotExist()
+            onNodeWithTag("setup-restore-input").performTextInput("typed by hand")
+            onNodeWithTag("setup-restore-input").assertTextEquals("typed by hand")
         }
     }
 }

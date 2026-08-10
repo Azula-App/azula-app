@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,11 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,10 +46,16 @@ import dev.azula.theme.azulaGlowHalo
 import dev.azula.theme.azulaInputSurface
 import dev.azula.theme.azulaMutedPanel
 import dev.azula.ui.AvatarBox
+import dev.azula.ui.ComposePhraseTextField
+import dev.azula.ui.PhraseFieldBoxMinHeight
+import dev.azula.ui.PhraseFieldBoxPadding
+import dev.azula.ui.PhraseFillResult
 import dev.azula.ui.PhraseSaveResult
+import dev.azula.ui.PhraseTextField
 import dev.azula.ui.QrCode
 import dev.azula.ui.decodeImageBitmap
 import dev.azula.ui.rememberFilePicker
+import dev.azula.ui.rememberPhraseFiller
 import dev.azula.ui.rememberPhraseSaver
 import dev.azula.ui.scaleImageForAvatar
 import kotlin.io.encoding.Base64
@@ -144,6 +147,17 @@ internal fun RestoreStepContent(state: AzulaState, onRestored: () -> Unit, onBac
     var error by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Null where the platform has no explicit fill flow: iOS offers the phrase
+    // through the native field's AutoFill instead, and desktop has no credential
+    // store at all. Both render no button rather than one that can only say "no".
+    val fillPhrase = rememberPhraseFiller()
+    // Only ever holds Unavailable long enough to report it. Filled needs no label --
+    // the phrase visibly lands in the field -- and Cancelled is the user declining,
+    // which has nothing to say back. Same 1400 ms flash the back-up step uses.
+    var nothingSaved by remember { mutableStateOf(false) }
+    LaunchedEffect(nothingSaved) {
+        if (nothingSaved) { delay(1400); nothingSaved = false }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text(
             "‹ back",
@@ -161,8 +175,34 @@ internal fun RestoreStepContent(state: AzulaState, onRestored: () -> Unit, onBac
             placeholder = "word word word …",
             tag = "setup-restore-input",
             singleLine = false,
+            credentialFill = true,
             onChange = { input = it; error = false },
         )
+        if (fillPhrase != null) {
+            SetupLinkButton(
+                // Reported, not hidden: the affordance can't know the vault is empty
+                // until it asks, and silently doing nothing would be indistinguishable
+                // from a broken button -- the same reasoning that chose an explicit
+                // request over ambient autofill (change design.md).
+                label = if (nothingSaved) "no saved phrase found" else "fill from password manager",
+                tag = "setup-restore-fill",
+                onClick = {
+                    fillPhrase { result ->
+                        when (result) {
+                            // Into `input` only. Restoring replaces this device's identity
+                            // key, so it stays behind the Restore button and the checksum
+                            // validation below -- a provider handing back a truncated or
+                            // wrong phrase must surface as the inline error, not as a
+                            // silently replaced identity.
+                            is PhraseFillResult.Filled -> { input = result.phrase; error = false }
+                            PhraseFillResult.Unavailable -> nothingSaved = true
+                            // Dismissing the sheet leaves the input exactly as it was.
+                            PhraseFillResult.Cancelled -> Unit
+                        }
+                    }
+                },
+            )
+        }
         if (error) {
             Text(
                 "that isn't a valid recovery phrase.",
@@ -478,28 +518,27 @@ private fun SetupField(
     placeholder: String,
     tag: String,
     singleLine: Boolean = true,
+    // Opts this one field into the platform's credential-fill input. Only the
+    // recovery-phrase field sets it: on iOS that swaps the Compose field for a
+    // native UITextField so AutoFill can see it, which is interop the name and
+    // avatar fields have no reason to carry.
+    credentialFill: Boolean = false,
     onChange: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label.uppercase(), color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 9.sp)
         Box(
             Modifier.fillMaxWidth()
-                .let { if (!singleLine) it.heightIn(min = 84.dp) else it }
+                .let { if (!singleLine) it.heightIn(min = PhraseFieldBoxMinHeight) else it }
                 .azulaInputSurface(AzulaShapes.rSm)
-                .padding(horizontal = 11.dp, vertical = 9.dp),
+                .padding(horizontal = 11.dp, vertical = PhraseFieldBoxPadding),
         ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = singleLine,
-                textStyle = TextStyle(color = AzulaColors.text1, fontFamily = Fonts.mono, fontSize = 13.sp, lineHeight = 18.sp),
-                cursorBrush = SolidColor(AzulaColors.pink),
-                modifier = Modifier.fillMaxWidth().testTag(tag),
-                decorationBox = { inner ->
-                    if (value.isEmpty()) Text(placeholder, color = AzulaColors.textFaint, fontFamily = Fonts.mono, fontSize = 13.sp)
-                    inner()
-                },
-            )
+            val fieldModifier = Modifier.fillMaxWidth().testTag(tag)
+            if (credentialFill) {
+                PhraseTextField(value, onChange, placeholder, singleLine, fieldModifier)
+            } else {
+                ComposePhraseTextField(value, onChange, placeholder, singleLine, fieldModifier)
+            }
         }
     }
 }

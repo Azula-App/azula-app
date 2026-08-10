@@ -34,9 +34,19 @@
 ### Store notes
 
 ```text
+• Restoring an identity can now fill your recovery phrase from your password manager, instead of retyping 24 words.
 • A peer that doesn't present a valid invite is now turned away instead of landing in your inbox marked "unverified".
 • Share links from before invites existed no longer open — ask the sender for a current invite link.
 ```
+
+### Added
+
+- The restore step can fill your 24-word recovery phrase from the device's
+  password manager instead of making you retype it. On Android it asks
+  Credential Manager; on iOS the phrase field is a real native one, so AutoFill
+  offers a saved phrase the way it does anywhere else. If nothing is saved, the
+  affordance tells you so rather than doing nothing, and typing or pasting the
+  phrase still works exactly as before.
 
 ### Changed
 

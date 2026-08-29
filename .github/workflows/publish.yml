@@ -118,7 +118,7 @@ jobs:
         run: |
           test -f mise.toml || {
             echo "::error::This tag predates mise.toml, so the toolchain is unpinned."
-            echo "::error::Rebuild it with: gh workflow run publish.yml --ref $GITHUB_REF_NAME"
+            echo "::error::Rebuild it with: gh workflow run publish.yml --ref ${{ needs.version.outputs.tag }}"
             exit 1
           }
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -298,7 +298,7 @@ jobs:
         run: |
           test -f mise.toml || {
             echo "::error::This tag predates mise.toml, so the toolchain is unpinned."
-            echo "::error::Rebuild it with: gh workflow run publish.yml --ref $GITHUB_REF_NAME"
+            echo "::error::Rebuild it with: gh workflow run publish.yml --ref ${{ needs.version.outputs.tag }}"
             exit 1
           }
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0

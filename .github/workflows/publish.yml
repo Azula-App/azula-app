@@ -106,10 +106,8 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.tag }} # build the tag, not whatever main is now
 
-      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
-        with:
-          distribution: temurin
-          java-version: '21'
+      # The JDK comes from mise.toml - do not restate the version here.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       # The ./kotlin wrapper bootstraps its own JRE, the Amper toolchain, and the
       # resolved dependencies into this directory.
@@ -274,10 +272,8 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.tag }}
 
-      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
-        with:
-          distribution: temurin
-          java-version: '21'
+      # The JDK comes from mise.toml - do not restate the version here.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

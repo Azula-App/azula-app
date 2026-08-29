@@ -1,0 +1,12 @@
+# Toolchain for azula-app. Exact pins only — see azula-docs' openspec/specs/
+# toolchain/ and the Build / verify section of openspec/project.md.
+#
+# JDK 21 is what publish.yml builds with, and is DELIBERATELY different from
+# iroh-kmp's JDK 17 (AGP 8.7). Entering each repo selects the right one, so
+# neither needs JAVA_HOME set by hand.
+#
+# The Android SDK/NDK and Xcode stay host-provided; Amper downloads its own
+# Kotlin toolchain and is not pinned here.
+
+[tools]
+java = "temurin-21.0.12+8.0.LTS"

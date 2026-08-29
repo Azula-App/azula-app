@@ -107,6 +107,20 @@ jobs:
           ref: ${{ needs.version.outputs.tag }} # build the tag, not whatever main is now
 
       # The JDK comes from mise.toml - do not restate the version here.
+      # This job builds the *tag's* tree, so mise.toml has to exist in it.
+      # Tags cut before the toolchain was pinned have none, and mise-action
+      # would silently install nothing and leave the build on the runner's
+      # default JDK. Fail loudly instead, and name the fix: rebuilding an
+      # older tag means dispatching that tag's own workflow, which already
+      # pins its JDK the old way --
+      #   gh workflow run publish.yml --ref <tag> ...
+      - name: Require a pinned toolchain in the built tree
+        run: |
+          test -f mise.toml || {
+            echo "::error::This tag predates mise.toml, so the toolchain is unpinned."
+            echo "::error::Rebuild it with: gh workflow run publish.yml --ref $GITHUB_REF_NAME"
+            exit 1
+          }
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       # The ./kotlin wrapper bootstraps its own JRE, the Amper toolchain, and the
@@ -273,6 +287,20 @@ jobs:
           ref: ${{ needs.version.outputs.tag }}
 
       # The JDK comes from mise.toml - do not restate the version here.
+      # This job builds the *tag's* tree, so mise.toml has to exist in it.
+      # Tags cut before the toolchain was pinned have none, and mise-action
+      # would silently install nothing and leave the build on the runner's
+      # default JDK. Fail loudly instead, and name the fix: rebuilding an
+      # older tag means dispatching that tag's own workflow, which already
+      # pins its JDK the old way --
+      #   gh workflow run publish.yml --ref <tag> ...
+      - name: Require a pinned toolchain in the built tree
+        run: |
+          test -f mise.toml || {
+            echo "::error::This tag predates mise.toml, so the toolchain is unpinned."
+            echo "::error::Rebuild it with: gh workflow run publish.yml --ref $GITHUB_REF_NAME"
+            exit 1
+          }
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

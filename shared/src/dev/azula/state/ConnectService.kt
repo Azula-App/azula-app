@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.azula.core.RecoveryPhrase
 import dev.azula.core.AppScope
+import dev.azula.core.DeviceCert
 import dev.azula.core.DeviceCertCodec
 import dev.azula.core.LinkPayloadCodec
 import dev.azula.core.VerificationWords
@@ -331,6 +332,9 @@ class ConnectService(
             // starting it here alone would leave them with no accept loop.
             if (bound) startIncomingLoop()
             scope.launch { reconnectSaved() }
+            // Session conversations hold no ticket for reconnectSaved to find -- they're
+            // redialed by endpoint id instead (see reconnectSessions).
+            scope.launch { reconnectSessions() }
             // multi-device-identity task 5.4: sibling sync auto-dial, alongside the
             // existing peer reconnect above -- also fires on the very first bind (see
             // reconnectSiblings' kdoc), same as reconnectSaved.
@@ -531,11 +535,7 @@ class ConnectService(
     fun newSessionFrom(convId: String) {
         val ticket = convStore.conv(convId).sourceTicket ?: return
         val kind = convStore.conversation(convId).kind
-        val alpn = when (kind) {
-            ConversationKind.TERMINAL -> Alpns.TERM
-            ConversationKind.LLM -> Alpns.LLM
-            ConversationKind.PEER -> Alpns.CHAT
-        }
+        val alpn = alpnForKind(kind)
         scope.launch {
             val stream = runCatching { transport.connect(ticket, alpn) }.getOrNull() ?: return@launch
             val base = convStore.conversationOrNull(convId)?.name
@@ -626,12 +626,19 @@ class ConnectService(
     }
 
     /**
-     * Redial [convId]'s saved ticket with backoff until the conversation is back
-     * online. Started when a live stream drops and when the user opens an offline
-     * conversation. Self-terminates once the conversation comes back online
+     * Redial [convId] with backoff until the conversation is back online, giving
+     * up after [attempts] tries. Started when a live stream drops and when the user
+     * opens an offline conversation (full budget), and by [reconnectSessions] (a
+     * short one). Self-terminates once the conversation comes back online
      * through any path (wireConv's `replace = false` guard dedupes races), is
-     * disabled, or the attempts run out. Only conversations we dialed are
-     * eligible — an inbound-accepted peer left no ticket to redial.
+     * disabled, or the attempts run out.
+     *
+     * Two kinds of conversation are eligible. One we dialed redials its saved
+     * ticket. A session conversation ([admitSessionCert]) left no ticket -- the
+     * session dialed us -- but it is keyed by the session's own device_pk, which
+     * is its iroh endpoint id, so it is redialed by that id instead
+     * ([isRedialableSession], [redialSession]). Any other inbound-accepted peer
+     * has nothing to redial.
      *
      * A terminal is eligible only when it holds a re-attachable persistent
      * session ([ConversationState.termSessionId] set, [ConversationState.termExited]
@@ -642,25 +649,32 @@ class ConnectService(
      * manual-only: its ending is normal, and re-opening one is an explicit
      * action ([reconnectTerminal]).
      */
-    fun scheduleReconnect(convId: String) {
+    fun scheduleReconnect(convId: String, attempts: Int = 8) {
         if (offline) return
         val cs = convStore.convOrNull(convId) ?: return
         if (convStore.conversationOrNull(convId)?.kind == ConversationKind.TERMINAL &&
             (cs.termSessionId == null || cs.termExited)
         ) return
-        val ticket = cs.sourceTicket ?: return
+        val ticket = cs.sourceTicket
+        if (ticket == null && !isRedialableSession(convId)) return
         val invite = cs.sourceInvite
         if (cs.online || cs.reconnecting) return
         cs.reconnecting = true
         scope.launch {
             try {
                 var backoffMs = 1000L
-                repeat(8) {
+                repeat(attempts) {
                     delay(backoffMs)
                     backoffMs = (backoffMs * 2).coerceAtMost(15_000L)
                     val now = convStore.convOrNull(convId) ?: return@launch
                     if (now.online) return@launch
                     if (convStore.conversationOrNull(convId)?.enabled == false) return@launch
+                    if (ticket == null) {
+                        // Re-checked every attempt: the cert can expire mid-backoff.
+                        if (!isRedialableSession(convId)) return@launch
+                        if (redialSession(convId) != SessionRedial.UNREACHABLE) return@launch
+                        return@repeat
+                    }
                     val primary = withTimeoutOrNull(10_000) { dialAll(ticket, invite) }
                     if (primary != null) {
                         val id = wireStream(primary.first, primary.second, convId, replace = false, dialedTicket = ticket)
@@ -672,6 +686,86 @@ class ConnectService(
                 convStore.convOrNull(convId)?.reconnecting = false
             }
         }
+    }
+
+    /**
+     * Redial every offline session conversation ([isRedialableSession]) -- the session
+     * counterpart of [reconnectSaved], whose saved tickets never include a session (it
+     * dialed us). Called on every transport (re)bind ([start]'s `onCameOnline`) and on the
+     * foreground false→true edge ([dev.azula.state.AzulaState.setForeground]). The second
+     * matters most on Android: a backgrounded app's endpoint is paused or dozing, so the
+     * session's own redial only lands while the app is reachable, and a resumed app that
+     * waited for it would sit offline for up to the CLI's backoff (capped at a minute).
+     *
+     * Each gets a short [scheduleReconnect] budget, not the full one a stream drop or an
+     * opened conversation gets: this fans out over every unexpired session, and an
+     * ephemeral `azula mcp` session's key is deleted when its process exits, so many of
+     * them are gone for good while their certs still read as valid for days.
+     */
+    fun reconnectSessions() {
+        if (offline) return
+        for (conv in convStore.conversations.toList()) {
+            val cs = convStore.convOrNull(conv.id) ?: continue
+            if (!cs.online && isRedialableSession(conv.id)) scheduleReconnect(conv.id, attempts = 2)
+        }
+    }
+
+    /**
+     * Whether [convId] is a session conversation [scheduleReconnect] may redial by endpoint
+     * id: admitted through [admitSessionCert] (the only writer of
+     * [ConversationState.sessionExpiresAt]), still enabled, and holding a cert that hasn't
+     * expired -- an expired session is ended for connection purposes (session-identity
+     * spec, "Session Expiry Bounds Exposure"). A terminal session is left to its host's own
+     * redial: the host never answers a dial with a Hello, so there would be no cert for
+     * [redialSession] to re-validate.
+     */
+    private fun isRedialableSession(convId: String): Boolean {
+        val expiresAt = convStore.convOrNull(convId)?.sessionExpiresAt ?: return false
+        val conv = convStore.conversationOrNull(convId) ?: return false
+        if (!conv.enabled || conv.kind == ConversationKind.TERMINAL) return false
+        return expiresAt > epochSeconds() * 1000
+    }
+
+    private enum class SessionRedial { CONNECTED, UNREACHABLE, REFUSED }
+
+    /**
+     * One redial attempt for a session conversation ([isRedialableSession]): dials the
+     * session by its endpoint id on the ALPN its conversation was admitted on and, once the
+     * session vouches for itself, wires the stream back in.
+     *
+     * A session answers a known phone's Hello with its own, carrying its current session
+     * cert (azula-cli's `BridgeAcceptHandler`), and that cert must pass the same five checks
+     * an inbound reconnect's does in [admitSessionCert] -- the session-identity spec's
+     * "reconnects re-present a cert and are re-validated" holds whichever side dials. A
+     * session whose cert has since expired, or whose machine contact was forgotten, is
+     * [SessionRedial.REFUSED] and never wired. A cert that passes refreshes
+     * [ConversationState.sessionExpiresAt], since a restarted named session mints a fresh
+     * one. As in [admitSessionCert], the Hello's name isn't applied: a session titles its
+     * conversation with a Profile frame, which the bridge's own name would clobber.
+     */
+    private suspend fun redialSession(convId: String): SessionRedial {
+        val kind = convStore.conversationOrNull(convId)?.kind ?: return SessionRedial.REFUSED
+        val devicePk = convId.hexToByteArrayOrNull() ?: return SessionRedial.REFUSED
+        val alpn = alpnForKind(kind)
+        val stream = withTimeoutOrNull(10_000) {
+            runCatching { transport.connectById(convId, alpn) }.getOrNull()
+        } ?: return SessionRedial.UNREACHABLE
+        runCatching { ping(stream) }
+        val line = runCatching { withTimeoutOrNull(10_000) { stream.receiveLine() } }.getOrNull()
+        if (line == null) {
+            scope.launch { runCatching { stream.close() } }
+            return SessionRedial.UNREACHABLE
+        }
+        val hello = runCatching { FrameCodec.decode(line) }.getOrNull() as? Frame.Hello
+        val cert = accountSyncService.checkSessionCert(hello?.cert, devicePk, inviteService.knownContactIds())
+        if (cert == null) {
+            scope.launch { runCatching { stream.close() } }
+            return SessionRedial.REFUSED
+        }
+        convStore.convOrNull(convId)?.sessionExpiresAt = sessionExpiryMs(cert)
+        persistence.save(convId)
+        wireStream(alpn, stream, convId, replace = false)
+        return SessionRedial.CONNECTED
     }
 
     /**
@@ -954,14 +1048,18 @@ class ConnectService(
         val cert = accountSyncService.checkSessionCert(hello?.cert, connectionDevicePk, inviteService.knownContactIds()) ?: return false
         val peerId = cert.devicePk.toHexLower()
         val convId = wireStream(inc.alpn, inc.stream, peerId, transportEndpointId = inc.remoteId) ?: return true
-        // expires_at == 0 means "never" (DeviceCertCodec's convention) -- keep that
-        // meaning distinct from "not a session at all" (null) by using a sentinel
-        // rather than leaving it null too; see ConversationState.sessionExpiresAt's kdoc.
-        convStore.convOrNull(convId)?.sessionExpiresAt = if (cert.expiresAt == 0L) Long.MAX_VALUE else cert.expiresAt * 1000
+        convStore.convOrNull(convId)?.sessionExpiresAt = sessionExpiryMs(cert)
         persistence.save(convId)
         if (inc.alpn == Alpns.LLM) scope.launch { sendRelayHintIfKnown(convId) }
         return true
     }
+
+    /** [cert]'s expiry as [ConversationState.sessionExpiresAt] stores it. expires_at == 0
+     *  means "never" (DeviceCertCodec's convention) -- keep that meaning distinct from "not
+     *  a session at all" (null) by using a sentinel rather than leaving it null too; see
+     *  ConversationState.sessionExpiresAt's kdoc. */
+    private fun sessionExpiryMs(cert: DeviceCert): Long =
+        if (cert.expiresAt == 0L) Long.MAX_VALUE else cert.expiresAt * 1000
 
     /**
      * cli-multi-session-relay ("Machine Pairing Shares a Relay Hint" / design.md D6):
@@ -1051,6 +1149,12 @@ class ConnectService(
         Alpns.LLM -> ConversationKind.LLM
         Alpns.TERM -> ConversationKind.TERMINAL
         else -> ConversationKind.PEER
+    }
+
+    private fun alpnForKind(kind: ConversationKind): String = when (kind) {
+        ConversationKind.TERMINAL -> Alpns.TERM
+        ConversationKind.LLM -> Alpns.LLM
+        ConversationKind.PEER -> Alpns.CHAT
     }
 
     /**

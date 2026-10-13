@@ -169,6 +169,11 @@ class IosIrohTransport : IrohTransport {
         return IrohP2pStream(ep.connect(ticket, alpn))
     }
 
+    override suspend fun connectById(endpointId: String, alpn: String): P2pStream {
+        val ep = requireNotNull(endpoint) { "transport not bound" }
+        return IrohP2pStream(ep.connectById(endpointId, alpn).openBi())
+    }
+
     override fun peerIdForTicket(ticket: String): String? =
         runCatching { endpointIdFromTicket(ticket) }.getOrNull()
 

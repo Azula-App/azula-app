@@ -241,11 +241,19 @@ class AzulaState(
      * immediately. Guarded to the edge (not true→true or true→false) so repeated foreground
      * re-entry doesn't spam dials; [ConnectService.reconnectSiblings]'s own
      * `siblingDialsInFlight` guard additionally covers two resumes landing close together.
+     *
+     * The same edge redials offline CLI session conversations
+     * ([ConnectService.reconnectSessions]): a session's own redial can only land while this
+     * app is reachable, which a backgrounded Android app often isn't, so on resume the app
+     * dials the session itself rather than waiting out the session's backoff.
      */
     fun setForeground(value: Boolean) {
         val resumed = value && !inForeground
         inForeground = value
-        if (resumed) reconnectSiblings()
+        if (resumed) {
+            reconnectSiblings()
+            connectService.reconnectSessions()
+        }
     }
     var copied by mutableStateOf(false)
         private set

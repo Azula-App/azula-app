@@ -145,6 +145,17 @@ interface IrohTransport {
     suspend fun connect(ticket: String, alpn: String): P2pStream
 
     /**
+     * Dial a peer by its hex endpoint id alone on [alpn], opening a fresh stream -- for a
+     * peer we hold no ticket for, such as a CLI session that dialed us in. The transport
+     * resolves the peer's current addresses through its address lookup (iroh discovery),
+     * so this only reaches a peer that publishes them. Defaults to failing exactly like a
+     * dial to an unreachable peer, so every existing [IrohTransport] implementation stays
+     * source-compatible.
+     */
+    suspend fun connectById(endpointId: String, alpn: String): P2pStream =
+        throw UnsupportedOperationException("this transport cannot dial by endpoint id")
+
+    /**
      * The peer's hex endpoint id decoded from a ticket, without dialing — so an
      * outbound conversation can be keyed/named after the peer (inbound ones use
      * [IncomingConnection.remoteId]). Returns null if the ticket can't be parsed.

@@ -120,10 +120,14 @@ class ConnectServiceReconnectTest {
         assertEquals(9, transport.connectAttempts, "initial dial + exactly 8 failed redials")
     }
 
-    // ---- 3: an inbound-accepted conversation has no ticket to redial ----
+    // ---- 3: an invite-accepted inbound peer has nothing to redial ----
+    //
+    // Only a CLI *session* conversation is redialed without a ticket (by its endpoint id --
+    // see SessionRedialTest); an ordinary peer that dialed us in and was accepted through an
+    // invite is not.
 
     @Test
-    fun inboundConversationWithoutTicketNeverReconnectsOnDrop() = runTest {
+    fun inviteAcceptedInboundPeerNeverReconnectsOnDrop() = runTest {
         val pipe = PeerPipe()
         val transport = InboundOnlyTransport("peer-3", pipe)
         val azulaState = testAzulaState(backgroundScope, transport)
@@ -151,13 +155,15 @@ class ConnectServiceReconnectTest {
         runCurrent()
 
         assertFalse(cs.online, "the drop should still mark the conversation offline")
-        assertFalse(cs.reconnecting, "no ticket to redial -- scheduleReconnect must no-op")
+        assertNull(cs.sessionExpiresAt, "sanity: an invite-accepted peer is not a session conversation")
+        assertFalse(cs.reconnecting, "no ticket and not a session -- scheduleReconnect must no-op")
 
         // Prove it stays that way: if a backoff loop had (incorrectly) started,
         // this advance would land squarely inside its schedule.
         advanceTimeBy(2_000)
         runCurrent()
         assertFalse(cs.reconnecting)
+        assertEquals(0, transport.connectByIdAttempts, "a non-session peer must never be dialed by endpoint id")
     }
 
     // ---- 4: TERMINAL conversations are excluded from auto-reconnect ----
@@ -343,6 +349,15 @@ private class InboundOnlyTransport(
     override fun secretKeyBytes(): ByteArray? = null
     override suspend fun importSecretKey(bytes: ByteArray) = Unit
     override suspend fun connect(ticket: String, alpn: String): P2pStream = error("not used: inbound-only test")
+
+    var connectByIdAttempts = 0
+        private set
+
+    override suspend fun connectById(endpointId: String, alpn: String): P2pStream {
+        connectByIdAttempts++
+        error("not used: inbound-only test")
+    }
+
     // Resolves only our OWN ticket (so `createInvite` can name us as the
     // invite's audience); every other ticket stays unresolvable, which is what
     // keeps an inbound-accepted conversation ticket-less.

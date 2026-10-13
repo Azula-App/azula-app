@@ -37,6 +37,7 @@
 • Restoring an identity can now fill your recovery phrase from your password manager, instead of retyping 24 words.
 • A peer that doesn't present a valid invite is now turned away instead of landing in your inbox marked "unverified".
 • Share links from before invites existed no longer open — ask the sender for a current invite link.
+• Agent sessions now reconnect on their own when the link drops or you come back to them, instead of staying offline.
 ```
 
 ### Added
@@ -64,6 +65,21 @@
 - The QR beside your raw ticket now encodes the ticket itself rather than a
   link, since the page that link pointed at is gone. The invite QR above it is
   unchanged and is still the one to share.
+
+### Fixed
+
+- A conversation with a CLI agent session (`azula mcp`, such as Claude Code or
+  OpenClaw) no longer stays offline after its connection drops or the session
+  restarts. The app now dials the session back itself: when the connection
+  drops, when you open the conversation, when the app's network endpoint
+  restarts, and on Android when the app returns to the foreground. Before, only
+  the session could reconnect, and it often couldn't reach a phone whose app was
+  in the background. The session has to present a currently valid certificate
+  on every reconnect, so a session whose certificate has expired, or whose
+  computer you've removed, is not brought back. Archived sessions aren't redialed
+  either. An `azula mcp` started without `--session` gets a new conversation on
+  each run, so only a named session's conversation can come back after a
+  restart. Terminal sessions still reconnect from the computer's side.
 
 ## [0.0.7] - 2026-07-26
 

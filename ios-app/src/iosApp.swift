@@ -25,20 +25,21 @@ struct ContentView: View {
     }
 }
 
-// Routes a tap on the "Connection requests" local notification (posted by
-// IosNotifier, shared/src@ios/dev/azula/notify/IosNotifier.kt) into Compose via
-// InviteBus/openInvitesFromNotification -- the iOS equivalent of
-// MainActivity.openConversationFromIntent's "invites" sentinel on Android.
-// Also registers as the delegate so a tap is delivered here at all (the system
-// default is to just clear the banner without calling anything).
+// Routes a tap on a local notification posted by IosNotifier
+// (shared/src@ios/dev/azula/notify/IosNotifier.kt) into Compose -- the iOS
+// equivalent of MainActivity.openConversationFromIntent on Android: "Connection
+// requests" via InviteBus/openInvitesFromNotification, a message via
+// ConversationTapBus/openConversationFromNotification. Also registers as the
+// delegate so a tap is delivered here at all (the system default is to just
+// clear the banner without calling anything).
 //
-// NOTE: this compiles and links against the shared framework (verified with a
-// real `xcodebuild ... -destination iphonesimulator build`), but tapping an
-// actual delivered notification to confirm `openInvitesMobile()` fires was NOT
-// exercised -- that needs a live simulator/device run posting then tapping a
-// notification, which this environment can't drive interactively. The Kotlin
-// side (IosNotifier, InviteBus, the AzulaState.init registration) is fully
-// wired and covered by the shared-module build.
+// NOTE: this compiles and links against the shared framework (verified with
+// `./kotlin build -m ios-app -p iosSimulatorArm64`), but tapping an actual
+// delivered notification was NOT exercised on a simulator or device for either
+// identifier -- it needs a posted notification for a conversation that exists,
+// which a fresh simulator install doesn't have. The Kotlin side of the message
+// route (ConversationTapBus into AzulaState.openChatFromNotification) is covered
+// by mock-support's ConversationTapTest.
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
@@ -55,8 +56,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier == IosNotifier.companion.INVITES_NOTIFICATION_IDENTIFIER {
+        let identifier = response.notification.request.identifier
+        if identifier == IosNotifier.companion.INVITES_NOTIFICATION_IDENTIFIER {
             InviteBusKt.openInvitesFromNotification()
+        } else if let conversationId = IosNotifier.companion.conversationIdFor(identifier: identifier) {
+            // A message notification: open its conversation, like
+            // MainActivity.openConversationFromIntent on Android. Buffered by
+            // ConversationTapBus until AzulaState has started, for a tap that
+            // cold-launched the app.
+            ConversationTapBusKt.openConversationFromNotification(conversationId: conversationId)
         }
         completionHandler()
     }

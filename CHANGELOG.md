@@ -34,7 +34,17 @@
 ### Store notes
 
 ```text
+• On iPhone and iPad, tapping a message notification now opens its conversation.
 ```
+
+### Fixed
+
+- On iPhone and iPad, tapping a message notification now opens its
+  conversation, as it does on Android. Before, it only opened the app wherever
+  you had left it. A notification for a conversation you've since deleted just
+  opens the app. Tapping a "Connection requests" notification now also opens
+  the requests inbox when an iPad is showing the wide layout with the sidebar;
+  before, only the narrow layout followed it.
 
 ## [0.0.8] - 2026-10-15
 

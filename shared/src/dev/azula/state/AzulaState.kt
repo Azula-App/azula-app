@@ -379,8 +379,9 @@ class AzulaState(
         chatService.dialKnownDeviceAndSend = { convId, frame -> connectService.dialKnownDeviceForSend(convId, frame) }
         // iOS tap-routing for the "Connection requests" local notification --
         // no-op on Android (MainActivity routes via AppStateHost directly) but
-        // harmless to register everywhere.
-        InviteBus.setHandler { openInvitesMobile() }
+        // harmless to register everywhere. Both shells, since an iPad can be showing
+        // either layout (see shareTo).
+        InviteBus.setHandler { openInvitesMobile(); openInvitesDesktop() }
         // iOS share-into-app: drainShareInbox() (ShareInbox.kt, src@ios) delivers
         // here via ShareBus -- no-op on Android (MainActivity stages shares
         // directly via AppStateHost) but harmless to register everywhere.
@@ -462,6 +463,11 @@ class AzulaState(
         if (!settingsService.eventLogBackfilled && accountSyncService.backfillLegacyHistory()) {
             settingsService.markEventLogBackfilled()
         }
+        // iOS tap-routing for a message notification (iosApp.swift, via ConversationTapBus).
+        // Registered last rather than in init, so a tap that cold-launched the app is only
+        // delivered once history is restored and the transport bound -- see
+        // ConversationTapBus. No-op on Android (MainActivity routes via AppStateHost).
+        ConversationTapBus.setHandler { openChatFromNotification(it) }
     }
 
     // ---- navigation ----
@@ -470,6 +476,15 @@ class AzulaState(
     fun openConnectDesktop() { desktopActive = "connect"; connectService.resetConnect() }
     fun openSettingsDesktop() { desktopActive = "settings" }
     fun openChatMobile(id: String) { mActive = id; mScreen = MScreen.CHAT; connectService.scheduleReconnect(id); accountSyncService.markRead(id) }
+    /** Opens [id] from a tapped message notification ([ConversationTapBus], iOS). Sets both
+     *  shells' navigation, since an iPad can be showing either layout (see [shareTo]). A
+     *  notification can outlive its conversation, so an unknown [id] leaves navigation
+     *  alone rather than opening an empty chat pane. */
+    fun openChatFromNotification(id: String) {
+        if (convStore.conversationOrNull(id) == null) return
+        openChatMobile(id)
+        desktopActive = id
+    }
     fun openConnectMobile() { mScreen = MScreen.CONNECT; connectService.resetConnect() }
     fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }

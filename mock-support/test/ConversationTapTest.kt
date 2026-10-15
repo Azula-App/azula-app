@@ -9,10 +9,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * iOS notification-tap routing, driven through the entry points the Swift app delegate calls
- * (`ios-app/src/iosApp.swift`): [openConversationFromNotification] for a message notification
- * and [openInvitesFromNotification] for "Connection requests". Both must navigate the mobile
- * and the desktop shell, since an iPad can be showing either layout.
+ * Notification-tap routing, driven through the entry points the iOS app delegate
+ * (`ios-app/src/iosApp.swift`) and Android's `MainActivity` both call:
+ * [openConversationFromNotification] for a message notification and
+ * [openInvitesFromNotification] for "Connection requests". Both must navigate the mobile and
+ * the desktop shell, since a tablet or a phone held sideways can be showing either layout.
  *
  * Not covered: the buffering of a tap that arrives before [dev.azula.state.AzulaState.start]
  * registers the handler. The bus is a process-wide object that keeps the last started state's

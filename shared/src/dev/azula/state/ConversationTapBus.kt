@@ -2,17 +2,17 @@ package dev.azula.state
 
 /**
  * Delivers "open this conversation" from a tapped message notification to whoever is
- * listening -- the iOS equivalent of `MainActivity.openConversationFromIntent` on Android
- * (there's no [AppStateHost] on iOS to reach [AzulaState] from outside the composition, the
- * same reason [InviteBus] exists for the "Connection requests" notification). Driven by the
- * iOS app delegate's `UNUserNotificationCenterDelegate` through
- * [openConversationFromNotification] -- see `ios-app/src/iosApp.swift`.
+ * listening. Driven through [openConversationFromNotification] by the iOS app delegate's
+ * `UNUserNotificationCenterDelegate` (`ios-app/src/iosApp.swift`; there's no [AppStateHost]
+ * on iOS to reach [AzulaState] from outside the composition) and by Android's
+ * `MainActivity.openConversationFromIntent`, which has [AppStateHost] but needs the same
+ * wait for [AzulaState.start] described below.
  *
  * Registered at the end of [AzulaState.start], not in its `init` (mirroring where
  * [dev.azula.link.DeepLinkBus] is registered in [ConnectService.start]): opening a
  * conversation looks it up, redials it and marks it read, which needs the restored history,
  * the bound transport and the event log. Buffers one tap until then, which is the cold-launch
- * case: iOS can terminate a suspended azula, and tapping one of its notifications afterwards
+ * case: the OS can kill a backgrounded azula, and tapping one of its notifications afterwards
  * launches it fresh.
  */
 object ConversationTapBus {
@@ -30,7 +30,7 @@ object ConversationTapBus {
     }
 }
 
-/** Entry point for the iOS Swift layer (mirrors [openInvitesFromNotification]): called by the
- *  app delegate's `UNUserNotificationCenterDelegate` when the user taps a message
- *  notification -- see `ios-app/src/iosApp.swift`. */
+/** Entry point for a tapped message notification (mirrors [openInvitesFromNotification]):
+ *  called by the iOS app delegate's `UNUserNotificationCenterDelegate`
+ *  (`ios-app/src/iosApp.swift`) and by Android's `MainActivity.openConversationFromIntent`. */
 fun openConversationFromNotification(conversationId: String) = ConversationTapBus.deliver(conversationId)

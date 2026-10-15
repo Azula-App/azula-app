@@ -34,10 +34,11 @@
 ### Store notes
 
 ```text
-• Restoring an identity can now fill your recovery phrase from your password manager, instead of retyping 24 words.
+• Restoring an identity can now fill your recovery phrase from your password manager.
 • A peer that doesn't present a valid invite is now turned away instead of landing in your inbox marked "unverified".
 • Share links from before invites existed no longer open — ask the sender for a current invite link.
-• Agent sessions now reconnect on their own when the link drops or you come back to them, instead of staying offline.
+• Agent sessions now reconnect on their own when the link drops or you come back to them.
+• On iPhone and iPad, returning to azula now syncs with your linked devices right away.
 ```
 
 ### Added
@@ -72,7 +73,7 @@
   OpenClaw) no longer stays offline after its connection drops or the session
   restarts. The app now dials the session back itself: when the connection
   drops, when you open the conversation, when the app's network endpoint
-  restarts, and on Android when the app returns to the foreground. Before, only
+  restarts, and when the app returns to the foreground. Before, only
   the session could reconnect, and it often couldn't reach a phone whose app was
   in the background. The session has to present a currently valid certificate
   on every reconnect, so a session whose certificate has expired, or whose
@@ -80,6 +81,21 @@
   either. An `azula mcp` started without `--session` gets a new conversation on
   each run, so only a named session's conversation can come back after a
   restart. Terminal sessions still reconnect from the computer's side.
+- On iPhone and iPad, returning to azula now syncs with your other linked
+  devices and reconnects offline agent sessions right away. iOS never told the
+  app it had been in the background, so neither happened on return: linked
+  devices waited for the next cold launch, and a session for you to open its
+  conversation. Android already did both.
+- On iPhone and iPad, azula now knows when it is in the background, which is
+  when it raises notifications. Before, it always counted as in the foreground,
+  so iOS never showed a notification for a message or a connection request at
+  all. The background notifications added in 0.0.7 only ever worked on Android.
+  They are still rare on iOS: iOS suspends azula almost as soon as you leave it,
+  a suspended app receives nothing, and whatever was sent in the meantime
+  arrives when you come back, without a notification. Only something that
+  arrives in the moment before azula is suspended can notify, and the first time
+  that happens iOS asks for notification permission, possibly over whichever
+  app you switched to.
 
 ## [0.0.7] - 2026-07-26
 

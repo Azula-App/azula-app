@@ -230,7 +230,8 @@ class AzulaState(
 
     /**
      * Called by the platform on every foreground/background lifecycle transition (Android:
-     * [ProcessLifecycleOwner]'s `onStart`/`onStop` in `AzulaApplication`). On the false→true
+     * [ProcessLifecycleOwner]'s `onStart`/`onStop` in `AzulaApplication`; iOS: the `scenePhase`
+     * observer in `iosApp.swift`, through [ForegroundBus]). On the false→true
      * edge specifically -- i.e. actually resuming, not every call -- also re-dials siblings
      * (multi-device-identity task 9.6): [ConnectService.reconnectSiblings] otherwise fires only
      * from a transport re-bind ([ConnectService]'s `onCameOnline`) or the one-shot call at the
@@ -244,8 +245,8 @@ class AzulaState(
      *
      * The same edge redials offline CLI session conversations
      * ([ConnectService.reconnectSessions]): a session's own redial can only land while this
-     * app is reachable, which a backgrounded Android app often isn't, so on resume the app
-     * dials the session itself rather than waiting out the session's backoff.
+     * app is reachable, which a backgrounded app often isn't (iOS suspends it outright), so
+     * on resume the app dials the session itself rather than waiting out the session's backoff.
      */
     fun setForeground(value: Boolean) {
         val resumed = value && !inForeground
@@ -384,6 +385,10 @@ class AzulaState(
         // here via ShareBus -- no-op on Android (MainActivity stages shares
         // directly via AppStateHost) but harmless to register everywhere.
         ShareBus.setHandler { stageShare(it) }
+        // iOS foreground/background: the scenePhase observer in iosApp.swift delivers
+        // here via ForegroundBus -- no-op on Android (AzulaApplication calls
+        // setForeground directly via AppStateHost) but harmless to register everywhere.
+        ForegroundBus.setHandler { setForeground(it) }
     }
     private fun nextId(p: String): String = convStore.nextId(p)
 

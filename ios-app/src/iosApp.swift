@@ -82,9 +82,30 @@ struct iosApp: App {
                 // deployment target is 15.0 (IPHONEOS_DEPLOYMENT_TARGET). We only
                 // need the new value, so the older form is a clean fit; it's
                 // deprecated on 17 but the project doesn't treat warnings as errors.
+                //
+                // The same observer is iOS's foreground signal for AzulaState
+                // (ForegroundBus.kt; Android's is ProcessLifecycleOwner in
+                // AzulaApplication). It gates notifications (posted only while
+                // backgrounded), and the background-to-foreground edge redials
+                // siblings and offline CLI sessions. `.inactive` counts as
+                // foreground: Apple defines it as foreground-but-not-receiving-
+                // events, and the app is still on screen in every case that
+                // produces it (Control Center or Notification Center pulled over
+                // it, an incoming-call banner, a system alert, the app switcher).
+                // It is also the first phase delivered on the way back from
+                // .background, so the resume edge fires at the first scene
+                // callback after the suspended process thaws.
                 .onChange(of: scenePhase) { newPhase in
-                    if newPhase == .active {
+                    switch newPhase {
+                    case .active:
+                        ForegroundBusKt.setAppForeground(foreground: true)
                         ShareInboxKt.drainShareInbox()
+                    case .inactive:
+                        ForegroundBusKt.setAppForeground(foreground: true)
+                    case .background:
+                        ForegroundBusKt.setAppForeground(foreground: false)
+                    @unknown default:
+                        break
                     }
                 }
         }

@@ -8,12 +8,22 @@ import platform.UserNotifications.UNNotificationSound
 import platform.UserNotifications.UNUserNotificationCenter
 
 /**
- * Posts local notifications via `UNUserNotificationCenter`. iOS has no
- * background transport for this app, so -- unlike Android -- this only covers
- * messages/requests that arrive while the process is alive (foreground or
- * suspended-but-resident); still useful for the common "app running,
- * backgrounded" case. Authorization is requested lazily on first post rather
- * than at launch, so a user who never gets a notification is never prompted.
+ * Posts local notifications via `UNUserNotificationCenter`. Called only while
+ * `AzulaState.inForeground` is false, which iOS drives from the `scenePhase`
+ * observer in `ios-app/src/iosApp.swift` (via `ForegroundBus`). iOS has no
+ * background transport for this app and it declares no background modes, so --
+ * unlike Android -- this only covers messages/requests processed while the
+ * backgrounded process is still running, which is a narrow window: iOS
+ * suspends it almost as soon as it leaves the screen (~0.2 s on the
+ * simulator), a suspended process receives nothing, and whatever was sent
+ * meanwhile arrives on resume with the app back in the foreground. A post made
+ * at the `.background` transition itself is still a foreground presentation to
+ * iOS, which the app delegate doesn't opt into (no `willPresent`), so it is
+ * dropped. Authorization is requested lazily on first post rather than at
+ * launch, so a user who never gets a notification is never prompted; because
+ * that first post happens in the background, iOS shows the prompt over
+ * whichever app is frontmost and holds the notification until it's answered
+ * (both observed on the simulator).
  *
  * The identifier used for the connection-request notification
  * ([INVITES_NOTIFICATION_IDENTIFIER]) is stable, so repeated requests update a

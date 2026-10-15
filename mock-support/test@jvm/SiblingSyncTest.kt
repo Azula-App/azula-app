@@ -9,6 +9,7 @@ import dev.azula.net.Alpns
 import dev.azula.net.IrohTransport
 import dev.azula.net.P2pStream
 import dev.azula.persist.AppSettings
+import dev.azula.state.setAppForeground
 import dev.azula.sync.DeviceRevokeBody
 import dev.azula.sync.EventLogStore
 import dev.azula.sync.FileEventLogStore
@@ -22,6 +23,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -328,5 +330,41 @@ class SiblingSyncTest {
         runCurrent()
 
         assertEquals(2, transport.dialCount, "two rapid resumes must produce exactly one extra dial, not two")
+    }
+
+    /**
+     * resume-sync-ios-desktop task 2.1: iOS has no [dev.azula.state.AppStateHost], so its
+     * `scenePhase` observer reaches [dev.azula.state.AzulaState.setForeground] through
+     * [setAppForeground] and [dev.azula.state.ForegroundBus], which the state registers with in
+     * its `init`. Drives that Swift-facing entry point rather than `setForeground` itself:
+     * backgrounding must lower [dev.azula.state.AzulaState.inForeground] (the notification
+     * gate) without redialing, and resuming must take the false→true edge and redial.
+     */
+    @Test
+    fun iosForegroundEntryPointReachesTheStateAndRedialsOnResume() = runTest {
+        val storeA = newStoreA()
+        val storeB = newStoreB()
+        val certB = DeviceCertCodec.issue(0, deviceAPk, deviceBPk, 1_700_000_000L, 0L, "device-b", deviceASecret, ed25519)
+
+        val transport = SiblingDialTransport(
+            deviceASecret, deviceAHex, siblingTicket = "ticket-b", siblingEndpointIdHex = deviceBHex,
+            storeB = storeB, certB = certB, ed25519 = ed25519, dialScope = backgroundScope,
+        )
+        val settingsStore = InMemorySettingsStore(AppSettings(siblingTickets = mapOf(deviceBHex to "ticket-b")))
+        val azulaState = testAzulaState(backgroundScope, transport, eventLogStore = storeA, ed25519 = ed25519, settingsStore = settingsStore)
+
+        azulaState.start()
+        runCurrent()
+        assertEquals(1, transport.dialCount, "start()'s own bind fires one sibling-dial round")
+
+        setAppForeground(false)
+        runCurrent()
+        assertFalse(azulaState.inForeground, "a .background scene phase must lower inForeground so messages notify")
+        assertEquals(1, transport.dialCount, "backgrounding must not trigger a sibling redial")
+
+        setAppForeground(true)
+        runCurrent()
+        assertTrue(azulaState.inForeground, "returning to the foreground must raise inForeground again")
+        assertEquals(2, transport.dialCount, "resuming through the iOS entry point must redial siblings")
     }
 }

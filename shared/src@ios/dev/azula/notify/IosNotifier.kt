@@ -32,13 +32,14 @@ import platform.UserNotifications.UNUserNotificationCenter
  * `UNUserNotificationCenterDelegate` (see `ios-app/src/iosApp.swift`) checks
  * this identifier on tap to route into `InviteBus.openInvites()`, the same way
  * `MainActivity.openConversationFromIntent` checks the "invites" sentinel on
- * Android.
+ * Android. A tapped message notification ([messageIdentifier]) is routed the same
+ * way into `ConversationTapBus`, which opens its conversation.
  */
 class IosNotifier : Notifier {
     private var authorizationRequested = false
 
     override fun postMessage(conversationId: String, title: String, body: String) {
-        post(identifier = "message:$conversationId", title = title, body = body)
+        post(identifier = messageIdentifier(conversationId), title = title, body = body)
     }
 
     override fun postConnectionRequest(count: Int, peerCode: String) {
@@ -77,5 +78,22 @@ class IosNotifier : Notifier {
 
     companion object {
         const val INVITES_NOTIFICATION_IDENTIFIER = "invites"
+
+        /** A message notification's identifier is this prefix plus its conversation id:
+         *  one per conversation, so a newer message replaces the older banner instead of
+         *  stacking. [conversationIdFor] reverses it for the tap handler in
+         *  `ios-app/src/iosApp.swift`. */
+        const val MESSAGE_IDENTIFIER_PREFIX = "message:"
+
+        fun messageIdentifier(conversationId: String): String = MESSAGE_IDENTIFIER_PREFIX + conversationId
+
+        /** The conversation a tapped notification's request [identifier] names, or null if
+         *  it isn't a message notification. */
+        fun conversationIdFor(identifier: String): String? =
+            if (identifier.startsWith(MESSAGE_IDENTIFIER_PREFIX)) {
+                identifier.removePrefix(MESSAGE_IDENTIFIER_PREFIX).ifEmpty { null }
+            } else {
+                null
+            }
     }
 }

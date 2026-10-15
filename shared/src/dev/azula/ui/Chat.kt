@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -430,7 +431,16 @@ fun MessageBubble(state: AzulaState, convId: String, m: Message, senderName: Str
                 Text("✦ $senderName", color = A2uiTokens.primaryLight, fontFamily = Fonts.mono, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
             }
             if (!m.text.isNullOrEmpty()) {
-                MarkdownText(m.text, color = if (me) A2uiTokens.contentBright else A2uiTokens.content, mine = me)
+                // Selection is scoped to ONE bubble's text (not the whole thread, and
+                // not the sender label or attachments): a SelectionContainer spanning a
+                // LazyColumn's items is unreliable, and keeping attachments outside it
+                // leaves their tap targets (fullscreen viewer, ⬇/✕/↻) untouched. Long-press
+                // (touch) or drag (desktop) selects with handles and the platform
+                // Copy / Select-all toolbar. The bubble has no long-press of its own, so
+                // nothing competes for the gesture; a plain drag still scrolls the list.
+                SelectionContainer(Modifier.testTag("message-text")) {
+                    MarkdownText(m.text, color = if (me) A2uiTokens.contentBright else A2uiTokens.content, mine = me)
+                }
             }
             m.attachments.forEach { att -> AttachmentView(state, convId, att) }
         }

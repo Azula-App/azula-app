@@ -38,9 +38,18 @@
 • A peer that doesn't present a valid invite is now turned away instead of landing in your inbox marked "unverified".
 • Share links from before invites existed no longer open — ask the sender for a current invite link.
 • Agent sessions now reconnect on their own when the link drops or you come back to them, instead of staying offline.
+• Message text is now selectable.
 ```
 
 ### Added
+
+- Message text in a conversation can now be selected and copied. Press and hold
+  a word in any chat bubble (yours, a peer's, or an agent's) to select it, drag
+  the handles to extend the selection, and use the system toolbar to copy it; on
+  desktop, drag with the mouse. Selection works across the paragraphs, lists,
+  and code blocks of a single message and includes an attachment's caption, but
+  does not cross from one message into the next. Tapping an attachment, or
+  scrolling the conversation, behaves as before.
 
 - The restore step can fill your 24-word recovery phrase from the device's
   password manager instead of making you retype it. On Android it asks

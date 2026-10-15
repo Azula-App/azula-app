@@ -34,6 +34,13 @@
 ### Store notes
 
 ```text
+```
+
+## [0.0.8] - 2026-10-15
+
+### Store notes
+
+```text
 • Restoring an identity can now fill your recovery phrase from your password manager.
 • Peers without a valid invite are now turned away instead of landing in your inbox as "unverified".
 • Share links from before invites no longer open — ask the sender for a current invite.

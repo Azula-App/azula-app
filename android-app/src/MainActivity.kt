@@ -49,13 +49,26 @@ class MainActivity : ComponentActivity() {
 
         setContent { AzulaApp() }
 
-        // A deeplink (cold start) and/or a notification tap that launched us.
-        intent?.dataString?.let { handleDeepLink(it) }
-        openConversationFromIntent(intent)
-        handleShareIntent(intent)
+        // A deeplink, notification tap and/or OS share that launched us -- only on a new
+        // launch, so each intent is handled once. Recreated after a config change (rotation)
+        // or process death, this activity gets a saved state and a getIntent() it already
+        // handled: the last one onNewIntent set, or the task's root intent. A new intent
+        // never arrives here then -- Android delivers it to onNewIntent right after this
+        // onCreate, even when the process was killed -- so gating on the saved state drops
+        // no real taps, and no consumed-flag bookkeeping is needed. Reopening from recents
+        // after the activity was destroyed (force-stop, reboot) re-sends the task's root
+        // intent with no saved state, but marks it FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY.
+        val launchedFromHistory =
+            ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (savedInstanceState == null && !launchedFromHistory) {
+            intent?.dataString?.let { handleDeepLink(it) }
+            openConversationFromIntent(intent)
+            handleShareIntent(intent)
+        }
     }
 
-    // A deeplink / notification tap / OS share that arrived while we were already running (singleTask).
+    // A deeplink / notification tap / OS share for the existing activity (singleTask) --
+    // including one that restarts a killed process, which reaches here, not onCreate.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

@@ -35,6 +35,7 @@
 
 ```text
 • Tapping a message notification now opens its conversation on iPhone and iPad, and on Android tablets and sideways phones.
+• On Android, rotating the screen no longer jumps back to a notification you tapped earlier or reopens the share picker you closed.
 ```
 
 ### Fixed
@@ -52,6 +53,19 @@
   from scratch now also marks its conversation read on your other devices,
   which it skipped before because the tap was handled before your conversations
   had loaded.
+- On Android, rotating the screen no longer repeats whatever last opened
+  azula. The same goes for anything else that makes Android rebuild azula's
+  window, such as switching dark mode or resizing it in split screen. Before,
+  each rotation did the following, however long ago that last thing happened:
+  - After you tapped a notification, it took you back to that conversation or
+    to the requests inbox, even if you'd moved elsewhere since.
+  - After you shared into azula from another app, the "Share to…" picker came
+    back after you had closed it.
+  - An invite or connect link you had opened was processed again.
+
+  The same thing happened in two more cases. One was reopening azula after
+  Android had closed it in the background to free memory. The other was
+  reopening it from the recent-apps screen after a restart.
 
 ## [0.0.8] - 2026-10-15
 

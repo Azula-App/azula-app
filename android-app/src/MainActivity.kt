@@ -18,6 +18,8 @@ import dev.azula.link.handleDeepLink
 import dev.azula.net.MAX_MEDIA_BYTES
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
+import dev.azula.state.openConversationFromNotification
+import dev.azula.state.openInvitesFromNotification
 import dev.azula.ui.PickedFile
 import dev.azula.ui.resolvePickedFile
 import kotlinx.coroutines.Dispatchers
@@ -64,11 +66,17 @@ class MainActivity : ComponentActivity() {
 
     /** Open the conversation (or the invites inbox) referenced by a tapped
      *  notification, if any. See [InviteService][dev.azula.state.InviteService]'s
-     *  "invites" sentinel conversation id for batched connection-request notifications. */
+     *  "invites" sentinel conversation id for batched connection-request notifications.
+     *  Goes through the same entry points as the iOS app delegate rather than calling
+     *  [AppStateHost.shared] directly: they navigate both the narrow and the wide
+     *  (sidebar) layout, which a phone held sideways already reaches, and a message tap
+     *  that cold-started the process waits in `ConversationTapBus` for
+     *  [AzulaState.start] -- this runs before the composition starts the state, when
+     *  the conversation isn't restored yet and couldn't be redialed or marked read. */
     private fun openConversationFromIntent(intent: Intent?) {
         val convId = intent?.getStringExtra(AndroidNotifier.EXTRA_CONVERSATION_ID) ?: return
-        if (convId == "invites") AppStateHost.shared?.openInvitesMobile()
-        else AppStateHost.shared?.openChatMobile(convId)
+        if (convId == "invites") openInvitesFromNotification()
+        else openConversationFromNotification(convId)
     }
 
     private fun requestNotificationPermission() {

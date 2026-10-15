@@ -34,7 +34,7 @@
 ### Store notes
 
 ```text
-• On iPhone and iPad, tapping a message notification now opens its conversation.
+• Tapping a message notification now opens its conversation on iPhone and iPad, and on Android tablets and sideways phones.
 ```
 
 ### Fixed
@@ -45,6 +45,13 @@
   opens the app. Tapping a "Connection requests" notification now also opens
   the requests inbox when an iPad is showing the wide layout with the sidebar;
   before, only the narrow layout followed it.
+- On Android, tapping a notification while azula is showing its wide layout
+  with the sidebar, on a tablet or a phone held sideways, now opens that
+  conversation or the requests inbox. Before, only the narrow layout followed
+  the tap, so nothing visibly changed. A message notification that starts azula
+  from scratch now also marks its conversation read on your other devices,
+  which it skipped before because the tap was handled before your conversations
+  had loaded.
 
 ## [0.0.8] - 2026-10-15
 

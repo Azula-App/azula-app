@@ -9,8 +9,10 @@ package dev.azula.state
  *
  * Driven by the iOS app delegate's `UNUserNotificationCenterDelegate` when the
  * user taps the "Connection requests" local notification posted by
- * `IosNotifier` -- see `ios-app/src/iosApp.swift`. Registered in
- * [AzulaState]'s `init` (mirroring where [dev.azula.link.DeepLinkBus] is
+ * `IosNotifier` -- see `ios-app/src/iosApp.swift` -- and by Android's
+ * `MainActivity.openConversationFromIntent` for the same notification, so both
+ * get [AzulaState]'s handler, which opens the inbox in either layout. Registered
+ * in [AzulaState]'s `init` (mirroring where [dev.azula.link.DeepLinkBus] is
  * registered in [ConnectService.start]).
  */
 object InviteBus {
@@ -28,7 +30,8 @@ object InviteBus {
     }
 }
 
-/** Entry point for the iOS Swift layer (mirrors [dev.azula.link.handleDeepLink]):
- *  called by the app delegate's `UNUserNotificationCenterDelegate` when the user
- *  taps the "Connection requests" local notification -- see `ios-app/src/iosApp.swift`. */
+/** Entry point for a tapped "Connection requests" notification (mirrors
+ *  [dev.azula.link.handleDeepLink]): called by the iOS app delegate's
+ *  `UNUserNotificationCenterDelegate` (`ios-app/src/iosApp.swift`) and by Android's
+ *  `MainActivity.openConversationFromIntent`. */
 fun openInvitesFromNotification() = InviteBus.openInvites()

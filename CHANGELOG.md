@@ -36,6 +36,7 @@
 ```text
 • Tapping a message notification now opens its conversation on iPhone and iPad, and on Android tablets and sideways phones.
 • On Android, rotating the screen no longer jumps back to a notification you tapped earlier or reopens the share picker you closed.
+• azula reconnects more reliably when your device switches networks, such as from Wi-Fi to mobile data.
 ```
 
 ### Fixed
@@ -66,6 +67,12 @@
   The same thing happened in two more cases. One was reopening azula after
   Android had closed it in the background to free memory. The other was
   reopening it from the recent-apps screen after a restart.
+- azula reconnects more reliably when your device changes networks, such as
+  moving from Wi-Fi to mobile data or onto a different Wi-Fi network. It now
+  picks up its new network addresses when the network changes, instead of
+  continuing to offer your other devices the old ones, so they can reach it
+  directly again. Its connection through the relay also recovers more
+  dependably after it drops.
 
 ## [0.0.8] - 2026-10-15
 

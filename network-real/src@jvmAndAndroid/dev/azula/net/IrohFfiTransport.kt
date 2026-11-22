@@ -434,13 +434,25 @@ private class IrohP2pStream(private val stream: IrohStream) : P2pStream {
         stream.sendBytes((line + "\n").encodeToByteArray())
     }
 
-    override suspend fun receiveLine(): String? = lines.readLine()
+    // A line over MAX_FRAME_LINE_BYTES is a protocol error, not a frame to skip: stop the
+    // receive side (STOP_SENDING to the peer) and report end-of-stream, so every caller
+    // tears down on its ordinary peer-closed path rather than an exception it may not catch.
+    override suspend fun receiveLine(): String? = try {
+        lines.readLine()
+    } catch (_: FrameLineTooLongException) {
+        runCatching { stream.stop(0uL) }
+        null
+    }
 
     override suspend fun sendBytes(bytes: ByteArray) {
         stream.sendBytes(bytes)
     }
 
-    override suspend fun receiveBytes(n: Int): ByteArray? = lines.readBytes(n)
+    override suspend fun receiveBytes(n: Int): ByteArray? = try {
+        lines.readBytes(n)
+    } catch (_: FrameLineTooLongException) {
+        null
+    }
 
     override fun rttMs(): Long? = runCatching { stream.rttMs()?.toLong() }.getOrNull()
 

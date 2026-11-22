@@ -5,6 +5,7 @@ import dev.azula.core.EventKind
 import dev.azula.core.LogEntry
 import dev.azula.core.LogEntryCodec
 import dev.azula.core.ZERO_PREV_HASH
+import dev.azula.net.BATCH_BYTES_PER_FRAME
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.P2pStream
@@ -227,6 +228,39 @@ class SyncSessionTest {
         assertEquals(3, frameCount, "130 entries at <=64/frame should take 3 frames")
         assertEquals(130, allEntries.size)
         allEntries.forEachIndexed { i, e -> assertEquals((i + 1).toLong(), e.seq, "entries must arrive in ascending seq order") }
+
+        job.cancel()
+    }
+
+    @Test
+    fun sendLoopSplitsLargeEntriesByTheFrameByteBudget() = runTest {
+        // Ten 900 KiB entries: far under the 64-entry cap, but ~12 MiB of base64 in all,
+        // which unsplit would be one frame near the receiver's line cap. Each entry is
+        // ~1.2 MB of base64, so three fit the 4 MiB budget and a fourth clearly doesn't.
+        // Mirrors azula-cli's `send_loop_splits_large_entries_by_the_frame_byte_budget`.
+        val store = newStore("byte_batching")
+        val body = """{"conversation":"c","text":"${"x".repeat(900 * 1024)}"}""".encodeToByteArray()
+        repeat(10) { store.appendOwn(deviceAPk, deviceASecret, EventKind.MESSAGE_OUT.wireValue, 1000L, body) }
+
+        val pipe = Pipe()
+        val job = launch { sendLoop(pipe.a, store, store.vector(), emptyMap()) }
+
+        val seqs = mutableListOf<Long>()
+        var frameCount = 0
+        loop@ while (true) {
+            when (val frame = FrameCodec.decode(pipe.b.receiveLine()!!)) {
+                is Frame.SyncEntries -> {
+                    val bytes = frame.entries.sumOf { it.length }
+                    assertTrue(bytes <= BATCH_BYTES_PER_FRAME, "frame carried $bytes bytes of entries")
+                    frameCount++
+                    frame.entries.forEach { seqs.add(LogEntryCodec.decode(Base64.decode(it))!!.seq) }
+                }
+                is Frame.SyncAck -> break@loop
+                else -> fail("unexpected frame: $frame")
+            }
+        }
+        assertEquals(4, frameCount, "10 entries of ~1.2 MB base64 go 3 to a 4 MiB frame")
+        assertEquals((1L..10L).toList(), seqs, "entries must still arrive in ascending seq order")
 
         job.cancel()
     }

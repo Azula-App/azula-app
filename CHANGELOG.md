@@ -34,6 +34,13 @@
 ### Store notes
 
 ```text
+```
+
+## [0.0.9] - 2026-11-22
+
+### Store notes
+
+```text
 • Tapping a message notification now opens its conversation on iPhone and iPad, and on Android tablets and sideways phones.
 • On Android, rotating the screen no longer jumps back to a notification you tapped earlier or reopens the share picker you closed.
 • azula reconnects more reliably when your device switches networks, such as from Wi-Fi to mobile data.

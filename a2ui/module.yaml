@@ -4,9 +4,10 @@
 # an A2uiSurface) and the chat UI.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../theme: exported
   - ../ui-common: exported
   - $compose.foundation: exported
@@ -16,4 +17,4 @@ settings:
   compose:
     enabled: true
   kotlin:
-    serialization: json
+    serialization: enabled

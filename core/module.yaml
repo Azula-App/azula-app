@@ -4,8 +4,11 @@
 # stays in shared because it embeds an a2ui surface.)
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
+
+dependencies:
+  - $kotlin.serialization.json
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

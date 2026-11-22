@@ -10,12 +10,13 @@
 # in once a caller needs it, same pattern as persistence-real's AndroidMessageStore().
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 aliases:
   - jvmAndAndroid: [jvm, android]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../sync-api: exported
   # For SyncSession.kt: the `azula/sync/0` session runner talks Frame/P2pStream
   # (network-api's transport contract) against EventLogStore (sync-api) -- see that
@@ -28,4 +29,4 @@ test-dependencies:
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

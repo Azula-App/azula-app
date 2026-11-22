@@ -3,7 +3,7 @@
 # MaterialTheme wrapper. A Compose leaf; UI modules depend on it.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
   - $compose.foundation: exported

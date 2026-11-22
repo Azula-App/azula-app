@@ -3,7 +3,7 @@
 # on network-api's interfaces; nothing depends on it except the app assembly.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 # Shared source set for the two JVM-flavoured targets (the JNI-backed transport).
 aliases:

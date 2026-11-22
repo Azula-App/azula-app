@@ -2,7 +2,7 @@
 # Depends only on theme. MarkdownParser is pure (unit-tested); Markdown renders it.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
   - ../theme: exported

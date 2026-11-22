@@ -9,9 +9,10 @@
 # concrete JSONL-file actual lives in sync-real.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../core: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
 
@@ -20,4 +21,4 @@ test-dependencies:
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

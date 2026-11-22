@@ -3,7 +3,7 @@
 # Context-backed store into the graph via the app module).
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 # Shared source set for the two JVM-flavoured targets (file/prefs-backed stores
 # that only differ in base directory / raw-string accessor).
@@ -11,8 +11,9 @@ aliases:
   - jvmAndAndroid: [jvm, android]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../persistence-api: exported
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

@@ -6,7 +6,7 @@
 # real session implementations live in terminal-real.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
   - ../core: exported

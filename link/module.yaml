@@ -2,4 +2,4 @@
 # hand-rolled QR encoder. Pure Kotlin, no dependencies; both are unit-tested.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]

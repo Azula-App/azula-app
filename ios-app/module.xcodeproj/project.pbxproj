@@ -61,7 +61,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		279A4173E53941889080E058 /* src */ = {
+		279A4173E53941889080E058 /* PBXFileSystemSynchronizedRootGroup */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				279A47B008F3BE03254DB17B /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
@@ -69,7 +69,7 @@
 			path = src;
 			sourceTree = SOURCE_ROOT;
 		};
-		3E8A0000000000000000A004 /* ShareExtension */ = {
+		3E8A0000000000000000A004 /* PBXFileSystemSynchronizedRootGroup */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				3E8A0000000000000000A005 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
@@ -105,8 +105,8 @@
 			children = (
 				279A476559D7F8A9A59270EB /* Products */,
 				279A48D438C7058F3D04C50C /* Info.plist */,
-				279A4173E53941889080E058 /* src */,
-				3E8A0000000000000000A004 /* ShareExtension */,
+				279A4173E53941889080E058 /* PBXFileSystemSynchronizedRootGroup */,
+				3E8A0000000000000000A004 /* PBXFileSystemSynchronizedRootGroup */,
 				3E8A0000000000000000A001 /* Info.plist */,
 				3E8A0000000000000000A002 /* AzulaShare.entitlements */,
 			);
@@ -119,7 +119,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 279A47406B83584AB5793740 /* Build configuration list for PBXNativeTarget "app" */;
 			buildPhases = (
-				279A400EF61F75F4FE949FD5 /* Build Kotlin with Amper */,
+				279A400EF61F75F4FE949FD5 /* Build Kotlin */,
 				279A43B18AA0A099487C206B /* Sources */,
 				279A4654FFF9A512EBE4ED79 /* Frameworks */,
 				279A4C70E55B02F4D1E9206D /* Resources */,
@@ -131,7 +131,7 @@
 				3E8A0000000000000000A00E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				279A4173E53941889080E058 /* src */,
+				279A4173E53941889080E058 /* PBXFileSystemSynchronizedRootGroup */,
 			);
 			name = app;
 			productName = app;
@@ -151,7 +151,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				3E8A0000000000000000A004 /* ShareExtension */,
+				3E8A0000000000000000A004 /* PBXFileSystemSynchronizedRootGroup */,
 			);
 			name = AzulaShare;
 			productName = AzulaShare;
@@ -193,17 +193,17 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		279A400EF61F75F4FE949FD5 /* Build Kotlin with Amper */ = {
+		279A400EF61F75F4FE949FD5 /* Build Kotlin */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			inputPaths = (
 			);
-			name = "Build Kotlin with Amper";
+			name = "Build Kotlin";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# !AMPER KMP INTEGRATION STEP!\n# This script is managed by the Kotlin Toolchain, do not edit manually!\n\"${KOTLIN_CLI_WRAPPER_PATH}\" tool xcode-integration\n";
+			shellScript = "# !KOTLIN INTEGRATION STEP!\n# This script is managed by the Kotlin Toolchain, do not edit manually!\n\"${KOTLIN_CLI_WRAPPER_PATH}\" tool xcode-integration\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -231,22 +231,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				KOTLIN_CLI_WRAPPER_PATH = "../kotlin";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_ENTITLEMENTS = src/azula.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				// MARKETING_VERSION / CURRENT_PROJECT_VERSION are overwritten by
-				// .github/scripts/set_version.sh on every release run, and both
-				// Info.plists read them through $(...) so the app and the AzulaShare
-				// extension can never ship different versions (Apple rejects that).
 				CURRENT_PROJECT_VERSION = 1;
-				// Not a secret -- it also has to be published in the AASA as
-				// "<TeamID>.app.azula" (see azula-docs/openspec/specs/deeplinks/design.md). Hardcoded
-				// because Xcode does not read build settings from the environment; CI
-				// additionally passes DEVELOPMENT_TEAM=$APPLE_TEAM_ID on the xcodebuild
-				// command line, and a CLI override wins.
 				DEVELOPMENT_TEAM = EB8N37743E;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -254,10 +244,11 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				INFOPLIST_FILE = src/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				KOTLIN_CLI_WRAPPER_PATH = ../kotlin;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MARKETING_VERSION = 0.0.0;
-				OTHER_LDFLAGS = "$(inherited) -framework SystemConfiguration -framework Network";
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = "$(inherited) -framework SystemConfiguration -framework Network";
 				PRODUCT_BUNDLE_IDENTIFIER = app.azula;
 				PRODUCT_MODULE_NAME = app;
 				PRODUCT_NAME = "ios-app";
@@ -287,7 +278,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				KOTLIN_CLI_WRAPPER_PATH = "../kotlin";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
@@ -299,6 +289,7 @@
 				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(TARGET_BUILD_DIR)/AmperFrameworks";
 				INFOPLIST_FILE = src/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				KOTLIN_CLI_WRAPPER_PATH = ../kotlin;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MARKETING_VERSION = 0.0.0;
 				OTHER_LDFLAGS = "$(inherited) -framework SystemConfiguration -framework Network";
@@ -332,11 +323,9 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				MARKETING_VERSION = 0.0.0;
 				ONLY_ACTIVE_ARCH = YES;
-				// Must stay "<host PRODUCT_BUNDLE_IDENTIFIER>.AzulaShare" -- iOS requires
-				// an app extension's bundle id to be a child of its host's.
 				PRODUCT_BUNDLE_IDENTIFIER = app.azula.AzulaShare;
 				PRODUCT_MODULE_NAME = AzulaShare;
-				PRODUCT_NAME = "AzulaShare";
+				PRODUCT_NAME = AzulaShare;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -365,7 +354,7 @@
 				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.azula.AzulaShare;
 				PRODUCT_MODULE_NAME = AzulaShare;
-				PRODUCT_NAME = "AzulaShare";
+				PRODUCT_NAME = AzulaShare;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;

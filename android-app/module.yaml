@@ -20,7 +20,7 @@ dependencies:
   - androidx.core:core-ktx:1.13.1
   # Metro runtime — this module builds the AppGraph (createGraphFactory intrinsic),
   # so it needs the compiler plugin (below) applied here too.
-  - dev.zacsweers.metro:runtime:0.13.2
+  - dev.zacsweers.metro:runtime:1.6.0
 
 settings:
   compose: enabled
@@ -28,7 +28,7 @@ settings:
   kotlin:
     compilerPlugins:
       - id: dev.zacsweers.metro.compiler
-        dependency: dev.zacsweers.metro:compiler:0.13.2
+        dependency: dev.zacsweers.metro:compiler:1.6.0
   android:
     minSdk: 26
     # Pinned rather than inherited from the Amper default so a toolchain bump

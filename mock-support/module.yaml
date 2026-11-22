@@ -4,14 +4,15 @@
 # into the AppGraph, and the inverted app icon those apps wear.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../shared: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0
   # Metro runtime — buildMockState calls the createGraphFactory intrinsic, so the
   # compiler plugin (below) is applied here too.
-  - dev.zacsweers.metro:runtime:0.13.2
+  - dev.zacsweers.metro:runtime:1.6.0
 
 test-dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
@@ -41,7 +42,7 @@ settings:
     # Test code builds Frame.A2ui/JsonObject payloads directly (see
     # ConnectServiceFrameDispatchTest.kt); mirrors every other module that
     # touches kotlinx.serialization types (a2ui, network-api, shared, ...).
-    serialization: json
+    serialization: enabled
     compilerPlugins:
       - id: dev.zacsweers.metro.compiler
-        dependency: dev.zacsweers.metro:compiler:0.13.2
+        dependency: dev.zacsweers.metro:compiler:1.6.0

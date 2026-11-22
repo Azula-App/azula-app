@@ -4,9 +4,10 @@
 # FakeTransport that binds against it lives in the mock-support module).
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
+  - $kotlin.serialization.json
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
 
 test-dependencies:
@@ -14,4 +15,4 @@ test-dependencies:
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

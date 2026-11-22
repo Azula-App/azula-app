@@ -4,11 +4,12 @@
 # shared, since Message embeds an a2ui surface). Tests bind a fake store here.
 product:
   type: kmp/lib
-  platforms: [jvm, android, iosArm64, iosSimulatorArm64, iosX64]
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
 
 dependencies:
+  - $kotlin.serialization.json
   - ../core: exported
 
 settings:
   kotlin:
-    serialization: json
+    serialization: enabled

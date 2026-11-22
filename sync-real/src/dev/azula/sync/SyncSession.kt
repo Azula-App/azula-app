@@ -5,6 +5,7 @@ import dev.azula.core.DeviceCertCodec
 import dev.azula.core.Ed25519
 import dev.azula.core.LogEntry
 import dev.azula.core.LogEntryCodec
+import dev.azula.net.BATCH_BYTES_PER_FRAME
 import dev.azula.net.Frame
 import dev.azula.net.FrameCodec
 import dev.azula.net.P2pStream
@@ -265,18 +266,34 @@ internal suspend fun sendLoop(
 }
 
 /**
- * Send every entry after [fromSeq] for [deviceHex], batched to [MAX_ENTRIES_PER_FRAME]
- * entries per `SyncEntries` frame, in ascending `seq` order (which [EventLogStore.readFrom]
- * already returns).
+ * Send every entry after [fromSeq] for [deviceHex], in ascending `seq` order (which
+ * [EventLogStore.readFrom] already returns), batched to at most [MAX_ENTRIES_PER_FRAME]
+ * entries and [BATCH_BYTES_PER_FRAME] bytes of base64 per `SyncEntries` frame -- the byte
+ * budget keeps a run of large entries from adding up to a frame line the receiver would
+ * refuse ([dev.azula.net.MAX_FRAME_LINE_BYTES]). An entry bigger than the whole budget
+ * still goes out, alone in its frame. Mirrors azula-cli's `sync::send_gap`.
  */
 internal suspend fun sendGap(stream: P2pStream, store: EventLogStore, deviceHex: String, fromSeq: Long) {
     val devicePk = deviceHex.hexToByteArrayOrNull()
         ?: error("sync: unparseable device key $deviceHex in our own vector")
-    val entries = store.readFrom(devicePk, fromSeq)
-    for (chunk in entries.chunked(MAX_ENTRIES_PER_FRAME)) {
-        val batch = chunk.map { it.toSyncBase64() }
-        stream.sendLine(FrameCodec.encode(Frame.SyncEntries(entries = batch)))
+    val batch = ArrayList<String>(MAX_ENTRIES_PER_FRAME)
+    var batchBytes = 0L
+    suspend fun flush() {
+        stream.sendLine(FrameCodec.encode(Frame.SyncEntries(entries = batch.toList())))
+        batch.clear()
+        batchBytes = 0
     }
+    for (entry in store.readFrom(devicePk, fromSeq)) {
+        val encoded = entry.toSyncBase64()
+        if (batch.isNotEmpty() &&
+            (batch.size == MAX_ENTRIES_PER_FRAME || batchBytes + encoded.length > BATCH_BYTES_PER_FRAME)
+        ) {
+            flush()
+        }
+        batch += encoded
+        batchBytes += encoded.length
+    }
+    if (batch.isNotEmpty()) flush()
 }
 
 /**

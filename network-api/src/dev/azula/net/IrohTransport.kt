@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.Flow
 interface P2pStream {
     suspend fun sendLine(line: String)
 
-    /** Next line from the peer, or null when the stream is closed. */
+    /**
+     * Next line from the peer, or null when the stream is closed. A line longer than
+     * [MAX_FRAME_LINE_BYTES] ends the stream the same way: the real transport stops
+     * reading and returns null from then on, never the lines after it.
+     */
     suspend fun receiveLine(): String?
 
     /**

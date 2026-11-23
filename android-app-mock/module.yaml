@@ -13,6 +13,10 @@ dependencies:
 settings:
   compose: enabled
   android:
+    # iroh-kmp ships libiroh_kmp.so for these three ABIs only; JNA's AAR also brings
+    # armeabi/mips/mips64/x86 dispatch libs, which would load and then fail with
+    # UnsatisfiedLinkError on devices of those ABIs. Ship only the ABIs iroh supports.
+    abiFilters: [arm64-v8a, armeabi-v7a, x86_64]
     minSdk: 26
     applicationId: app.azula.mock
     namespace: app.azula.mock

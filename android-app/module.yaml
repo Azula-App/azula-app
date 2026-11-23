@@ -4,7 +4,7 @@ dependencies:
   - ../shared
   # Direct dep so MainActivity can call IrohAndroid.installAndroidContext; also
   # carries the per-ABI iroh .so into the APK.
-  - app.azula.iroh:iroh-kmp:0.2.2
+  - app.azula.iroh:iroh-kmp:0.2.3
   - androidx.activity:activity-compose:1.7.2
   - androidx.lifecycle:lifecycle-process:2.8.0
   - androidx.security:security-crypto:1.0.0
@@ -30,6 +30,10 @@ settings:
       - id: dev.zacsweers.metro.compiler
         dependency: dev.zacsweers.metro:compiler:1.6.0
   android:
+    # iroh-kmp ships libiroh_kmp.so for these three ABIs only; JNA's AAR also brings
+    # armeabi/mips/mips64/x86 dispatch libs, which would load and then fail with
+    # UnsatisfiedLinkError on devices of those ABIs. Ship only the ABIs iroh supports.
+    abiFilters: [arm64-v8a, armeabi-v7a, x86_64]
     minSdk: 26
     # Pinned rather than inherited from the Amper default so a toolchain bump
     # can't silently move what Play sees.

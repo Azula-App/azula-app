@@ -2,6 +2,9 @@ product: android/app
 
 dependencies:
   - ../shared
+  # The on-phone VM host (:vmhost service, AVF, JNI broker). The app assembly is the
+  # only module allowed to depend on a -real module.
+  - ../vmhost-real
   # Direct dep so MainActivity can call IrohAndroid.installAndroidContext; also
   # carries the per-ABI iroh .so into the APK.
   - app.azula.iroh:iroh-kmp:0.2.3

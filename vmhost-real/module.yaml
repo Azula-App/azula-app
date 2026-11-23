@@ -1,0 +1,29 @@
+# vmhost-real — the Android implementation of vmhost-api: the `:vmhost` foreground
+# service that runs an AVF VM and bridges it (worker socket, guest-internet proxy,
+# JNI compute broker), plus the UI-process client (AndroidVmHost). Android-only.
+#
+# Cross-process: the service writes HostState to a JSON file (HostStateStore) that
+# the UI process observes with a FileObserver; broker calls that return data (mint,
+# list, revoke) go over a bound Messenger so a bearer token never touches disk.
+product:
+  type: kmp/lib
+  platforms: [android]
+
+dependencies:
+  - ../vmhost-api: exported
+  # Compile-only: android.system.virtualmachine.* come from the device framework at
+  # runtime. Never dexed into the APK.
+  - ../vmhost-avf-stubs: compile-only
+  - org.lsposed.hiddenapibypass:hiddenapibypass:6.2
+  - $kotlin.serialization.json
+  - org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    serialization: enabled
+  android:
+    minSdk: 26
+    namespace: dev.azula.vmhost

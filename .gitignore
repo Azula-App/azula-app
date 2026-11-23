@@ -29,3 +29,9 @@ xcuserdata/
 
 # OS specific
 .DS_Store
+
+# VM host native build inputs (scripts/vmhost-artifacts.sh)
+*/jniLibs/
+android-app/assets/seed.iso
+vmhost-testapp/assets/seed.iso
+.vmhost-cache/

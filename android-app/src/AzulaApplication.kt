@@ -47,6 +47,12 @@ class AzulaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // The VM host service runs in the ":vmhost" process (see the manifest), which
+        // loads this Application too. It must not build the iroh node, the stores or the
+        // lifecycle observers: they belong to the UI process, and a second iroh endpoint
+        // would fight the first for the same key and data.
+        if (getProcessName().endsWith(":vmhost")) return
+
         // iroh's DNS resolver reads the device's DNS servers through `ndk_context`,
         // which must be initialized with the JavaVM + app context before any
         // endpoint is bound. Once per process.

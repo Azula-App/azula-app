@@ -25,3 +25,7 @@ modules:
   - terminal-real
   - theme
   - ui-common
+  - vmhost-api
+  - vmhost-avf-stubs
+  - vmhost-real
+  - vmhost-testapp

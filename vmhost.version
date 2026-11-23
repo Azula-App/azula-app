@@ -1,0 +1,3 @@
+# azula-cli release whose Android host artifacts scripts/vmhost-artifacts.sh --release downloads.
+# No release carries them yet (the next v* tag will be the first); until then build from ../azula-cli.
+0.4.2

@@ -1,0 +1,12 @@
+# vmhost-avf-stubs — COMPILE-ONLY declarations of android.system.virtualmachine.*
+# (AVF), which is a @SystemApi: absent from the public android.jar, present in the
+# device's boot classpath. vmhost-real depends on this as `compile-only`, so the
+# classes are on the compile classpath but never reach the APK or the dex (shipping
+# them would shadow nothing and bloat nothing, but would be wrong: the real classes
+# come from the framework at runtime). Every method throws; none is ever called.
+# Java on purpose: the stubs must have the exact shape of the framework classes
+# (final classes, nested Builder/Disk types) and Java expresses that without Kotlin
+# name-mangling surprises.
+product:
+  type: lib
+  platforms: [android]

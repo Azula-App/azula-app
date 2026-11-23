@@ -142,4 +142,16 @@ class GrantMachineTest {
         assertEquals(GrantError.NotificationsBlocked, b.error)
         assertEquals(GrantPhase.Failed, b.phase)
     }
+
+    @Test
+    fun resumeAfterTheGrantKilledTheProcessFinishesInsteadOfRepeating() {
+        // `pm grant` changes the app's gids, so the system kills the process mid-grant.
+        for (p in listOf(GrantPhase.Granting, GrantPhase.Connecting, GrantPhase.AwaitingCode)) {
+            val step = GrantMachine.resume(p, paired = true, allHeld = true)
+            assertEquals(GrantPhase.Granted, step.state.phase)
+            assertEquals(listOf<Effect>(Effect.ShowDone), step.effects)
+        }
+        // Not mid-flight: nothing to announce.
+        assertEquals(emptyList(), GrantMachine.resume(GrantPhase.Idle, false, allHeld = true).effects)
+    }
 }

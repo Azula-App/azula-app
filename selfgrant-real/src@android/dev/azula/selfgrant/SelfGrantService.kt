@@ -24,7 +24,7 @@ class SelfGrantService : Service() {
         Log.d("SelfGrant", "service command action=${intent?.action}")
         runtime.runner.onStateChanged = { s ->
             if (s.phase == GrantPhase.Granted || s.phase == GrantPhase.Failed || s.phase == GrantPhase.Idle) {
-                stopForeground(STOP_FOREGROUND_DETACH)
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 runtime.runner.onStateChanged = null
                 stopSelf()
             }

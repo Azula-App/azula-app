@@ -64,19 +64,23 @@ internal class SelfGrantRunner(
     /** Starts the flow, or resumes a persisted mid-flight one after process death. Idempotent. */
     @Synchronized
     fun startOrResume() {
-        if (missing().isEmpty()) { refresh(); return }
+        val allHeld = missing().isEmpty()
+        val persisted = store.phase
+        val midFlight = persisted in setOf(
+            GrantPhase.Discovering, GrantPhase.AwaitingCode, GrantPhase.Pairing,
+            GrantPhase.Connecting, GrantPhase.Granting,
+        )
+        if (allHeld && !midFlight) { refresh(); return }
         if (begun) return
         begun = true
-        val persisted = store.phase
-        Log.d(TAG, "startOrResume persisted=$persisted paired=${store.paired}")
-        when (persisted) {
-            GrantPhase.Discovering, GrantPhase.AwaitingCode, GrantPhase.Pairing,
-            GrantPhase.Connecting, GrantPhase.Granting -> {
-                val step = GrantMachine.resume(persisted, store.paired)
-                machine = step.state
-                commit(step.effects)
-            }
-            else -> events.trySend(Event.Start)
+        Log.d(TAG, "startOrResume persisted=$persisted paired=${store.paired} allHeld=$allHeld")
+        if (midFlight) {
+            val step = GrantMachine.resume(persisted, store.paired, allHeld)
+            machine = step.state
+            if (machine.phase == GrantPhase.Granted) begun = false
+            commit(step.effects)
+        } else {
+            events.trySend(Event.Start)
         }
     }
 

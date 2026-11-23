@@ -31,7 +31,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         granter = AndroidVmPermissionGranter(this)
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 96, 32, 32) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 192, 32, 32) }
         status = TextView(this).apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); tag = "status" }
         fun button(label: String, tag: String, onClick: () -> Unit) = Button(this).apply {
             text = label; this.tag = tag; setOnClickListener { onClick() }
@@ -64,7 +64,7 @@ class MainActivity : Activity() {
             appendLine("phase: ${s.phase}")
             appendLine("error: ${s.error ?: "-"} ${s.detail ?: ""}")
             VmPermission.entries.forEach { appendLine("${it.name}: ${if (it in s.missing) "MISSING" else "granted"}") }
-            appendLine("developer options: ${SelfGrantSettings.developerOptionsEnabled(this@MainActivity)}")
+            appendLine("developer options: ${SelfGrantSettings.developerOptionsEnabled(this@MainActivity)} (raw ${android.provider.Settings.Global.getInt(contentResolver, "development_settings_enabled", -1)}, adb ${android.provider.Settings.Global.getInt(contentResolver, "adb_enabled", -1)})")
             appendLine("wireless debugging: ${SelfGrantSettings.wirelessDebuggingEnabled(this@MainActivity)}")
         }
     }

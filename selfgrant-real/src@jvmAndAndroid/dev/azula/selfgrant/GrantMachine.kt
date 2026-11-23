@@ -155,10 +155,17 @@ internal object GrantMachine {
      * Rebuilds a live state from the persisted slice after process death or an
      * app switch. Anything mid-flight restarts at its discovery step: ports and
      * the typed code never outlive the process, but the key and `paired` do.
+     *
+     * [allHeld] covers the one death the flow causes itself: granting these
+     * permissions changes the app's gids, so the system kills the process right
+     * after `pm grant`. A mid-flight phase that wakes up to both permissions
+     * already held is therefore a finished grant, not one to repeat.
      */
-    fun resume(persistedPhase: GrantPhase, paired: Boolean): Step = when (persistedPhase) {
+    fun resume(persistedPhase: GrantPhase, paired: Boolean, allHeld: Boolean = false): Step = when (persistedPhase) {
         GrantPhase.Discovering, GrantPhase.AwaitingCode, GrantPhase.Pairing,
-        GrantPhase.Connecting, GrantPhase.Granting -> begin(MachineState(paired = paired))
+        GrantPhase.Connecting, GrantPhase.Granting ->
+            if (allHeld) Step(MachineState(phase = GrantPhase.Granted, paired = paired), listOf(Effect.ShowDone))
+            else begin(MachineState(paired = paired))
         else -> Step(MachineState(phase = persistedPhase, paired = paired))
     }
 }

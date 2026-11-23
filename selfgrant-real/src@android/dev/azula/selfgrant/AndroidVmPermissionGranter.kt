@@ -58,8 +58,18 @@ class AndroidVmPermissionGranter(private val context: Context) : VmPermissionGra
 
 /** Settings state and deep links for the checklist steps (design D9, S2). */
 object SelfGrantSettings {
+    /**
+     * Whether Developer options are on. Apps can't read the global setting on current
+     * Android (`development_settings_enabled` reads 0 from an app while the shell
+     * sees 1; measured on a Pixel 10a, Android 17), so this also checks that Settings
+     * resolves the Developer options screen: Settings disables that component while
+     * Developer options are off (SettingsActivity.doUpdateTilesList in AOSP). The
+     * "off" side is unverified on a device. Needs the manifest `<queries>` entry in
+     * README.manifest.
+     */
     fun developerOptionsEnabled(context: Context): Boolean =
-        Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
+        Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0 ||
+            context.packageManager.resolveActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS), 0) != null
 
     fun wirelessDebuggingEnabled(context: Context): Boolean =
         Settings.Global.getInt(context.contentResolver, "adb_wifi_enabled", 0) != 0

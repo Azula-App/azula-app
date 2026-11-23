@@ -15,6 +15,9 @@ modules:
   - notification-api
   - persistence-api
   - persistence-real
+  - selfgrant-api
+  - selfgrant-real
+  - selfgrant-testapp
   - shared
   - sync-api
   - sync-real

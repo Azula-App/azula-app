@@ -1,0 +1,24 @@
+A host of selfgrant-real must declare the following in its AndroidManifest.xml
+(Amper does not merge library manifests). selfgrant-testapp has a working copy.
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- signature|development: granted once through Wireless debugging by this module. -->
+    <uses-permission android:name="android.permission.MANAGE_VIRTUAL_MACHINE" />
+    <uses-permission android:name="android.permission.USE_CUSTOM_VIRTUAL_MACHINE" />
+    <application>
+        <service android:name="dev.azula.selfgrant.SelfGrantService"
+                 android:exported="false"
+                 android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                      android:value="One-time, user-started setup that grants this app its own virtual machine permissions through Wireless debugging pairing; runs only until the grant finishes." />
+        </service>
+        <receiver android:name="dev.azula.selfgrant.PairingReplyReceiver" android:exported="false" />
+    </application>
+</manifest>

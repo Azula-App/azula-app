@@ -1,0 +1,26 @@
+# selfgrant-real — the implementation of selfgrant-api. The adb wireless-pairing
+# client (SPAKE2 over Ed25519, adb message codec, key + certificate encoding) and
+# the flow state machine are pure JVM code in src@jvmAndAndroid, unit-tested on
+# the JVM; mDNS discovery, the TLS sockets, notifications and the foreground
+# service are Android code in src@android. Pure Kotlin on purpose: no NDK, no
+# BoringSSL build (see compute-android-app-host design D7).
+product:
+  type: kmp/lib
+  platforms: [jvm, android]
+
+aliases:
+  - jvmAndAndroid: [jvm, android]
+
+dependencies:
+  - ../selfgrant-api: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0
+
+dependencies@android:
+  - androidx.core:core-ktx:1.13.1
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  android:
+    minSdk: 26

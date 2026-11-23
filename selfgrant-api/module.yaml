@@ -1,0 +1,10 @@
+# selfgrant-api — the contract for the one-time, on-phone VM permission grant:
+# the app grants itself MANAGE_VIRTUAL_MACHINE and USE_CUSTOM_VIRTUAL_MACHINE
+# through Wireless debugging (pairing code entered in a notification), with no
+# computer. Pure types; the implementation is selfgrant-real (Android only).
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
+
+dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported

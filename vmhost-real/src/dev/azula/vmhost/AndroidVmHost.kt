@@ -31,6 +31,10 @@ class AndroidVmHost(context: Context) : VmHost {
     override suspend fun checkCapability(): CapabilityResult =
         withContext(Dispatchers.IO) { CapabilityProbe(ctx).check() }
 
+    override fun provision() {
+        ctx.startForegroundService(Intent(ctx, HostService::class.java).setAction(HostProtocol.ACTION_PROVISION))
+    }
+
     override fun start() {
         ctx.startForegroundService(Intent(ctx, HostService::class.java).setAction(HostProtocol.ACTION_START))
     }

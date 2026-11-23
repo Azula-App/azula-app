@@ -42,6 +42,14 @@ class HostStateStoreTest {
         assertTrue("killed" in e.detail)
     }
 
+    @Test fun provisioningWithDeadWriterIsARetryableInterruption() {
+        val s = HostState(HostPhase.PROVISIONING, pid = 9)
+        val e = effectiveState(s) { false }
+        assertEquals(HostPhase.ERROR, e.phase)
+        assertTrue(e.retryable)
+        assertTrue("interrupted" in e.detail)
+    }
+
     @Test fun inactiveStatesAreNeverRewritten() {
         for (p in listOf(HostPhase.STOPPED, HostPhase.ERROR)) {
             val s = HostState(p, "x", pid = 1)

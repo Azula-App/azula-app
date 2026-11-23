@@ -22,9 +22,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Harness: Start, Stop and Mint buttons and a status line. Mint writes the token
+ * Harness: Set up, Start, Stop and Mint buttons and a status line. Mint writes the token
  * JSON to filesDir/token.json (0600) so a test run can fetch it with `run-as`;
- * delete that file afterwards. Intent extras `--es cmd start|stop|mint|revoke`
+ * delete that file afterwards. Intent extras `--es cmd provision|start|stop|mint|revoke`
  * let adb drive it without taps.
  */
 class MainActivity : Activity() {
@@ -51,6 +51,7 @@ class MainActivity : Activity() {
             root.addView(this)
         }
         root.addView(status)
+        button("Set up") { host.provision() }
         button("Start") { host.start() }
         button("Stop") { host.stop() }
         button("Mint grant") { mint() }
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
 
     private fun handleCmd(cmd: String?) {
         when (cmd) {
+            "provision" -> host.provision()
             "start" -> host.start()
             "stop" -> host.stop()
             "mint" -> mint()
@@ -105,7 +107,9 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
-        status.text = "state: ${last.phase}${if (last.detail.isEmpty()) "" else " (${last.detail})"}" +
+        val step = last.step?.let { " · $it ${last.bytesDone}/${last.bytesTotal}" } ?: ""
+        status.text = "state: ${last.phase}$step${if (last.detail.isEmpty()) "" else " (${last.detail})"}" +
+            (if (last.retryable) " [retry]" else "") +
             " · restarts ${last.restarts}\ncapability: $capability\n$grant"
     }
 

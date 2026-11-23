@@ -40,7 +40,12 @@ internal class HostStateStore(val dir: File) {
  */
 internal fun effectiveState(stored: HostState, isProcessAlive: (Int) -> Boolean): HostState =
     if (stored.active && !isProcessAlive(stored.pid)) {
-        stored.copy(phase = HostPhase.ERROR, detail = "stopped — the host process was killed")
+        if (stored.phase == HostPhase.PROVISIONING) {
+            // Every setup step resumes: the UI offers retry, and provision() carries on.
+            stored.copy(phase = HostPhase.ERROR, detail = "setup was interrupted", retryable = true)
+        } else {
+            stored.copy(phase = HostPhase.ERROR, detail = "stopped — the host process was killed")
+        }
     } else {
         stored
     }

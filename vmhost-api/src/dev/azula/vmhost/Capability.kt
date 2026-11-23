@@ -87,8 +87,45 @@ fun evaluateCapability(i: CapabilityInputs): CapabilityResult {
         return no(CannotHostReason.HIDDEN_API_BLOCKED, "this android version blocks the vm api azula needs")
     }
     val memoryMb = ((i.totalRamBytes shr 20) / 2 / MEMORY_STEP_MB * MEMORY_STEP_MB).toInt()
-    val diskGb = minOf(DEFAULT_DISK_GB.toLong(), (i.freeStorageBytes shr 30) / 4).toInt()
+    val diskGb = diskSizeGb(i.freeStorageBytes)
     return CapabilityResult.CanHost(HostPlan(i.cpuCount.coerceAtLeast(1), memoryMb, diskGb, DOWNLOAD_MB))
+}
+
+/** The guest disk's default size (design D9): `min(16 GiB, 25% of free space)`, in whole GiB. */
+fun diskSizeGb(freeBytes: Long): Int =
+    minOf(DEFAULT_DISK_GB.toLong(), (freeBytes shr 30) / 4).toInt().coerceAtLeast(0)
+
+/** The unpacked image (`disk.raw`) is 3 GiB. */
+const val RAW_IMAGE_BYTES = 3L shl 30
+
+/** Spare room beyond the image while it is unpacked (the guest's first boot writes too). */
+const val PROVISION_HEADROOM_BYTES = 1L shl 30
+
+/**
+ * Bytes setup still needs to write: what's left of the archive, the unpacked disk, and
+ * headroom. The archive and the disk coexist while unpacking.
+ */
+fun provisionNeededBytes(remainingDownloadBytes: Long): Long =
+    remainingDownloadBytes.coerceAtLeast(0) + RAW_IMAGE_BYTES + PROVISION_HEADROOM_BYTES
+
+/**
+ * Setup's own free-space check, before anything is downloaded (design D9 S3's "low storage"):
+ * null when there is room, else the one-line [CapabilityResult.CannotHost] ("needs X GB
+ * free · Y GB free now"). [remainingDownloadBytes] is the archive's real size less any
+ * bytes already on disk.
+ */
+fun evaluateProvisionSpace(freeBytes: Long, remainingDownloadBytes: Long): CapabilityResult.CannotHost? {
+    val need = provisionNeededBytes(remainingDownloadBytes)
+    if (freeBytes >= need) return null
+    return CapabilityResult.CannotHost(
+        CannotHostReason.LOW_STORAGE,
+        "needs ${gbUp(need)} free · ${gb(freeBytes)} free now",
+    )
+}
+
+private fun gbUp(bytes: Long): String {
+    val tenths = (bytes * 10 + (1L shl 30) - 1) shr 30
+    return "${tenths / 10}.${tenths % 10} GB".replace(".0 GB", " GB")
 }
 
 private fun gb(bytes: Long): String {

@@ -5,6 +5,7 @@ internal object HostProtocol {
     // Intent actions (startForegroundService): the service must call startForeground for each.
     const val ACTION_START = "dev.azula.vmhost.START"
     const val ACTION_STOP = "dev.azula.vmhost.STOP"
+    const val ACTION_PROVISION = "dev.azula.vmhost.PROVISION"
 
     // Messenger requests (bound service): the ones that return data.
     const val MSG_MINT = 1

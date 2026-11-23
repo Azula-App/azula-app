@@ -24,6 +24,7 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs the on-phone VM host. Declared with `android:process=":vmhost"` so the
@@ -59,6 +60,17 @@ class HostService : Service() {
     private var loginSeen = false
     private var plan: HostPlan? = null
 
+    // Setup (image download etc.) runs on its own thread so STOP and IPC stay responsive.
+    private val provisionExec = Executors.newSingleThreadExecutor { Thread(it, "vmhost-provision") }
+    private val provisionCancel = AtomicBoolean(false)
+    private val provisionLock = Any()
+    @Volatile private var provisioning = false
+    /** True until the VM has booted once: phases then read PROVISIONING/FIRST_BOOT instead of PREPARING/BOOTING. */
+    @Volatile private var firstBoot = false
+    private lateinit var provisioner: ImageProvisioner
+    private var lastProgressPublish = 0L
+    private var lastProgressStep: ProvisionStep? = null
+
     override fun onCreate() {
         super.onCreate()
         HostLog.dir = File(filesDir, "logs").also { it.mkdirs() }
@@ -67,6 +79,14 @@ class HostService : Service() {
         messenger = Messenger(object : Handler(ipcThread.looper) {
             override fun handleMessage(msg: Message) = handleIpc(msg)
         })
+        provisioner = ImageProvisioner(
+            dir = File(filesDir, "vm").also { it.mkdirs() },
+            freeBytes = { runCatching { android.os.StatFs(filesDir.absolutePath).availableBytes }.getOrDefault(0L) },
+            stageSeed = { stageSeed(File(filesDir, "vm")) },
+            listener = { step, done, total -> onProvisionProgress(step, done, total) },
+            cancelled = { provisionCancel.get() },
+            log = { HostLog.to("provision", it) },
+        )
         HiddenApi.enable()
         // A previous :vmhost process may have died with a live state on disk.
         publish(HostPhase.STOPPED, "")
@@ -76,22 +96,44 @@ class HostService : Service() {
     override fun onBind(intent: Intent?): IBinder = messenger.binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action ?: HostProtocol.ACTION_START
-        HostLog.to("host", "onStartCommand action=$action")
-        promote(notificationText(store.read()))
-        when (action) {
-            HostProtocol.ACTION_STOP -> ops.execute {
-                stopAll()
-                publish(HostPhase.STOPPED, "")
-                stopForeground(STOP_FOREGROUND_REMOVE)
+        if (intent == null) {
+            // The system restarted a sticky service after killing the process (the permission grant
+            // does that: it changes the app's gids). Only unfinished setup carries on by itself;
+            // a host that was running is never revived behind the user's back.
+            if (provisioner.load().let { it.imageReady && it.firstBootDone }) {
+                HostLog.to("host", "restarted by the system with setup complete; staying stopped")
                 stopSelf()
+                return START_NOT_STICKY
             }
-            else -> ops.execute { startAll(isRestart = false) }
+            HostLog.to("host", "restarted by the system mid-setup; resuming")
+            promote(store.read())
+            beginProvisionOrStart()
+            return START_STICKY
         }
-        return START_NOT_STICKY
+        val action = intent.action ?: HostProtocol.ACTION_START
+        HostLog.to("host", "onStartCommand action=$action")
+        promote(store.read())
+        when (action) {
+            HostProtocol.ACTION_STOP -> {
+                synchronized(provisionLock) { provisionCancel.set(true); provisioning = false }
+                ops.execute {
+                    stopAll()
+                    publish(HostPhase.STOPPED, "")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+                return START_NOT_STICKY
+            }
+            // START and PROVISION are the same command: set up if needed, then boot.
+            else -> beginProvisionOrStart()
+        }
+        // Sticky while setup is unfinished, so a kill (the permission grant) resumes it.
+        return if (provisioner.load().let { it.imageReady && it.firstBootDone }) START_NOT_STICKY else START_STICKY
     }
 
     override fun onDestroy() {
+        provisionCancel.set(true)
+        provisionExec.shutdownNow()
         // Reached after STOP (already torn down) or if the system destroys the service.
         ops.execute {
             stopAll()
@@ -104,39 +146,59 @@ class HostService : Service() {
 
     // ---- state + notification ----
 
-    private fun publish(phase: HostPhase, detail: String) {
+    private fun publish(phase: HostPhase, detail: String, step: ProvisionStep? = null, done: Long = 0, total: Long = 0, retryable: Boolean = false) {
         val now = System.currentTimeMillis()
+        // The first boot is the last step of setup: the same start-up phases read as PROVISIONING/FIRST_BOOT.
+        val first = firstBoot && (phase == HostPhase.PREPARING || phase == HostPhase.BOOTING)
         val s = HostState(
-            phase = phase,
-            detail = detail,
+            phase = if (first) HostPhase.PROVISIONING else phase,
+            step = if (first) ProvisionStep.FIRST_BOOT else step,
+            bytesDone = done,
+            bytesTotal = total,
+            retryable = retryable,
+            detail = if (first && detail.isEmpty()) "installing tools · about 4 min" else detail,
             startedAtMs = if (phase == HostPhase.STOPPED) 0 else startedAt,
             updatedAtMs = now,
             restarts = restarts,
             pid = android.os.Process.myPid(),
         )
         try { store.write(s) } catch (e: Exception) { HostLog.to("host", "state write failed: $e") }
-        if (phase.isLive()) runCatching {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(notificationText(s)))
+        if (s.phase.isLive()) runCatching {
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(s))
         }
     }
 
-    private fun HostPhase.isLive() = this == HostPhase.PREPARING || this == HostPhase.BOOTING ||
+    private fun HostPhase.isLive() = this == HostPhase.PROVISIONING || this == HostPhase.PREPARING || this == HostPhase.BOOTING ||
         this == HostPhase.RUNNING || this == HostPhase.RESTARTING
 
+    private fun stepLabel(s: HostState): String {
+        val pct = if (s.bytesTotal > 0) " · ${s.bytesDone * 100 / s.bytesTotal}%" else ""
+        return when (s.step) {
+            ProvisionStep.DOWNLOADING -> "downloading debian$pct"
+            ProvisionStep.VERIFYING -> "verifying$pct"
+            ProvisionStep.EXTRACTING -> "unpacking$pct"
+            ProvisionStep.PREPARING_DISK -> "preparing disk"
+            ProvisionStep.FIRST_BOOT -> s.detail.ifEmpty { "first boot" }
+            null -> "setting up"
+        }
+    }
+
     private fun notificationText(s: HostState) = when (s.phase) {
+        HostPhase.PROVISIONING -> "setting up · ${stepLabel(s)}"
         HostPhase.RUNNING -> "hosting · running"
         HostPhase.RESTARTING -> "restarting…"
         HostPhase.PREPARING, HostPhase.BOOTING -> "hosting · starting"
         else -> "hosting"
     }
 
-    private fun promote(text: String) {
+    private fun promote(s: HostState) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Compute host", NotificationManager.IMPORTANCE_LOW))
-        startForeground(NOTIFICATION_ID, buildNotification(text), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        startForeground(NOTIFICATION_ID, buildNotification(s), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     }
 
-    private fun buildNotification(text: String): Notification {
+    private fun buildNotification(s: HostState): Notification {
+        val text = notificationText(s)
         val stop = PendingIntent.getService(
             this, 0, Intent(this, HostService::class.java).setAction(HostProtocol.ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -146,6 +208,12 @@ class HostService : Service() {
             .setContentTitle("azula — compute host")
             .setContentText(text)
             .setOngoing(true)
+            .apply {
+                // A progress bar while a download, check or unpack has a known length (in per mille).
+                if (s.phase == HostPhase.PROVISIONING && s.bytesTotal > 0) {
+                    setProgress(1000, (s.bytesDone * 1000 / s.bytesTotal).toInt(), false)
+                } else if (s.phase == HostPhase.PROVISIONING) setProgress(0, 0, true)
+            }
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
         packageManager.getLaunchIntentForPackage(packageName)?.let {
             b.setContentIntent(PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
@@ -170,16 +238,20 @@ class HostService : Service() {
         if (!isRestart) { restarts = 0; startedAt = System.currentTimeMillis() }
         try {
             publish(HostPhase.PREPARING, "")
-            val p = when (val r = CapabilityProbe(this).check()) {
-                is CapabilityResult.CanHost -> r.plan
+            // Storage was checked when setup began, and the disk is already allocated, so the
+            // 20 GB-free gate (S1) doesn't apply to booting what's already there.
+            val probe = CapabilityProbe(this).inputs()
+            val p = when (val r = evaluateCapability(probe.copy(freeStorageBytes = maxOf(probe.freeStorageBytes, MIN_FREE_BYTES)))) {
+                is CapabilityResult.CanHost -> r.plan.copy(diskGb = maxOf(r.plan.diskGb, provisioner.load().diskGb))
                 is CapabilityResult.CannotHost -> throw IllegalStateException(r.message)
             }
             plan = p
             val vmDir = File(filesDir, "vm").also { it.mkdirs() }
-            val disk = stageDisk(vmDir) ?: throw IllegalStateException("no disk.raw in $vmDir or ${getExternalFilesDir(null)}")
+            val disk = File(vmDir, ImageSource.DISK_ENTRY).takeIf { it.exists() }
+                ?: throw IllegalStateException("the guest image isn't set up yet")
             val seed = stageSeed(vmDir)
-            // The cloud image is ~3 GiB; grow the file (sparse) and let cloud-init's
-            // growpart/resizefs expand the root filesystem on boot.
+            // The disk grows sparse to the planned size; cloud-init's growpart/resizefs
+            // expands the root filesystem on boot.
             java.io.RandomAccessFile(disk, "rw").use { raf ->
                 val want = p.diskGb.toLong() shl 30
                 if (raf.length() < want) {
@@ -215,7 +287,9 @@ class HostService : Service() {
 
     private fun failAndStop(detail: String) {
         stopAll()
-        publish(HostPhase.ERROR, detail)
+        firstBoot = false
+        // provision() again is the retry: it resumes at whatever step is outstanding.
+        publish(HostPhase.ERROR, detail, retryable = true)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -244,36 +318,111 @@ class HostService : Service() {
     private fun markRunningIfReady() {
         if (active && !stopping && loginSeen && brokerUp && store.read().phase != HostPhase.RUNNING) {
             runningSince = System.currentTimeMillis()
+            if (firstBoot) {
+                firstBoot = false
+                runCatching { provisioner.markFirstBootDone() }
+                HostLog.to("provision", "first boot reached RUNNING (+${elapsed()}s since the boot began)")
+            }
             publish(HostPhase.RUNNING, "")
             HostLog.to("host", "RUNNING (+${elapsed()}s since START)")
         }
     }
 
-    private fun stageDisk(dir: File): File? = stage("disk.raw", dir)
-
-    /** The seed ships as an app asset; a copy in the external files dir is the dev fallback. */
-    private fun stageSeed(dir: File): File? {
+    /** Copies the seed (an app asset) to `filesDir/vm/seed.iso` (design D2). */
+    private fun stageSeed(dir: File): File {
         val dst = File(dir, "seed.iso")
-        return try {
-            assets.open("seed.iso").use { copyAtomically(it, dst) }
-            dst
-        } catch (_: java.io.FileNotFoundException) {
-            stage("seed.iso", dir)
+        dir.mkdirs()
+        assets.open("seed.iso").use { copyAtomically(it, dst) }
+        return dst
+    }
+
+    // ---- setup (design D9 S3) ----
+
+    /** START and PROVISION: finish setup if the image or the first boot is outstanding, else just boot. */
+    private fun beginProvisionOrStart() {
+        val st = provisioner.load()
+        if (st.imageReady && st.firstBootDone) {
+            firstBoot = false
+            ops.execute { startAll(isRestart = false) }
+            return
+        }
+        synchronized(provisionLock) {
+            if (provisioning || active) {
+                HostLog.to("provision", "already running"); return
+            }
+            provisioning = true
+            provisionCancel.set(false)
+        }
+        startedAt = System.currentTimeMillis()
+        lastProgressStep = null
+        publish(HostPhase.PROVISIONING, "", ProvisionStep.DOWNLOADING)
+        provisionExec.execute { runProvision(st.imageReady) }
+    }
+
+    private fun runProvision(imageAlreadyReady: Boolean) {
+        try {
+            if (!imageAlreadyReady) {
+                // No point downloading for a phone that can't host (S1 already said so; this is the backstop).
+                // Bytes from an earlier attempt count as free: they're about to be reused.
+                val probe = CapabilityProbe(this).inputs()
+                val r = evaluateCapability(probe.copy(freeStorageBytes = probe.freeStorageBytes + provisioner.footprintBytes()))
+                if (r is CapabilityResult.CannotHost) throw ProvisionFailure(r.message)
+                provisioner.run()
+            }
+            // Downloading needs no permission, but the VM does: wait for the grants here.
+            firstBoot = true
+            var announced = false
+            while (!haveVmPermissions()) {
+                if (provisionCancel.get()) throw CancelledException()
+                if (!announced) {
+                    announced = true
+                    HostLog.to("provision", "image ready; waiting for the VM permissions")
+                    provisionPublish(HostPhase.PROVISIONING, "waiting for permission", ProvisionStep.FIRST_BOOT)
+                }
+                Thread.sleep(1500)
+            }
+            synchronized(provisionLock) {
+                if (provisionCancel.get()) throw CancelledException()
+                provisioning = false
+            }
+            ops.execute { if (!provisionCancel.get()) startAll(isRestart = false) }
+        } catch (_: CancelledException) {
+            HostLog.to("provision", "cancelled")
+        } catch (e: ProvisionFailure) {
+            HostLog.to("provision", "failed: ${e.message}")
+            provisionFail(e.message ?: "setup failed", e.retryable)
+        } catch (e: Throwable) {
+            HostLog.to("provision", "failed: ${android.util.Log.getStackTraceString(e)}")
+            provisionFail("setup failed: ${e.message ?: e}", true)
         }
     }
 
-    /** Copies from `getExternalFilesDir(null)` when missing in `filesDir/vm`. TODO(3.2): the download replaces this for disk.raw. */
-    private fun stage(name: String, dir: File): File? {
-        val dst = File(dir, name)
-        if (dst.exists()) return dst
-        val src = File(getExternalFilesDir(null), name)
-        if (!src.exists()) return null
-        HostLog.to("host", "copying $src -> $dst")
-        val tmp = File(dir, "$name.part")
-        Files.copy(src.toPath(), tmp.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        if (!tmp.renameTo(dst)) throw java.io.IOException("rename failed for $name")
-        HostLog.to("host", "copied $name (${dst.length()} bytes)")
-        return dst
+    private fun haveVmPermissions() =
+        checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /** Publishes setup state unless STOP got there first (a late write would undo STOPPED). */
+    private fun provisionPublish(phase: HostPhase, detail: String, step: ProvisionStep?, done: Long = 0, total: Long = 0) =
+        synchronized(provisionLock) {
+            if (!provisionCancel.get()) publish(phase, detail, step, done, total)
+        }
+
+    private fun provisionFail(message: String, retryable: Boolean) = synchronized(provisionLock) {
+        if (provisionCancel.get()) return@synchronized
+        provisioning = false
+        firstBoot = false
+        publish(HostPhase.ERROR, message, retryable = retryable)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /** Throttled: the state file is fsynced, so at most one write a second (and on every step change). */
+    private fun onProvisionProgress(step: ProvisionStep, done: Long, total: Long) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (step == lastProgressStep && now - lastProgressPublish < 1000 && done != total) return
+        lastProgressStep = step
+        lastProgressPublish = now
+        provisionPublish(HostPhase.PROVISIONING, "", step, done, total)
     }
 
     private fun copyAtomically(src: InputStream, dst: File) {

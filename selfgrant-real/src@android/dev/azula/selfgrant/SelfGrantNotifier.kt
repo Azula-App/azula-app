@@ -127,8 +127,11 @@ internal class SelfGrantNotifier(private val context: Context) {
 
     companion object {
         const val CHANNEL = "selfgrant"
-        const val ONGOING_ID = 7301
-        const val RESULT_ID = 7302
+        // The host feature's HostService (vmhost-real) owns 7301 and re-posts it on
+        // every download-progress tick; sharing that id overwrote this code prompt
+        // mid-setup. Keep these distinct from it and from IrohService's 1.
+        const val ONGOING_ID = 7311
+        const val RESULT_ID = 7312
         const val KEY_CODE = "pairing_code"
         const val ACTION_REPLY = "dev.azula.selfgrant.REPLY_CODE"
     }

@@ -13,6 +13,14 @@ class GrantMachineTest {
     }
 
     @Test
+    fun pairingCodeStaysOutOfLogStrings() {
+        val (_, fx) = run(MachineState(), Event.Start, Event.ServiceUp(Service.Pairing, 41111), Event.CodeSubmitted("482913"))
+        val logged = listOf(Event.CodeSubmitted("482913").toString()) + fx.map { it.toString() }
+        assertTrue(fx.contains(Effect.Pair(41111, "482913")))
+        assertTrue(logged.none { "482913" in it }, "pairing code leaked into $logged")
+    }
+
+    @Test
     fun happyPathFromScratch() {
         val (s, fx) = run(
             MachineState(),

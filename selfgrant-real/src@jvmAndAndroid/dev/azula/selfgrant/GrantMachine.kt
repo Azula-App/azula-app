@@ -23,7 +23,10 @@ internal sealed interface Event {
     data object Cancel : Event
     data class ServiceUp(val service: Service, val port: Int) : Event
     data class ServiceDown(val service: Service) : Event
-    data class CodeSubmitted(val code: String) : Event
+    /** The runner logs every event: [toString] leaves the code out. */
+    data class CodeSubmitted(val code: String) : Event {
+        override fun toString() = "CodeSubmitted(${code.length} chars)"
+    }
     data object PairingSucceeded : Event
     data class PairingFailed(val wrongCode: Boolean, val detail: String?) : Event
     data object GrantSucceeded : Event
@@ -41,7 +44,10 @@ internal sealed interface Effect {
     /** Show the "enter the 6-digit pairing code" prompt; [retry] when the last code failed. */
     data class ShowCodePrompt(val retry: Boolean) : Effect
     data object ClearCodePrompt : Effect
-    data class Pair(val port: Int, val code: String) : Effect
+    /** The runner logs every effect: [toString] leaves the code out. */
+    data class Pair(val port: Int, val code: String) : Effect {
+        override fun toString() = "Pair(port=$port)"
+    }
 
     /** Connect to the `_adb-tls-connect` [port] and run `pm grant`. */
     data class Grant(val port: Int) : Effect

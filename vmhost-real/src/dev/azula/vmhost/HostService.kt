@@ -557,6 +557,7 @@ class HostService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "vmhost"
+        /** Distinct from SelfGrantNotifier's 7311/7312 (selfgrant-real), which run beside this during setup. */
         private const val NOTIFICATION_ID = 7301
         private const val MAX_AUTO_RESTARTS = 1
         /** A run this long counts as stable: the restart budget resets. */

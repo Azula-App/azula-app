@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- On-phone compute host (compute-android-app-host). The two AVF permissions are
+         signature|development: not grantable at runtime; the user grants them once
+         over wireless debugging (pm grant). Declaring them is harmless for everyone
+         who never hosts. -->
+    <uses-permission android:name="android.permission.MANAGE_VIRTUAL_MACHINE" />
+    <uses-permission android:name="android.permission.USE_CUSTOM_VIRTUAL_MACHINE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Auto-saving received media to the public gallery/Downloads on API 26–28
          (pre-scoped-storage) writes to public external dirs + a media scan. On
          API ≥29 the MediaExporter uses scoped-storage MediaStore inserts, which
@@ -68,5 +75,15 @@
         <service android:name="app.azula.IrohService"
                  android:exported="false"
                  android:foregroundServiceType="dataSync" />
+
+        <!-- Hosts a user-started Linux VM (AVF), in its own process so a UI crash
+             doesn't take the VM down. Not exported: only this app starts or binds it. -->
+        <service android:name="dev.azula.vmhost.HostService"
+                 android:process=":vmhost"
+                 android:exported="false"
+                 android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                      android:value="Hosts a user-started Linux virtual machine that runs commands sent by the user's own remote coding sessions; runs only while the user keeps hosting on, with a persistent notification and a Stop action." />
+        </service>
     </application>
 </manifest>

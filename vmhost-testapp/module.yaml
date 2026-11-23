@@ -1,0 +1,17 @@
+# vmhost-testapp — a bare harness for exercising the VM host on a real phone
+# without touching app.azula's data: Start / Stop / Mint buttons and a status line.
+# Same service, permissions and native artifacts as android-app (the artifacts are
+# placed by scripts/vmhost-artifacts.sh). Not shipped.
+product: android/app
+
+dependencies:
+  - ../vmhost-real
+  - androidx.core:core-ktx:1.13.1
+
+settings:
+  android:
+    abiFilters: [arm64-v8a]
+    minSdk: 34
+    targetSdk: 36
+    applicationId: app.azula.vmhost.test
+    namespace: app.azula.vmhost.test

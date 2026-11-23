@@ -1,0 +1,19 @@
+# vmhost-api — the contract of "host compute on this phone": the VmHost interface
+# the UI talks to, the persisted HostState, the typed capability check result
+# (CanHost / CannotHost) with its pure evaluator, and the grant models.
+# No platform code; the Android implementation lives in vmhost-real. The
+# evaluator and the (de)serializers are pure so they are unit-tested on the JVM.
+product:
+  type: kmp/lib
+  platforms: [jvm, android, iosArm64, iosSimulatorArm64]
+
+dependencies:
+  - $kotlin.serialization.json: exported
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported
+
+test-dependencies:
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0
+
+settings:
+  kotlin:
+    serialization: enabled

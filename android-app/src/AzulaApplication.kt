@@ -16,10 +16,12 @@ import dev.azula.persist.AndroidMediaExporter
 import dev.azula.persist.AndroidMessageStore
 import dev.azula.persist.AndroidProfileStore
 import dev.azula.persist.AndroidSettingsStore
+import dev.azula.selfgrant.AndroidVmPermissionGranter
 import dev.azula.state.AppStateHost
 import dev.azula.state.AzulaState
 import dev.azula.sync.AndroidEventLogStore
 import dev.azula.sync.toHexLower
+import dev.azula.vmhost.AndroidVmHost
 import dev.zacsweers.metro.createGraphFactory
 import android.util.Log
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -43,6 +45,9 @@ class AzulaApplication : Application() {
             // surfacing off the hot path) must not take down the whole process.
             CoroutineExceptionHandler { _, e -> Log.e("azula", "uncaught in appScope", e) }
     )
+
+    /** The host-compute platform pieces (labs, setup flags, deep links); MainActivity wires its notification launcher in. */
+    val hostPlatform by lazy { AndroidHostPlatform(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -120,6 +125,11 @@ class AzulaApplication : Application() {
                     ?: error("transport cannot derive the root public key from its root secret")
             },
             ed25519 = platformEd25519(),
+            // Hosting compute on this phone (compute-android-app-host). Android-only; the
+            // entry itself stays hidden in release builds unless "labs" is on.
+            vmHost = AndroidVmHost(applicationContext),
+            vmPermissionGranter = AndroidVmPermissionGranter(applicationContext),
+            hostPlatform = hostPlatform,
         ).azulaState.also {
             AppStateHost.shared = it
             appScope.launch { it.start() }

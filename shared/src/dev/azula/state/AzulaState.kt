@@ -31,6 +31,7 @@ import dev.azula.net.receiveFile
 import dev.azula.net.sendFile
 import dev.azula.core.AppScope
 import dev.azula.epochSeconds
+import dev.azula.host.HostSetupService
 import dev.azula.link.DeepLinkBus
 import dev.azula.notify.Notifier
 import dev.azula.persist.BlobStore
@@ -205,6 +206,9 @@ class AzulaState(
     // The connect + transport core (owns the swappable transport, dial/receive/
     // dispatch). AzulaState wires its navigation + foreground callbacks in init.
     private val connectService: ConnectService,
+    // "Host compute on this phone" (compute-android-app-host 3.4/3.6): the setup flow and
+    // grants. Inert (`available == false`) wherever the platform binds no VM host.
+    val hostSetup: HostSetupService,
 ) : TerminalSession {
     // Conversation state lives in ConversationStore; expose the list for the UI.
     // Conversations are created per-peer when you connect.
@@ -213,11 +217,13 @@ class AzulaState(
 
     // Desktop: a conversation id, or "connect" (the default landing — and the only
     // valid view when the list is empty).
-    var desktopActive by mutableStateOf("connect")
+    // A host setup that was under way when the process died (the permission grant kills it)
+    // reopens on the host screen, which lives inside Settings.
+    var desktopActive by mutableStateOf(if (hostSetup.open) "settings" else "connect")
         private set
 
     // Mobile navigation.
-    var mScreen by mutableStateOf(MScreen.HOME)
+    var mScreen by mutableStateOf(if (hostSetup.open) MScreen.SETTINGS else MScreen.HOME)
         private set
     var mActive by mutableStateOf("")
         private set
@@ -486,6 +492,8 @@ class AzulaState(
     }
     fun openConnectMobile() { mScreen = MScreen.CONNECT; connectService.resetConnect() }
     fun openSettingsMobile() { mScreen = MScreen.SETTINGS }
+    /** The Home card's entry: Settings, already on the host-compute screen. */
+    fun openHostMobile() { hostSetup.open = true; mScreen = MScreen.SETTINGS }
     fun mobileBack() { mScreen = MScreen.HOME }
 
     // ---- input / sending ----

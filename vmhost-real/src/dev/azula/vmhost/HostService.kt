@@ -86,6 +86,7 @@ class HostService : Service() {
             listener = { step, done, total -> onProvisionProgress(step, done, total) },
             cancelled = { provisionCancel.get() },
             log = { HostLog.to("provision", it) },
+            diskGbOverride = { PlanOverrideFile.read(stateDir(this)).diskGb },
         )
         HiddenApi.enable()
         // A previous :vmhost process may have died with a live state on disk.
@@ -242,7 +243,8 @@ class HostService : Service() {
             // 20 GB-free gate (S1) doesn't apply to booting what's already there.
             val probe = CapabilityProbe(this).inputs()
             val p = when (val r = evaluateCapability(probe.copy(freeStorageBytes = maxOf(probe.freeStorageBytes, MIN_FREE_BYTES)))) {
-                is CapabilityResult.CanHost -> r.plan.copy(diskGb = maxOf(r.plan.diskGb, provisioner.load().diskGb))
+                is CapabilityResult.CanHost -> PlanOverrideFile.read(stateDir(this)).applyTo(r.plan)
+                    .let { it.copy(diskGb = maxOf(it.diskGb, provisioner.load().diskGb)) }
                 is CapabilityResult.CannotHost -> throw IllegalStateException(r.message)
             }
             plan = p

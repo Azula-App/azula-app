@@ -53,12 +53,17 @@ internal fun desktopE2eTest(
     // shape (e.g. FakeTransport(rootless = true) for the reveal-phrase rootless-copy
     // scenario) supplies its own instance instead.
     transport: FakeTransport = FakeTransport(),
+    // Host-compute fakes (compute-android-app-host): null (the default) means no host is bound
+    // and the Settings entry is hidden, exactly as on JVM and iOS.
+    vmHost: dev.azula.mock.FakeVmHost? = null,
+    granter: dev.azula.mock.FakeVmPermissionGranter? = null,
+    hostPlatform: dev.azula.mock.FakeHostPlatform? = null,
     block: ComposeUiTest.(state: AzulaState, transport: FakeTransport, scope: CoroutineScope) -> Unit,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     try {
         runComposeUiTest {
-            val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore(), invitationsStore = MockInvitationsStore())
+            val state = testAzulaState(scope, transport, messageStore = null, blobStore = InMemoryBlobStore(), invitationsStore = MockInvitationsStore(), vmHost = vmHost, vmPermissionGranter = granter, hostPlatform = hostPlatform)
             scope.launch { state.start() }
             // A [filePicker] override replaces the platform picker, which is a
             // native modal no UI test can drive -- see [LocalFilePicker].

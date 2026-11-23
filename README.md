@@ -96,6 +96,16 @@ Pairing works both ways: the app shows its code (`azula pair <url>` / the `conne
 tool), **or** the CLI/bridge shows a URL + QR (and the `start_pairing` MCP tool)
 that you scan with your phone to pair.
 
+### Labs: host compute on this phone
+
+The Android app can host a Linux VM for your cloud sessions
+(`azula-docs/openspec/changes/compute-android-app-host/`). Until it works on Pixel 6, 8 and
+10a, the entry is hidden in release builds: **Settings → "host compute on this phone"** shows
+only when the app is debuggable, or after **seven taps on the "profiles & settings" title** in
+Settings (the same gesture as Android's Build number; the preference persists). Build a copy that
+installs beside the real app by changing `applicationId` in `android-app/module.yaml` (for
+example `app.azula.dev`; don't commit it), and run `scripts/vmhost-artifacts.sh` first.
+
 ## Status
 
 - **JVM desktop + the Rust CLI build and are verified here.**

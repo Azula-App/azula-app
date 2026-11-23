@@ -23,8 +23,11 @@ import kotlinx.coroutines.launch
  * as the process-scoped state before `AzulaApp()`, so the real transport is
  * never created.
  */
-fun buildMockState(scope: CoroutineScope): AzulaState =
-    createGraphFactory<AppGraph.Factory>().create(
+fun buildMockState(scope: CoroutineScope): AzulaState {
+    // The host-compute flow plays on a timer, so every screen can be seen in a `-mock` build.
+    val granter = FakeVmPermissionGranter(scope, demo = true)
+    val host = FakeVmHost(scope, demo = true, granted = { granter.state.value.granted })
+    return createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
         // demoTerminal: the -mock apps get the extra canned build terminal on top of
         // the interactive one. It stays off for the test suites, which share this
@@ -46,7 +49,11 @@ fun buildMockState(scope: CoroutineScope): AzulaState =
         // consistent signing identity to back one with.
         eventLogStore = null,
         ed25519 = null,
+        vmHost = host,
+        vmPermissionGranter = granter,
+        hostPlatform = FakeHostPlatform(),
     ).azulaState
+}
 
 /**
  * Installs [buildMockState] as the process-scoped [AppStateHost.shared] (a no-op

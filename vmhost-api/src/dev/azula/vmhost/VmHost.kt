@@ -14,6 +14,12 @@ interface VmHost {
     /** The capability check (S1). Cheap and side-effect free apart from probing the hidden-API exemption. */
     suspend fun checkCapability(): CapabilityResult
 
+    /** Sizes the guest differently from the defaults (S1's "advanced" panel). Call before [provision]. */
+    fun setPlanOverride(override: PlanOverride)
+
+    /** What [setPlanOverride] last stored (empty when nothing was overridden). */
+    fun planOverride(): PlanOverride
+
     /**
      * Sets the phone up as a host, and keeps going until it is hosting (design D9 S3). Call
      * it the moment the user taps "set up", in parallel with the permission step: it

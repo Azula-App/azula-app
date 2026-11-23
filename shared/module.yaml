@@ -16,9 +16,11 @@ dependencies:
   - ../sync-api: exported
   - ../sync-real: exported
   - ../terminal-api: exported
+  - ../selfgrant-api: exported
   - ../terminal-real: exported
   - ../theme: exported
   - ../ui-common: exported
+  - ../vmhost-api: exported
   - $compose.foundation: exported
   - $compose.material3: exported
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0: exported

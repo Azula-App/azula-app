@@ -3,6 +3,8 @@ package dev.azula.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +53,8 @@ import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
 import dev.azula.theme.azulaInputSurface
 import dev.azula.theme.azulaMutedPanel
+import dev.azula.ui.host.HostScreen
+import dev.azula.ui.host.HostSettingsRow
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -65,6 +69,17 @@ private fun avatarBitmap(b64: String?) =
 
 @Composable
 fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    // "host compute on this phone" lives inside Settings: while it's open it takes the
+    // screen over, with its own back arrow to Settings.
+    if (state.hostSetup.open) {
+        HostScreen(state, onBack = { state.hostSetup.open = false }, modifier = modifier)
+    } else {
+        SettingsContent(state, onBack, modifier)
+    }
+}
+
+@Composable
+private fun SettingsContent(state: AzulaState, onBack: () -> Unit, modifier: Modifier = Modifier) {
     var editing by remember { mutableStateOf<Persona?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var showReveal by remember { mutableStateOf(false) }
@@ -79,7 +94,17 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("‹", color = AzulaColors.textDim, fontSize = 20.sp, modifier = Modifier.clickable { onBack() })
-            Text("profiles & settings", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            // Seven taps on the title turn on "labs", which shows features still hidden in release
+            // builds (today: host compute on this phone), the way Android's Build number does.
+            var labsTaps by remember { mutableStateOf(0) }
+            Text(
+                "profiles & settings", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
+                // pointerInput, not clickable: a click action would make this title match the
+                // sidebar's "profiles & settings" row in the desktop UI tests.
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures { if (++labsTaps >= 7) { labsTaps = 0; state.hostSetup.enableLabs() } }
+                },
+            )
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -165,6 +190,14 @@ fun SettingsScreen(state: AzulaState, onBack: () -> Unit, modifier: Modifier = M
                 "disable every session conversation past its expiry",
                 tag = "archive-expired-sessions-row",
             ) { state.archiveExpiredSessions() }
+
+            // S0: the single way into hosting compute on this phone (hidden in release
+            // builds until the labs preference is on; absent where no host exists).
+            if (state.hostSetup.entryVisible) {
+                Spacer(Modifier.height(8.dp))
+                Text("COMPUTE", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
+                HostSettingsRow(state)
+            }
         }
     }
     if (showEditor) {

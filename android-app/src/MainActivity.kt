@@ -28,8 +28,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    /** True while a notification dialog the user asked for (host-compute setup) is up, not the startup one. */
+    private var userAskedForNotifications = false
+
     private val requestNotifications =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            // Denied for good (the system won't show the dialog again): send the user to the
+            // app's notification settings instead, so the pairing-code prompt can still work.
+            if (!granted && userAskedForNotifications &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            ) {
+                startActivity(
+                    Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName),
+                )
+            }
+            userAskedForNotifications = false
+            AppStateHost.shared?.hostSetup?.redetect()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +62,10 @@ class MainActivity : ComponentActivity() {
         (application as AzulaApplication).obtainState()
 
         requestNotificationPermission()
+        (application as AzulaApplication).hostPlatform.requestNotificationsHook = {
+            userAskedForNotifications = true
+            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         setContent { AzulaApp() }
 
@@ -65,6 +85,11 @@ class MainActivity : ComponentActivity() {
             openConversationFromIntent(intent)
             handleShareIntent(intent)
         }
+    }
+
+    override fun onDestroy() {
+        (application as AzulaApplication).hostPlatform.requestNotificationsHook = null
+        super.onDestroy()
     }
 
     // A deeplink / notification tap / OS share for the existing activity (singleTask) --

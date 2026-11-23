@@ -44,6 +44,9 @@ internal fun testAzulaState(
     // key material paired with any Ed25519).
     eventLogStore: EventLogStore? = null,
     ed25519: Ed25519? = null,
+    vmHost: dev.azula.vmhost.VmHost? = null,
+    vmPermissionGranter: dev.azula.selfgrant.VmPermissionGranter? = null,
+    hostPlatform: dev.azula.host.HostPlatform? = null,
 ): AzulaState =
     createGraphFactory<AppGraph.Factory>().create(
         scope = scope,
@@ -58,6 +61,9 @@ internal fun testAzulaState(
         mediaExporter = mediaExporter,
         eventLogStore = eventLogStore,
         ed25519 = ed25519,
+        vmHost = vmHost,
+        vmPermissionGranter = vmPermissionGranter,
+        hostPlatform = hostPlatform,
     ).azulaState
 
 /** An in-memory [PeerStore], so a test can inspect exactly what ConnectService persisted. */

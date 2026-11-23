@@ -31,6 +31,13 @@ class AndroidVmHost(context: Context) : VmHost {
     override suspend fun checkCapability(): CapabilityResult =
         withContext(Dispatchers.IO) { CapabilityProbe(ctx).check() }
 
+    override fun setPlanOverride(override: PlanOverride) {
+        store.dir.mkdirs()
+        PlanOverrideFile.write(store.dir, override)
+    }
+
+    override fun planOverride(): PlanOverride = PlanOverrideFile.read(store.dir)
+
     override fun provision() {
         ctx.startForegroundService(Intent(ctx, HostService::class.java).setAction(HostProtocol.ACTION_PROVISION))
     }

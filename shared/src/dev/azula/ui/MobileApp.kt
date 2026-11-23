@@ -39,6 +39,7 @@ import dev.azula.theme.AzulaColors
 import dev.azula.theme.AzulaShapes
 import dev.azula.theme.Fonts
 import dev.azula.theme.azulaGlowHalo
+import dev.azula.ui.host.HostHomeCard
 
 @Composable
 fun MobileApp(state: AzulaState) {
@@ -46,6 +47,10 @@ fun MobileApp(state: AzulaState) {
     // first -- it should cancel the share, not dismiss whatever else is open
     // underneath it. Registered above (so it wins over) the other handlers below.
     PlatformBackHandler(enabled = state.pendingShare != null) { state.cancelShare() }
+    // The host-compute screens sit inside Settings: back leaves them for Settings first.
+    PlatformBackHandler(
+        enabled = state.pendingShare == null && state.mScreen == MScreen.SETTINGS && state.hostSetup.open,
+    ) { state.hostSetup.open = false }
     // The fullscreen media viewer, when open, owns the system back gesture --
     // it should dismiss the overlay and return to chat rather than navigate the
     // mobile nav underneath it. Registered above (so it wins over) the nav
@@ -130,6 +135,7 @@ private fun MobileHome(state: AzulaState) {
             }
             YourCodeBox(state)
             Spacer(Modifier.height(9.dp))
+            HostHomeCard(state) { state.openHostMobile() }
             Box(
                 Modifier.fillMaxWidth().azulaGlowHalo()
                     .clickable { state.openConnectMobile() }

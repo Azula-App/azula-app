@@ -80,6 +80,10 @@ fun rememberAzulaState(): AzulaState {
                     ?: error("transport cannot derive the root public key from its root secret")
             },
             ed25519 = ed25519,
+            // No on-phone VM host off Android: the host-compute entry stays hidden.
+            vmHost = null,
+            vmPermissionGranter = null,
+            hostPlatform = null,
         ).azulaState
     }
 }

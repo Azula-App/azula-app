@@ -4,6 +4,7 @@ import dev.azula.core.AppScope
 import dev.azula.core.Ed25519
 import dev.azula.net.IrohTransport
 import dev.azula.net.PeerStore
+import dev.azula.host.HostPlatform
 import dev.azula.notify.Notifier
 import dev.azula.persist.BlobStore
 import dev.azula.persist.InvitationsStore
@@ -11,7 +12,9 @@ import dev.azula.persist.MediaExporter
 import dev.azula.persist.MessageStore
 import dev.azula.persist.ProfileStore
 import dev.azula.persist.SettingsStore
+import dev.azula.selfgrant.VmPermissionGranter
 import dev.azula.state.AzulaState
+import dev.azula.vmhost.VmHost
 import dev.azula.sync.EventLogStore
 import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
@@ -56,6 +59,12 @@ interface AppGraph {
             // known.
             @Provides eventLogStore: EventLogStore?,
             @Provides ed25519: Ed25519?,
+            // compute-android-app-host 3.6: hosting compute on this phone. All three are
+            // null everywhere but Android's real app and the `-mock` apps (JVM and iOS pass
+            // null), and a null here keeps the Settings entry and the Home card hidden.
+            @Provides vmHost: VmHost?,
+            @Provides vmPermissionGranter: VmPermissionGranter?,
+            @Provides hostPlatform: HostPlatform?,
         ): AppGraph
     }
 }

@@ -54,6 +54,8 @@ internal class ImageProvisioner(
     private val archiveName: String = ImageSource.ARCHIVE,
     private val sleep: (Long) -> Unit = { Thread.sleep(it) },
     private val log: (String) -> Unit = {},
+    /** The user's disk size from S1's "advanced" panel, if any. */
+    private val diskGbOverride: () -> Int? = { null },
 ) {
     fun interface Listener { fun onProgress(step: ProvisionStep, done: Long, total: Long) }
 
@@ -93,7 +95,7 @@ internal class ImageProvisioner(
         dir.mkdirs()
         var st = load()
         if (st.imageReady) return
-        if (st.diskGb == 0) st = st.copy(diskGb = diskSizeGb(freeBytes() + footprintBytes())).also(::save)
+        if (st.diskGb == 0) st = st.copy(diskGb = diskGbOverride() ?: diskSizeGb(freeBytes() + footprintBytes())).also(::save)
         while (!st.imageReady) {
             checkCancelled()
             val began = System.nanoTime()

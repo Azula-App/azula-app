@@ -1,0 +1,13 @@
+# ftl-stub — the `--app` Test Lab wants: an app with no code. It exists only to be the
+# instrumented package, because `pm grant` changes the gids of the package it grants to
+# and Android then kills that whole process tree. The grants go to vmhost-testapp
+# (app.azula.vmhost.test) instead, so this package and its instrumentation survive them.
+# See ../README.md. Not shipped.
+product: android/app
+
+settings:
+  android:
+    minSdk: 34
+    targetSdk: 36
+    applicationId: app.azula.vmhost.ftl.stub
+    namespace: app.azula.vmhost.ftl.stub

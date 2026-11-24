@@ -35,3 +35,6 @@ xcuserdata/
 android-app/assets/seed.iso
 vmhost-testapp/assets/seed.iso
 .vmhost-cache/
+
+# Test Lab harness build outputs (vmhost-ftl/build.sh)
+vmhost-ftl/out/

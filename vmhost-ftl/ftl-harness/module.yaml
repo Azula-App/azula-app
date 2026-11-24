@@ -1,0 +1,20 @@
+# ftl-harness — the Test Lab instrumentation (the `--test` APK) for the on-phone VM host.
+# Kotlin Toolchain 0.14.1 has no instrumentation-test product. A test APK is only an APK whose
+# manifest has an <instrumentation> element and which is signed like the package it targets,
+# so this is an android/app (as vmhost-testapp is). ../README.md says what it does.
+# Not shipped. ../deps.sha256 pins the bytes of these dependencies.
+product: android/app
+
+dependencies:
+  - androidx.test:runner:1.7.0
+  - androidx.test:monitor:1.8.0
+  - androidx.test.uiautomator:uiautomator:2.4.1
+  - junit:junit:4.13.2
+
+settings:
+  junit: junit-4
+  android:
+    minSdk: 34
+    targetSdk: 36
+    applicationId: app.azula.vmhost.ftl.harness
+    namespace: app.azula.vmhost.ftl.harness

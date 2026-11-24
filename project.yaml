@@ -27,5 +27,7 @@ modules:
   - ui-common
   - vmhost-api
   - vmhost-avf-stubs
+  - vmhost-ftl/ftl-harness
+  - vmhost-ftl/ftl-stub
   - vmhost-real
   - vmhost-testapp

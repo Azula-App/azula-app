@@ -25,7 +25,9 @@ import java.io.File
  * Harness: Set up, Start, Stop and Mint buttons and a status line. Mint writes the token
  * JSON to filesDir/token.json (0600) so a test run can fetch it with `run-as`;
  * delete that file afterwards. Intent extras `--es cmd provision|start|stop|mint|revoke`
- * let adb drive it without taps.
+ * let adb drive it without taps. The status line and the buttons carry the content
+ * descriptions `vmhost-status`, `vmhost-setup`, `vmhost-start`, `vmhost-stop` and
+ * `vmhost-mint`: vmhost-ftl finds them by those, so keep them stable.
  */
 class MainActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -44,18 +46,19 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(p, p * 2, p, p)
         }
-        status = TextView(this)
-        fun button(label: String, onClick: () -> Unit) = Button(this).apply {
+        status = TextView(this).apply { contentDescription = "vmhost-status" }
+        fun button(label: String, id: String, onClick: () -> Unit) = Button(this).apply {
             text = label
+            contentDescription = id
             setOnClickListener { onClick() }
             root.addView(this)
         }
         root.addView(status)
-        button("Set up") { host.provision() }
-        button("Start") { host.start() }
-        button("Stop") { host.stop() }
-        button("Mint grant") { mint() }
-        setContentView(ScrollView(this).apply { addView(root) })
+        button("Set up", "vmhost-setup") { host.provision() }
+        button("Start", "vmhost-start") { host.start() }
+        button("Stop", "vmhost-stop") { host.stop() }
+        button("Mint grant", "vmhost-mint") { mint() }
+        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(root) })
 
         host.state.onEach { last = it; render() }.launchIn(scope)
         scope.launch { capability = describe(host.checkCapability()); render() }

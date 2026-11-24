@@ -58,8 +58,8 @@ class HostService : Service() {
     private var startedAt = 0L
     private var runningSince = 0L
     private var loginSeen = false
-    /** First boot only: the seed's tool install has finished (or its deadline passed). */
-    private var toolsSeen = false
+    /** Whether this boot's tools are in yet, as the guest tells it. */
+    private var toolsWait = ToolsWait(needed = false)
     /** Bumped on every start, so a deadline timer from an earlier boot can't act on this one. */
     @Volatile private var bootGen = 0
     private var plan: HostPlan? = null
@@ -72,6 +72,15 @@ class HostService : Service() {
     /** True until the VM has booted once: phases then read PROVISIONING/FIRST_BOOT instead of PREPARING/BOOTING. */
     @Volatile private var firstBoot = false
     private lateinit var provisioner: ImageProvisioner
+    /** Identifies the seed this app ships: the tools the guest reports in are believed only for this one. */
+    private val seedId: String by lazy {
+        val d = java.security.MessageDigest.getInstance("SHA-256")
+        assets.open("seed.iso").use { inp ->
+            val buf = ByteArray(64 * 1024)
+            while (true) { val n = inp.read(buf); if (n < 0) break; d.update(buf, 0, n) }
+        }
+        Sha512Sums.hex(d.digest())
+    }
     private var lastProgressPublish = 0L
     private var lastProgressStep: ProvisionStep? = null
 
@@ -106,7 +115,7 @@ class HostService : Service() {
             // The system restarted a sticky service after killing the process (the permission grant
             // does that: it changes the app's gids). Only unfinished setup carries on by itself;
             // a host that was running is never revived behind the user's back.
-            if (provisioner.load().let { it.imageReady && it.firstBootDone }) {
+            if (provisioner.load().doneFor(seedId)) {
                 HostLog.to("host", "restarted by the system with setup complete; staying stopped")
                 stopSelf()
                 return START_NOT_STICKY
@@ -134,7 +143,7 @@ class HostService : Service() {
             else -> beginProvisionOrStart()
         }
         // Sticky while setup is unfinished, so a kill (the permission grant) resumes it.
-        return if (provisioner.load().let { it.imageReady && it.firstBootDone }) START_NOT_STICKY else START_STICKY
+        return if (provisioner.load().doneFor(seedId)) START_NOT_STICKY else START_STICKY
     }
 
     override fun onDestroy() {
@@ -240,7 +249,7 @@ class HostService : Service() {
         active = true
         stopping = false
         loginSeen = false
-        toolsSeen = false
+        toolsWait = ToolsWait(needed = firstBoot)
         bootGen++
         brokerUp = false
         if (!isRestart) { restarts = 0; startedAt = System.currentTimeMillis() }
@@ -325,16 +334,17 @@ class HostService : Service() {
     }
 
     /**
-     * RUNNING needs the guest booted (getty's prompt) and the broker serving. On the first boot
-     * it also waits for the seed's tool install (design D9: "first boot · installing tools", then
-     * Ready), so a cloud session connected at Ready finds git and a free dpkg lock.
+     * RUNNING needs the guest booted (getty's prompt) and the broker serving. Until the guest's
+     * tools have been seen in with this seed, it also needs the guest to report them in (design
+     * D9: "first boot · installing tools", then Ready), so a cloud session connected at Ready
+     * finds git and a free dpkg lock. Only the guest's rc=0 counts (see [ToolsWait]).
      */
     private fun markRunningIfReady() {
-        if (active && !stopping && loginSeen && brokerUp && (!firstBoot || toolsSeen) && store.read().phase != HostPhase.RUNNING) {
+        if (active && !stopping && loginSeen && brokerUp && toolsWait.verdict == ToolsWait.Verdict.DONE && store.read().phase != HostPhase.RUNNING) {
             runningSince = System.currentTimeMillis()
             if (firstBoot) {
                 firstBoot = false
-                runCatching { provisioner.markFirstBootDone() }
+                runCatching { provisioner.markFirstBootDone(seedId) }
                 HostLog.to("provision", "first boot reached RUNNING (+${elapsed()}s since the boot began)")
             }
             publish(HostPhase.RUNNING, "")
@@ -355,7 +365,7 @@ class HostService : Service() {
     /** START and PROVISION: finish setup if the image or the first boot is outstanding, else just boot. */
     private fun beginProvisionOrStart() {
         val st = provisioner.load()
-        if (st.imageReady && st.firstBootDone) {
+        if (st.doneFor(seedId)) {
             firstBoot = false
             ops.execute { startAll(isRestart = false) }
             return
@@ -446,13 +456,13 @@ class HostService : Service() {
     }
 
     private fun captureConsole(v: VirtualMachine) {
-        // Read on ops (startAll's thread), so the flag matches the boot this reader belongs to.
-        val watchTools = firstBoot
+        // Read on ops (startAll's thread), so these match the boot this reader belongs to.
+        val watchTools = toolsWait.verdict == ToolsWait.Verdict.WAITING
         val gen = bootGen
         Thread({
             val logs = File(filesDir, "logs").also { it.mkdirs() }
             var login = false
-            var tools = !watchTools
+            var tools: ConsoleMarks.Tools? = null
             var tail = ""
             try {
                 v.consoleOutput.use { inp ->
@@ -463,18 +473,18 @@ class HostService : Service() {
                             if (r < 0) break
                             out.write(buf, 0, r)
                             out.flush()
-                            if (login && tools) continue
+                            val watching = watchTools && tools != ConsoleMarks.Tools.Done
+                            if (login && !watching) continue
                             tail = ConsoleMarks.appendTail(tail, String(buf, 0, r, Charsets.ISO_8859_1))
                             if (!login && ConsoleMarks.loginPrompt(tail)) {
                                 login = true
                                 HostLog.to("host", "LOGIN prompt seen +${elapsed()}s since START")
                                 ops.execute { loginSeen = true; markRunningIfReady() }
-                                if (!tools) startToolsDeadline(gen)
+                                if (watching) startToolsDeadline(gen)
                             }
-                            if (!tools) ConsoleMarks.toolsRc(tail)?.let { rc ->
-                                tools = true
-                                HostLog.to("provision", "first boot: tools install finished rc=$rc (+${elapsed()}s since START)")
-                                ops.execute { if (bootGen == gen) { toolsSeen = true; markRunningIfReady() } }
+                            if (watching) ConsoleMarks.tools(tail)?.takeIf { it != tools }?.let { t ->
+                                tools = t
+                                ops.execute { if (bootGen == gen) onTools(t) }
                             }
                         }
                     }
@@ -486,18 +496,35 @@ class HostService : Service() {
         }, "vmhost-console").apply { isDaemon = true; start() }
     }
 
+    /** What the guest just said about its tools. Runs on ops. */
+    private fun onTools(t: ConsoleMarks.Tools) {
+        val changed = toolsWait.on(t)
+        when {
+            t is ConsoleMarks.Tools.Done -> {
+                HostLog.to("provision", "first boot: tools are in (+${elapsed()}s since START)")
+                markRunningIfReady()
+            }
+            changed && t is ConsoleMarks.Tools.Failed -> {
+                HostLog.to("provision", "first boot: tools install failed rc=${t.rc} at guest uptime ${t.uptime}; the guest tries again")
+                // Still setting up: the guest retries by itself, so say so and keep waiting.
+                publish(HostPhase.BOOTING, "installing tools · no luck yet, trying again")
+            }
+        }
+    }
+
     /**
-     * A backstop for the first boot's tool install: if the seed never reports (an older seed, or
-     * cloud-init stopped early), go RUNNING anyway rather than sit in setup forever.
+     * The first boot's tools wait, with a bound: the guest retries by itself, but a phone with no
+     * network would keep it waiting for ever. Past the deadline this stops with an error a retry
+     * fixes (it boots the VM again, and the guest tries again). It never calls the VM Ready.
      */
     private fun startToolsDeadline(gen: Int) {
         Thread({
             try { Thread.sleep(TOOLS_DEADLINE_MS) } catch (_: InterruptedException) { return@Thread }
             ops.execute {
-                if (bootGen == gen && active && !toolsSeen) {
-                    HostLog.to("provision", "first boot: no tools line after ${TOOLS_DEADLINE_MS / 60_000} min; going RUNNING anyway")
-                    toolsSeen = true
-                    markRunningIfReady()
+                if (bootGen == gen && active && toolsWait.onDeadline()) {
+                    val why = toolsWait.failure?.let { " (last attempt rc=${it.rc})" } ?: " (no word from the guest)"
+                    HostLog.to("provision", "first boot: tools not in after ${TOOLS_DEADLINE_MS / 60_000} min$why")
+                    failAndStop("couldn't install the tools · check the network, then retry")
                 }
             }
         }, "vmhost-tools-deadline").apply { isDaemon = true; start() }

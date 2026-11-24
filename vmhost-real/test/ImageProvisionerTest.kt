@@ -179,6 +179,43 @@ class ImageProvisionerTest {
         assertEquals(1, gets().size)
     }
 
+    /** Setup is only over for the seed whose tools the guest reported in. */
+    @Test fun toolsAreBelievedForTheSeedTheyWereSeenWithOnly() {
+        val d = dir()
+        val p = provisioner(d)
+        p.run()
+        assertTrue(p.load().imageReady)
+        assertFalse(p.load().doneFor("seed-a"), "booted but the guest hasn't said its tools are in")
+        p.markFirstBootDone("seed-a")
+        assertTrue(p.load().doneFor("seed-a"))
+        assertFalse(p.load().doneFor("seed-b"), "an app update ships another seed: check again")
+        assertFalse(p.load().doneFor(""), "no id is never done")
+    }
+
+    @Test fun aFirstBootMarkedByAnOlderVersionIsNotBelieved() {
+        val d = dir()
+        provisioner(d).run()
+        // What a build that reported Ready after a failed install left behind: no toolsSeedId.
+        File(d, "provision.json").writeText(
+            """{"step":"PREPARING_DISK","archiveBytes":1,"sha512":"","validator":"","diskGb":5,"imageReady":true,"firstBootDone":true,"corruptDownloads":0}""",
+        )
+        val st = provisioner(d).load()
+        assertTrue(st.imageReady && st.firstBootDone)
+        assertFalse(st.doneFor("seed-a"), "its tools were never verified")
+        // Seeing the tools in once is what it takes.
+        provisioner(d).markFirstBootDone("seed-a")
+        assertTrue(provisioner(d).load().doneFor("seed-a"))
+    }
+
+    @Test fun aDiskWithoutAStateFileIsNotAVerifiedGuest() {
+        val d = dir()
+        provisioner(d).run()
+        File(d, "provision.json").delete()
+        val st = provisioner(d).load()
+        assertTrue(st.imageReady, "the disk is kept")
+        assertFalse(st.doneFor("seed-a"), "but nothing says its tools are in")
+    }
+
     @Test fun aDroppedConnectionResumesFromThePartOffsetNotZero() {
         val d = dir(); val run = Run()
         cutAfter = { n -> if (n == 1) 100_000 else -1 }
@@ -400,14 +437,14 @@ class ImageProvisionerTest {
     }
 
     @Test fun theStateFileIsUnchangedByStreaming() {
-        // Nothing about the unpack alongside is persisted, so either version reads the other's state.
+        // Nothing about the unpack alongside is persisted, and unknown keys are ignored, so either version reads the other's state.
         val d = dir()
         cutAfter = { 0 }
         assertFailsWith<ProvisionFailure> { provisioner(d).run() }
         val st = provisioner(d).load()
         assertEquals(ProvisionState(archiveBytes = archive.size.toLong(), sha512 = sums.substring(0, 128), validator = st.validator, diskGb = 5), st)
         assertEquals(
-            setOf("step", "archiveBytes", "sha512", "validator", "diskGb", "imageReady", "firstBootDone", "corruptDownloads"),
+            setOf("step", "archiveBytes", "sha512", "validator", "diskGb", "imageReady", "firstBootDone", "toolsSeedId", "corruptDownloads"),
             Regex("\"(\\w+)\":").findAll(File(d, "provision.json").readText()).map { it.groupValues[1] }.toSet(),
         )
     }

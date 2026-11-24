@@ -23,10 +23,15 @@ internal data class ProvisionState(
     val diskGb: Int = 0,
     /** `disk.raw` is unpacked, grown and the seed is staged. */
     val imageReady: Boolean = false,
-    /** The VM booted at least once to the login prompt with its broker serving. */
+    /** The VM booted at least once to the login prompt with its broker serving. On its own this doesn't mean the tools are in: see [toolsSeedId]. */
     val firstBootDone: Boolean = false,
+    /** The seed (its SHA-256) the guest's tools were seen installed with. Empty in state from before tools were verified, so nothing it says is believed. */
+    val toolsSeedId: String = "",
     val corruptDownloads: Int = 0,
-)
+) {
+    /** Setup is over for the seed [seedId]: the image is ready, and the guest reported its tools in under this very seed. */
+    fun doneFor(seedId: String): Boolean = imageReady && firstBootDone && toolsSeedId.isNotEmpty() && toolsSeedId == seedId
+}
 
 /** Setup stopped for a reason the user can act on; [retryable] says whether [VmHost.provision] again can fix it. */
 internal class ProvisionFailure(message: String, val retryable: Boolean = true) : IOException(message)
@@ -98,7 +103,8 @@ internal class ImageProvisioner(
 
     fun needsImage(): Boolean = !load().imageReady
 
-    fun markFirstBootDone() { save(load().copy(firstBootDone = true)) }
+    /** The VM is up and the guest reported its tools in, from the seed [seedId]. */
+    fun markFirstBootDone(seedId: String) { save(load().copy(firstBootDone = true, toolsSeedId = seedId)) }
 
     /** Runs every remaining step. Returns when `disk.raw` is ready; throws [ProvisionFailure] or [CancelledException]. */
     fun run() {

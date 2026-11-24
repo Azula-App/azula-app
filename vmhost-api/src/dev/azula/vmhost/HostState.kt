@@ -46,7 +46,7 @@ enum class ProvisionStep {
     /** Growing the disk and staging the seed. */
     PREPARING_DISK,
 
-    /** The VM's first boot, which installs the guest tools (about 4 minutes). Waits for the two VM permissions first. */
+    /** The VM's first boot, which installs the guest tools (about 2 minutes). Waits for the two VM permissions first. */
     FIRST_BOOT,
 }
 

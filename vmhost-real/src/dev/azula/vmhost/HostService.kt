@@ -58,6 +58,10 @@ class HostService : Service() {
     private var startedAt = 0L
     private var runningSince = 0L
     private var loginSeen = false
+    /** First boot only: the seed's tool install has finished (or its deadline passed). */
+    private var toolsSeen = false
+    /** Bumped on every start, so a deadline timer from an earlier boot can't act on this one. */
+    @Volatile private var bootGen = 0
     private var plan: HostPlan? = null
 
     // Setup (image download etc.) runs on its own thread so STOP and IPC stay responsive.
@@ -157,7 +161,7 @@ class HostService : Service() {
             bytesDone = done,
             bytesTotal = total,
             retryable = retryable,
-            detail = if (first && detail.isEmpty()) "installing tools · about 4 min" else detail,
+            detail = if (first && detail.isEmpty()) "installing tools · about 2 min" else detail,
             startedAtMs = if (phase == HostPhase.STOPPED) 0 else startedAt,
             updatedAtMs = now,
             restarts = restarts,
@@ -235,6 +239,8 @@ class HostService : Service() {
         active = true
         stopping = false
         loginSeen = false
+        toolsSeen = false
+        bootGen++
         brokerUp = false
         if (!isRestart) { restarts = 0; startedAt = System.currentTimeMillis() }
         try {
@@ -317,8 +323,13 @@ class HostService : Service() {
         }, "vmhost-broker").apply { isDaemon = true; start() }
     }
 
+    /**
+     * RUNNING needs the guest booted (getty's prompt) and the broker serving. On the first boot
+     * it also waits for the seed's tool install (design D9: "first boot · installing tools", then
+     * Ready), so a cloud session connected at Ready finds git and a free dpkg lock.
+     */
     private fun markRunningIfReady() {
-        if (active && !stopping && loginSeen && brokerUp && store.read().phase != HostPhase.RUNNING) {
+        if (active && !stopping && loginSeen && brokerUp && (!firstBoot || toolsSeen) && store.read().phase != HostPhase.RUNNING) {
             runningSince = System.currentTimeMillis()
             if (firstBoot) {
                 firstBoot = false
@@ -434,9 +445,13 @@ class HostService : Service() {
     }
 
     private fun captureConsole(v: VirtualMachine) {
+        // Read on ops (startAll's thread), so the flag matches the boot this reader belongs to.
+        val watchTools = firstBoot
+        val gen = bootGen
         Thread({
             val logs = File(filesDir, "logs").also { it.mkdirs() }
-            var seen = false
+            var login = false
+            var tools = !watchTools
             var tail = ""
             try {
                 v.consoleOutput.use { inp ->
@@ -447,13 +462,18 @@ class HostService : Service() {
                             if (r < 0) break
                             out.write(buf, 0, r)
                             out.flush()
-                            if (!seen) {
-                                tail = (tail + String(buf, 0, r, Charsets.ISO_8859_1)).takeLast(256)
-                                if ("login:" in tail) {
-                                    seen = true
-                                    HostLog.to("host", "LOGIN prompt seen +${elapsed()}s since START")
-                                    ops.execute { loginSeen = true; markRunningIfReady() }
-                                }
+                            if (login && tools) continue
+                            tail = ConsoleMarks.appendTail(tail, String(buf, 0, r, Charsets.ISO_8859_1))
+                            if (!login && ConsoleMarks.loginPrompt(tail)) {
+                                login = true
+                                HostLog.to("host", "LOGIN prompt seen +${elapsed()}s since START")
+                                ops.execute { loginSeen = true; markRunningIfReady() }
+                                if (!tools) startToolsDeadline(gen)
+                            }
+                            if (!tools) ConsoleMarks.toolsRc(tail)?.let { rc ->
+                                tools = true
+                                HostLog.to("provision", "first boot: tools install finished rc=$rc (+${elapsed()}s since START)")
+                                ops.execute { if (bootGen == gen) { toolsSeen = true; markRunningIfReady() } }
                             }
                         }
                     }
@@ -463,6 +483,23 @@ class HostService : Service() {
             }
             HostLog.to("host", "console stream closed")
         }, "vmhost-console").apply { isDaemon = true; start() }
+    }
+
+    /**
+     * A backstop for the first boot's tool install: if the seed never reports (an older seed, or
+     * cloud-init stopped early), go RUNNING anyway rather than sit in setup forever.
+     */
+    private fun startToolsDeadline(gen: Int) {
+        Thread({
+            try { Thread.sleep(TOOLS_DEADLINE_MS) } catch (_: InterruptedException) { return@Thread }
+            ops.execute {
+                if (bootGen == gen && active && !toolsSeen) {
+                    HostLog.to("provision", "first boot: no tools line after ${TOOLS_DEADLINE_MS / 60_000} min; going RUNNING anyway")
+                    toolsSeen = true
+                    markRunningIfReady()
+                }
+            }
+        }, "vmhost-tools-deadline").apply { isDaemon = true; start() }
     }
 
     private fun callback(v: VirtualMachine) = object : VirtualMachineCallback {
@@ -560,6 +597,7 @@ class HostService : Service() {
         /** Distinct from SelfGrantNotifier's 7311/7312 (selfgrant-real), which run beside this during setup. */
         private const val NOTIFICATION_ID = 7301
         private const val MAX_AUTO_RESTARTS = 1
+        private const val TOOLS_DEADLINE_MS = 15 * 60_000L
         /** A run this long counts as stable: the restart budget resets. */
         private const val STABLE_MS = 5 * 60_000L
 

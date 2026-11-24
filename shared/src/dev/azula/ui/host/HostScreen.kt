@@ -315,7 +315,7 @@ internal fun ProvisionCard(svc: HostSetupService) {
         HostLine(st(0), "downloading debian · 0.4 GB", "host-step-download", detail = if (idx == 0) downloadDetail(h) else null)
         HostLine(st(1), "preparing disk", "host-step-disk", detail = if (idx == 1) diskDetail(h) else null)
         HostLine(
-            st(2), "first boot · installing tools (about 4 min)", "host-step-boot",
+            st(2), "first boot · installing tools (about 2 min)", "host-step-boot",
             detail = if (idx == 2 && !failed) bootDetail(h) else null,
         )
         if (failed) FailureBlock(svc)

@@ -7,7 +7,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** A network failure worth retrying (the `.part` file is kept). */
-internal class NetworkException(message: String, cause: Throwable? = null) : IOException(message, cause)
+internal open class NetworkException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** The server's copy of the archive isn't the one this download started on: its bytes, size and checksum are stale. */
+internal class ImageChangedException(message: String) : NetworkException(message)
 
 internal class CancelledException : RuntimeException("cancelled")
 
@@ -95,14 +98,15 @@ internal class ImageDownloader(private val http: HttpFetch = HttpFetch()) {
             when (r.code) {
                 206 -> {
                     val cr = Resume.parseContentRange(r.header("Content-Range"))
-                    if (cr == null || cr.first != offset || cr.third != info.bytes) {
+                    if (cr != null && cr.third != info.bytes) throw ImageChangedException("the image changed on the server")
+                    if (cr == null || cr.first != offset) {
                         throw NetworkException("the server answered a different range than asked for")
                     }
                 }
                 200 -> {
                     // The server ignored the range (or the file changed): start over.
                     offset = 0
-                    if (r.contentLength != info.bytes) throw NetworkException("the image changed on the server")
+                    if (r.contentLength != info.bytes) throw ImageChangedException("the image changed on the server")
                 }
                 else -> throw NetworkException("the image server answered ${r.code}")
             }

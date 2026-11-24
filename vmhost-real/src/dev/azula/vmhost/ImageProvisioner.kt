@@ -158,6 +158,18 @@ internal class ImageProvisioner(
                 log("download resumed from byte $from of ${st.archiveBytes}")
                 if (!part.renameTo(archive)) throw IOException("rename failed for $archiveName")
                 return st.copy(step = ProvisionStep.VERIFYING).also(::save)
+            } catch (e: ImageChangedException) {
+                // Debian replaced `latest` since the size, checksum and bytes on disk were taken down.
+                // Keeping them would fail every retry the same way, so start over on the new one.
+                log("${e.message}; starting over")
+                stopStreaming()
+                part.delete(); diskPart.delete()
+                st = st.copy(archiveBytes = 0, sha512 = "", validator = "").also(::save)
+                failures++
+                if (failures >= Backoff.MAX_FAILURES) {
+                    throw ProvisionFailure("the image keeps changing on the server · retry", retryable = true)
+                }
+                sleepCancellable(Backoff.delayMs(failures))
             } catch (e: NetworkException) {
                 // Three failures in a row without moving the .part forward end the attempt.
                 if ((if (part.exists()) part.length() else 0L) > have) failures = 0

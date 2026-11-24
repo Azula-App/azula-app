@@ -40,9 +40,9 @@ class ImageProvisionerTest {
     @Volatile private var archive: ByteArray = archiveWith(LZMA2Options(1))
     private val sums get() = "${Sha512Sums.hex(Sha512Sums.newDigest().digest(archive))}  $name\n"
 
-    private fun archiveWith(options: LZMA2Options): ByteArray {
+    private fun archiveWith(options: LZMA2Options, readme: String = "hi"): ByteArray {
         val tar = ByteArrayOutputStream()
-        TarFixtures.file(tar, "README", "hi".toByteArray())
+        TarFixtures.file(tar, "README", readme.toByteArray())
         TarFixtures.sparse(tar, "disk.raw", 1_000_000, listOf(0L to seg1, 700_000L to seg2))
         TarFixtures.end(tar)
         val out = ByteArrayOutputStream()
@@ -430,6 +430,53 @@ class ImageProvisionerTest {
         assertEquals(3, g.size) // cut, resumed (now corrupt), then a clean full download
         assertEquals("bytes=100000-", g[1].range)
         assertEquals(null, g[2].range)
+        assertDiskIsTheImage(d)
+    }
+
+    /** `latest` is replaced while it downloads: same disk, a different archive. */
+    private fun replaceTheImageOnAttempt(n: Int) {
+        val replacement = archiveWith(LZMA2Options(1), readme = "a newer image than the one first seen")
+        assertTrue(replacement.size != archive.size)
+        beforeAnswer = { i -> if (i == n) archive = replacement }
+    }
+
+    @Test fun anImageReplacedMidDownloadStartsOverOnTheNewOne() {
+        val d = dir(); val run = Run()
+        cutAfter = { n -> if (n == 1) 100_000 else -1 }
+        replaceTheImageOnAttempt(2)
+        provisioner(d, run).run()
+        assertTrue(run.logged("the image changed on the server; starting over"), run.log.toString())
+        assertEquals(listOf(null, "bytes=100000-", null), gets().map { it.range })
+        assertDiskIsTheImage(d)
+        assertFalse(File(d, "disk.raw.part").exists())
+        assertNoUnpackThread()
+    }
+
+    @Test fun anImageReplacedUnderAServerThatIgnoresRangesStartsOverToo() {
+        val d = dir(); val run = Run()
+        ignoreRange = true
+        cutAfter = { n -> if (n == 1) 100_000 else -1 }
+        replaceTheImageOnAttempt(2)
+        provisioner(d, run).run()
+        assertTrue(run.logged("the image changed on the server; starting over"), run.log.toString())
+        assertDiskIsTheImage(d)
+    }
+
+    @Test fun aHalfFinishedDownloadOfAReplacedImageDoesNotStayStuck() {
+        val d = dir()
+        cutAfter = { n -> if (n == 1) 100_000 else -1 }
+        // A first process leaves a .part and its size behind, then the server replaces the image.
+        var seen = 0L
+        val first = ImageProvisioner(
+            dir = d, freeBytes = { 20 * gib }, stageSeed = {}, listener = { s, done, _ -> if (s == ProvisionStep.DOWNLOADING) seen = done },
+            cancelled = { seen >= 90_000 }, downloader = ImageDownloader(HttpFetch(false)), http = HttpFetch(false),
+            baseUrl = base, archiveName = name, sleep = {},
+        )
+        assertFailsWith<CancelledException> { first.run() }
+        archive = archiveWith(LZMA2Options(1), readme = "a newer image than the one first seen")
+        val run = Run()
+        provisioner(d, run).run()
+        assertTrue(run.logged("the image changed on the server; starting over"), run.log.toString())
         assertDiskIsTheImage(d)
     }
 

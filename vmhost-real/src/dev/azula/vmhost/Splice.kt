@@ -13,6 +13,9 @@ import java.net.Socket
 
 /** Bidirectional byte pump with half-close propagation. */
 internal object Splice {
+    /** Per direction. A guest body moves through here in reads of at most this much. */
+    const val BUFFER_BYTES = 64 * 1024
+
     interface Endpoint {
         fun input(): InputStream
         fun output(): OutputStream
@@ -58,7 +61,7 @@ internal object Splice {
     /** Copies src to dst until EOF; propagates half-close; on I/O error tears both ends down. */
     private fun pump(src: Endpoint, dst: Endpoint): Long {
         var total = 0L
-        val buf = ByteArray(16 * 1024)
+        val buf = ByteArray(BUFFER_BYTES)
         try {
             val inp = src.input()
             val out = dst.output()
@@ -66,8 +69,8 @@ internal object Splice {
                 val r = inp.read(buf)
                 if (r < 0) break
                 if (r == 0) continue
+                // These streams write straight through, so there is nothing to flush.
                 out.write(buf, 0, r)
-                out.flush()
                 total += r
             }
             dst.shutdownWrite()

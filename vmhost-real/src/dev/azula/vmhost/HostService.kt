@@ -91,6 +91,7 @@ class HostService : Service() {
             cancelled = { provisionCancel.get() },
             log = { HostLog.to("provision", it) },
             diskGbOverride = { PlanOverrideFile.read(stateDir(this)).diskGb },
+            allocatedBytes = { f -> runCatching { android.system.Os.stat(f.path).st_blocks * 512 }.getOrDefault(0L) },
         )
         HiddenApi.enable()
         // A previous :vmhost process may have died with a live state on disk.

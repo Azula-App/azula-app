@@ -2,12 +2,11 @@ package dev.azula.vmhost
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.tukaani.xz.XZInputStream
-import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.RandomAccessFile
 
 /** Persisted setup progress (`<vm dir>/provision.json`): everything needed to resume a step after process death. */
@@ -36,11 +35,16 @@ internal class ProvisionFailure(message: String, val retryable: Boolean = true) 
  * The image pipeline (design D9 S3, steps 1-2): download `debian-13-generic-arm64.tar.xz`
  * (resumable), verify its SHA-512 against `SHA512SUMS`, unpack `disk.raw`, grow it, stage
  * the seed. Every step is idempotent and persists before it ends, so [run] picks up where a
- * killed process left off: the `.part` keeps its bytes, and an interrupted unpack restarts
- * from the verified archive (xz can't seek).
+ * killed process left off: the `.part` keeps its bytes.
  *
- * Pure `java.io` + `java.net` so it runs in JVM tests; Android supplies [freeBytes] and
- * [stageSeed].
+ * The unpack runs while the download does ([StreamingUnpack]), so EXTRACTING usually only
+ * waits for its last bytes. Its disk counts only once EXTRACTING is reached, with the archive
+ * verified, and only if the bytes it read had that same checksum. In every other case (a
+ * process killed on the way, a failed or mismatched unpack) the disk is unpacked from the
+ * front again: from the `.part` as far as it goes, or from the verified archive. xz can't seek.
+ *
+ * Pure `java.io` + `java.net` so it runs in JVM tests; Android supplies [freeBytes],
+ * [allocatedBytes] and [stageSeed].
  */
 internal class ImageProvisioner(
     private val dir: File,
@@ -56,6 +60,9 @@ internal class ImageProvisioner(
     private val log: (String) -> Unit = {},
     /** The user's disk size from S1's "advanced" panel, if any. */
     private val diskGbOverride: () -> Int? = { null },
+    /** The storage a sparse file takes up; its length would count the holes. */
+    private val allocatedBytes: (File) -> Long = { 0 },
+    private val xz: Xz = Xz(),
 ) {
     fun interface Listener { fun onProgress(step: ProvisionStep, done: Long, total: Long) }
 
@@ -66,8 +73,11 @@ internal class ImageProvisioner(
     private val diskPart = File(dir, "${ImageSource.DISK_ENTRY}.part")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    /** The unpack running alongside the download, if any. Only [run]'s thread touches it. */
+    private var streaming: StreamingUnpack? = null
+
     /** Bytes of earlier attempts still on disk; they don't count against the free-space need. */
-    fun footprintBytes(): Long = listOf(part, archive).filter { it.exists() }.sumOf { it.length() }
+    fun footprintBytes(): Long = listOf(part, archive).filter { it.exists() }.sumOf { it.length() } + allocatedBytes(diskPart)
 
     @Synchronized fun load(): ProvisionState {
         if (stateFile.exists()) {
@@ -96,18 +106,22 @@ internal class ImageProvisioner(
         var st = load()
         if (st.imageReady) return
         if (st.diskGb == 0) st = st.copy(diskGb = diskGbOverride() ?: diskSizeGb(freeBytes() + footprintBytes())).also(::save)
-        while (!st.imageReady) {
-            checkCancelled()
-            val began = System.nanoTime()
-            val step = st.step
-            st = when (step) {
-                ProvisionStep.DOWNLOADING -> download(st)
-                ProvisionStep.VERIFYING -> verify(st)
-                ProvisionStep.EXTRACTING -> extract(st)
-                else -> prepareDisk(st)
+        try {
+            while (!st.imageReady) {
+                checkCancelled()
+                val began = System.nanoTime()
+                val step = st.step
+                st = when (step) {
+                    ProvisionStep.DOWNLOADING -> download(st)
+                    ProvisionStep.VERIFYING -> verify(st)
+                    ProvisionStep.EXTRACTING -> extract(st)
+                    else -> prepareDisk(st)
+                }
+                val secs = (System.nanoTime() - began) / 1e9
+                log("step $step took ${"%.1f".format(secs)} s -> ${st.step}")
             }
-            val secs = (System.nanoTime() - began) / 1e9
-            log("step $step took ${"%.1f".format(secs)} s -> ${st.step}")
+        } finally {
+            stopStreaming()
         }
     }
 
@@ -133,9 +147,12 @@ internal class ImageProvisioner(
                     if (st.validator != info.validator || st.archiveBytes != info.bytes) part.delete()
                     st = st.copy(archiveBytes = info.bytes, sha512 = want, validator = info.validator).also(::save)
                 }
-                evaluateProvisionSpace(freeBytes(), st.archiveBytes - have)?.let { throw ProvisionFailure(it.message) }
+                // What's already unpacked is part of the need, not on top of it.
+                evaluateProvisionSpace(freeBytes() + allocatedBytes(diskPart), st.archiveBytes - have)?.let { throw ProvisionFailure(it.message) }
+                if (streaming == null) streaming = startStreaming(st, have)
                 val info = RemoteInfo(st.archiveBytes, st.validator)
                 val from = downloader.download(url, part, info, ::isCancelled) { done ->
+                    streaming?.grew(done)
                     listener.onProgress(ProvisionStep.DOWNLOADING, done, st.archiveBytes)
                 }
                 log("download resumed from byte $from of ${st.archiveBytes}")
@@ -177,7 +194,8 @@ internal class ImageProvisioner(
         if (got == st.sha512) return st.copy(step = ProvisionStep.EXTRACTING, corruptDownloads = 0).also(::save)
         // Reject it: discard everything and start the download from 0, re-reading SHA512SUMS.
         log("checksum mismatch: expected ${st.sha512}, got $got")
-        archive.delete(); part.delete()
+        stopStreaming()
+        diskPart.delete(); archive.delete(); part.delete()
         val bad = st.corruptDownloads + 1
         if (bad >= Backoff.MAX_FAILURES) {
             save(st.copy(step = ProvisionStep.DOWNLOADING, archiveBytes = 0, sha512 = "", validator = "", corruptDownloads = 0))
@@ -190,38 +208,72 @@ internal class ImageProvisioner(
 
     private fun extract(st: ProvisionState): ProvisionState {
         if (!archive.exists()) {
-            // Verified and unpacked before the process died after deleting the archive.
+            // Verified and unpacked before the process died after deleting the archive: the disk is whole,
+            // unless this very run is still writing it.
+            stopStreaming()
             return st.copy(step = if (diskPart.exists() || disk.exists()) ProvisionStep.PREPARING_DISK else ProvisionStep.DOWNLOADING).also(::save)
         }
-        diskPart.delete()
-        try {
-            RandomAccessFile(diskPart, "rw").use { raf ->
-                XZInputStream(BufferedInputStream(FileInputStream(archive), 256 * 1024)).use { xz ->
-                    val tar = TarReader(xz)
-                    var found = false
-                    while (true) {
-                        val e = tar.next() ?: break
-                        if (!e.isFile || e.name.removePrefix("./") != ImageSource.DISK_ENTRY) continue
-                        var lastReport = 0L
-                        tar.copyData(e, FileSparseSink(raf)) { done ->
-                            if (done - lastReport >= 8L shl 20 || done == e.dataSize) { lastReport = done; listener.onProgress(ProvisionStep.EXTRACTING, done, e.dataSize) }
-                            if (isCancelled()) throw CancelledException()
-                        }
-                        found = true
-                        break
-                    }
-                    if (!found) throw ProvisionFailure("the image didn't contain a disk", retryable = false)
-                }
-                raf.fd.sync()
-            }
-        } catch (e: java.io.IOException) {
-            if (e is ProvisionFailure) throw e
-            // A verified archive that won't unpack: out of space, or a decoder fault. Keep the archive; surface it.
-            diskPart.delete()
-            throw ProvisionFailure("couldn't unpack the image (${e.message}) · retry", retryable = true)
-        }
+        if (!takeStreamed(st)) unpackArchive()
         archive.delete()
         return st.copy(step = ProvisionStep.PREPARING_DISK).also(::save)
+    }
+
+    /** Unpacks from the `.part` as it grows. Null if that can't be set up; the archive is then unpacked once it's complete. */
+    private fun startStreaming(st: ProvisionState, have: Long): StreamingUnpack? = try {
+        log("unpacking while downloading (${xz.name}), ${have shr 20} MB of the archive already here")
+        part.createNewFile()
+        StreamingUnpack(part, st.archiveBytes, diskPart, xz::open).also { it.start(); it.grew(have) }
+    } catch (e: Throwable) {
+        log("can't unpack while downloading: $e")
+        null
+    }
+
+    /** True if the unpack alongside the download finished, from the same bytes [verify] accepted. */
+    private fun takeStreamed(st: ProvisionState): Boolean {
+        val s = streaming ?: return false
+        val began = System.nanoTime()
+        var reported = -1L
+        val r = s.await { done, size ->
+            checkCancelled()
+            if (done != reported) { reported = done; listener.onProgress(ProvisionStep.EXTRACTING, done, size) }
+        }
+        if (r is StreamingUnpack.Outcome.Unpacked && r.sha512 == st.sha512) {
+            streaming = null
+            log("unpacked while downloading: ${r.stats}; waited ${"%.1f".format((System.nanoTime() - began) / 1e9)} s for it")
+            return true
+        }
+        log("the unpack alongside the download is no good (${if (r is StreamingUnpack.Outcome.Failed) "${r.cause}" else "it read other bytes"}); unpacking the archive")
+        stopStreaming()
+        return false
+    }
+
+    private fun unpackArchive() {
+        try {
+            try { unpackArchive(xz::open) } catch (e: NativeXzException) {
+                // The archive is verified, so it's the decoder's fault, not the data's.
+                log("${e.message}; using the java decoder")
+                unpackArchive(xz::openJava)
+            }
+        } catch (e: IOException) {
+            if (e is ProvisionFailure) throw e
+            // A verified archive that won't unpack: out of space, or a decoder fault. Keep the archive; surface it.
+            throw ProvisionFailure("couldn't unpack the image (${e.message}) · retry", retryable = true)
+        }
+    }
+
+    private fun unpackArchive(open: (InputStream) -> InputStream) {
+        FileInputStream(archive).use { inp ->
+            open(inp).use { tar ->
+                val stats = unpackDisk(tar, diskPart, ::checkCancelled) { done, size -> listener.onProgress(ProvisionStep.EXTRACTING, done, size) }
+                log("unpacked the archive: $stats")
+            }
+        }
+    }
+
+    /** Ends the unpack alongside the download, if there is one, and deletes its disk. */
+    private fun stopStreaming() {
+        streaming?.cancel()
+        streaming = null
     }
 
     // ---- 4. prepare the disk ----

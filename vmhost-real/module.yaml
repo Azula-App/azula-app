@@ -17,7 +17,7 @@ dependencies:
   - org.lsposed.hiddenapibypass:hiddenapibypass:6.2
   - $kotlin.serialization.json
   - org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0
-  # xz decoder for the guest image archive (public domain).
+  # xz decoder for the guest image archive (public domain), where libazula_host.so's isn't there.
   - org.tukaani:xz:1.10
 
 test-dependencies:

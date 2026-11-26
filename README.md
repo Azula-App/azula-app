@@ -103,8 +103,9 @@ The Android app can host a Linux VM for your cloud sessions
 and 11, the entry is hidden in release builds: **Settings → "host compute on this phone"** shows
 only when the app is debuggable, or after **seven taps on the "profiles & settings" title** in
 Settings (the same gesture as Android's Build number; the preference persists). Build a copy that
-installs beside the real app by changing `applicationId` in `android-app/module.yaml` (for
-example `app.azula.dev`; don't commit it), and run `scripts/vmhost-artifacts.sh` first.
+installs beside the real app with `scripts/side-by-side.sh dev` (after `scripts/vmhost-artifacts.sh`):
+it is `app.azula.dev`, labelled "Azula dev", with a blue icon instead of the real app's black, so
+the launcher tells them apart. Any other name works too, each with its own colour.
 
 ## Status
 

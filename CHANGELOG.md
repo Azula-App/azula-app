@@ -34,7 +34,21 @@
 ### Store notes
 
 ```text
+• On Android, your phone can now host a Linux VM for your cloud coding sessions. Set it up in Settings under "host compute on this phone". It needs Android 14 or newer, a phone with Android's virtualization framework, 6 GB of memory and 20 GB free. Tested on Pixel 8, 9, 10a and 11.
 ```
+
+### Added
+
+- **Host compute on this phone (Android).** A new entry in Settings sets up a Linux VM on the
+  phone that a cloud coding session can run commands in, through `azula compute`.
+  - Setup downloads a Debian image (about 300 MB), asks for a one-time Wireless debugging pairing,
+    and takes about two to three minutes. The VM's tools (git, gcc, make and file) are ready when
+    it says "hosting · running".
+  - "connect a cloud session" makes an access token that expires when you choose and can be
+    revoked at any time.
+  - Needs Android 14 or newer, a phone whose Android virtualization framework can run unprotected
+    VMs, 6 GB of memory and 20 GB of free storage. Tested on Pixel 8, 9, 10a and 11. Other phones
+    say why they can't host.
 
 ## [0.0.9] - 2026-11-22
 

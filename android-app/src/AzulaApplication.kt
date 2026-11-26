@@ -46,7 +46,7 @@ class AzulaApplication : Application() {
             CoroutineExceptionHandler { _, e -> Log.e("azula", "uncaught in appScope", e) }
     )
 
-    /** The host-compute platform pieces (labs, setup flags, deep links); MainActivity wires its notification launcher in. */
+    /** The host-compute platform pieces (setup flags, deep links); MainActivity wires its notification launcher in. */
     val hostPlatform by lazy { AndroidHostPlatform(this) }
 
     override fun onCreate() {
@@ -126,7 +126,7 @@ class AzulaApplication : Application() {
             },
             ed25519 = platformEd25519(),
             // Hosting compute on this phone (compute-android-app-host). Android-only; the
-            // entry itself stays hidden in release builds unless "labs" is on.
+            // capability check (S1) decides which phones can.
             vmHost = AndroidVmHost(applicationContext),
             vmPermissionGranter = AndroidVmPermissionGranter(applicationContext),
             hostPlatform = hostPlatform,

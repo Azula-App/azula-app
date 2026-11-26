@@ -8,7 +8,27 @@ import android.system.virtualmachine.VirtualMachineManager
 
 /** Gathers [CapabilityInputs] on the device; the judgement is the pure [evaluateCapability]. */
 internal class CapabilityProbe(private val ctx: Context) {
-    fun check(): CapabilityResult = evaluateCapability(inputs())
+    /**
+     * Lifting the hidden-API limits is process-wide, and the Home card runs this at launch on
+     * every phone, so a phone that fails anything else never gets that far.
+     */
+    fun check(): CapabilityResult {
+        val cheap = evaluateCapability(publicInputs())
+        return if (cheap is CapabilityResult.CanHost) evaluateCapability(inputs()) else cheap
+    }
+
+    /** What the public SDK can tell: "might be able to host" until [inputs] says otherwise. */
+    private fun publicInputs(): CapabilityInputs {
+        val mem = ActivityManager.MemoryInfo().also { ctx.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
+        val free = runCatching { StatFs(ctx.filesDir.absolutePath).availableBytes }.getOrDefault(0L)
+        val sdk = Build.VERSION.SDK_INT
+        val avf = sdk >= MIN_SDK_INT && (
+            ctx.packageManager.hasSystemFeature(AVF_FEATURE) ||
+                prop("ro.boot.hypervisor.vm.supported") == "1" ||
+                prop("ro.boot.hypervisor.protected_vm.supported") == "1"
+            )
+        return CapabilityInputs(sdk, avf, avf, false, mem.totalMem, free, cpus(), true, Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a")
+    }
 
     fun inputs(): CapabilityInputs {
         val sdk = Build.VERSION.SDK_INT
@@ -45,6 +65,11 @@ internal class CapabilityProbe(private val ctx: Context) {
             service = service || nonProtected || protected
         }
         return CapabilityInputs(sdk, service, nonProtected, protected, mem.totalMem, free, cpus(), hiddenOk, libPresent)
+    }
+
+    private companion object {
+        /** The platform feature behind AVF; its PackageManager constant is a system API. */
+        const val AVF_FEATURE = "android.software.virtualization_framework"
     }
 
     private fun cpus() = Runtime.getRuntime().availableProcessors()

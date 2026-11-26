@@ -162,7 +162,6 @@ class FakeVmPermissionGranter(
 
 /** A fake [HostPlatform] that records every call, for the `-mock` apps and the UI tests. */
 class FakeHostPlatform(
-    var labs: Boolean = true,
     var developerOptions: Boolean = true,
     var notifications: Boolean = true,
     committed: Boolean = false,
@@ -173,8 +172,6 @@ class FakeHostPlatform(
     override var setupCommitted: Boolean = committed
     override var setupDone: Boolean = done
 
-    override fun entryVisible() = labs
-    override fun enableLabs() { labs = true; calls += "enableLabs" }
     override fun developerOptionsEnabled() = developerOptions
     override fun notificationsAllowed() = notifications
     override fun requestNotifications() { calls += "requestNotifications" }

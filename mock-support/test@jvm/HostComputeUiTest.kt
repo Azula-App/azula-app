@@ -45,7 +45,6 @@ import kotlin.test.assertTrue
  */
 class HostComputeUiTest {
     private class Fakes(
-        labs: Boolean = true,
         dev: Boolean = true,
         notifications: Boolean = true,
         committed: Boolean = false,
@@ -53,7 +52,7 @@ class HostComputeUiTest {
     ) {
         val host = FakeVmHost()
         val granter = FakeVmPermissionGranter()
-        val platform = FakeHostPlatform(labs, dev, notifications, committed, done)
+        val platform = FakeHostPlatform(dev, notifications, committed, done)
     }
 
     @AfterTest fun resetPolicy() { HostRetryPolicy.backoffMs = longArrayOf(3_000, 8_000) }
@@ -114,20 +113,9 @@ class HostComputeUiTest {
     }
 
     @Test
-    fun entryIsHiddenInAReleaseBuildUntilLabsIsOn() = hostTest(Fakes(labs = false)) { _, _ ->
+    fun theEntryShowsWhereverAHostIsBound() = hostTest { _, _ ->
         openSettings()
-        waitTag("reveal-phrase-row")
-        onNodeWithTag("host-compute-row").assertDoesNotExist()
-    }
-
-    @Test
-    fun sevenTapsOnTheSettingsTitleTurnLabsOn() = hostTest(Fakes(labs = false)) { f, _ ->
-        openSettings()
-        val title = hasText("profiles & settings") and !hasClickAction()
-        waitUntilAtLeastOneExists(title)
-        repeat(7) { onNode(title).performClick() }
         waitTag("host-compute-row")
-        assertTrue(f.platform.labs)
     }
 
     @Test

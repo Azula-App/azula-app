@@ -38,13 +38,12 @@ class HostSetupServiceTest {
         scope: CoroutineScope,
         committed: Boolean = false,
         done: Boolean = false,
-        labs: Boolean = true,
         dev: Boolean = true,
         notifications: Boolean = true,
     ) {
         val host = FakeVmHost()
         val granter = FakeVmPermissionGranter()
-        val platform = FakeHostPlatform(labs = labs, developerOptions = dev, notifications = notifications, committed = committed, done = done)
+        val platform = FakeHostPlatform(developerOptions = dev, notifications = notifications, committed = committed, done = done)
         val svc = HostSetupService(scope, host, granter, platform)
     }
 
@@ -54,17 +53,7 @@ class HostSetupServiceTest {
     fun noHostBindingMeansUnavailableAndHidden() = runTest {
         val svc = HostSetupService(backgroundScope, null, null, null)
         assertFalse(svc.available)
-        assertFalse(svc.entryVisible)
         assertFalse(svc.homeCardVisible)
-    }
-
-    @Test
-    fun entryFollowsTheLabsSwitch() = runTest {
-        val r = Rig(backgroundScope, labs = false)
-        assertFalse(r.svc.entryVisible, "a release build with labs off shows no entry")
-        r.svc.enableLabs()
-        assertTrue(r.svc.entryVisible)
-        assertTrue("enableLabs" in r.platform.calls)
     }
 
     @Test

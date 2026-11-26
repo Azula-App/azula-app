@@ -63,10 +63,6 @@ class HostSetupService(
 ) {
     val available: Boolean = vmHost != null && granter != null && platform != null
 
-    /** S0: whether the Settings row (and the Home card) show. */
-    var entryVisible by mutableStateOf(false)
-        private set
-
     /** The host screen is showing in place of Settings (mobile and desktop alike). */
     var open by mutableStateOf(false)
 
@@ -128,13 +124,12 @@ class HostSetupService(
 
     /** The home card: known to qualify, and not set up yet. */
     val homeCardVisible: Boolean
-        get() = entryVisible && capability is CapabilityResult.CanHost && stage == HostStage.CHECK
+        get() = available && capability is CapabilityResult.CanHost && stage == HostStage.CHECK
 
     init {
         if (available) {
             committed = platform!!.setupCommitted
             done = platform.setupDone
-            entryVisible = platform.entryVisible()
             planOverride = vmHost!!.planOverride()
             scope.launch { vmHost!!.state.collect { onHostState(it) } }
             scope.launch { granter!!.state.collect { grant = it; onGrantState(it) } }
@@ -151,7 +146,6 @@ class HostSetupService(
     /** Call on every resume (and when the host screen opens): re-reads everything the OS can change behind our back. */
     fun refresh() {
         if (!available) return
-        entryVisible = platform!!.entryVisible()
         granter!!.refresh()
         readDeviceState()
         if (stage == HostStage.SETUP) {
@@ -174,13 +168,6 @@ class HostSetupService(
     private fun readDeviceState() {
         developerOptions = platform!!.developerOptionsEnabled()
         notifications = platform.notificationsAllowed()
-    }
-
-    /** The labs gesture: shows the entry in a release build. */
-    fun enableLabs() {
-        if (!available) return
-        platform!!.enableLabs()
-        entryVisible = platform.entryVisible()
     }
 
     // ---- S1 ----

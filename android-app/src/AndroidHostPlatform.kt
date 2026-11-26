@@ -2,7 +2,6 @@ package app.azula
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import dev.azula.host.HostPlatform
@@ -16,10 +15,7 @@ import android.os.Build
 
 /**
  * Android's [HostPlatform]: Settings deep links, the notification permission (through the
- * activity, which owns the launcher), share/open-url, the two setup flags, and the labs switch.
- *
- * **Labs:** the host-compute entry (S0) shows in a debuggable build, or after seven taps on the
- * "profiles & settings" title in Settings; see [enableLabs].
+ * activity, which owns the launcher), share/open-url, and the two setup flags.
  */
 class AndroidHostPlatform(context: Context) : HostPlatform {
     private val app = context.applicationContext
@@ -27,11 +23,6 @@ class AndroidHostPlatform(context: Context) : HostPlatform {
 
     /** Set by `MainActivity` while it exists: launches the system POST_NOTIFICATIONS dialog. */
     @Volatile var requestNotificationsHook: (() -> Unit)? = null
-
-    override fun entryVisible(): Boolean =
-        (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 || prefs.getBoolean(KEY_LABS, false)
-
-    override fun enableLabs() { prefs.edit().putBoolean(KEY_LABS, true).apply() }
 
     override fun developerOptionsEnabled(): Boolean = SelfGrantSettings.developerOptionsEnabled(app)
 
@@ -72,7 +63,6 @@ class AndroidHostPlatform(context: Context) : HostPlatform {
     }
 
     private companion object {
-        const val KEY_LABS = "labs"
         const val KEY_COMMITTED = "setup_committed"
         const val KEY_DONE = "setup_done"
     }

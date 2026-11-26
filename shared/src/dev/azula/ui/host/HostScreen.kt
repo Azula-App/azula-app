@@ -50,7 +50,7 @@ import dev.azula.vmhost.HostState
 import dev.azula.vmhost.ProvisionStep
 import dev.azula.ui.StatusDot
 
-/** S0: the single Settings row. Rendered by SettingsScreen only when [HostSetupService.entryVisible]. */
+/** S0: the single Settings row. Rendered by SettingsScreen only when [HostSetupService.available]. */
 @Composable
 fun HostSettingsRow(state: AzulaState) {
     val svc = state.hostSetup
@@ -75,7 +75,7 @@ fun HostSettingsRow(state: AzulaState) {
 fun HostHomeCard(state: AzulaState, onOpen: () -> Unit) {
     val svc = state.hostSetup
     if (!svc.available) return
-    LaunchedEffect(svc.entryVisible) { if (svc.entryVisible && svc.capability == null) svc.check() }
+    LaunchedEffect(svc) { if (svc.capability == null) svc.check() }
     if (!svc.homeCardVisible) return
     Column(
         Modifier.fillMaxWidth().azulaMutedPanel().clickable { onOpen() }.padding(horizontal = 13.dp, vertical = 10.dp)

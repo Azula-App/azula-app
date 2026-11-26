@@ -3,8 +3,6 @@ package dev.azula.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -94,17 +92,7 @@ private fun SettingsContent(state: AzulaState, onBack: () -> Unit, modifier: Mod
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("‹", color = AzulaColors.textDim, fontSize = 20.sp, modifier = Modifier.clickable { onBack() })
-            // Seven taps on the title turn on "labs", which shows features still hidden in release
-            // builds (today: host compute on this phone), the way Android's Build number does.
-            var labsTaps by remember { mutableStateOf(0) }
-            Text(
-                "profiles & settings", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
-                // pointerInput, not clickable: a click action would make this title match the
-                // sidebar's "profiles & settings" row in the desktop UI tests.
-                modifier = Modifier.pointerInput(Unit) {
-                    detectTapGestures { if (++labsTaps >= 7) { labsTaps = 0; state.hostSetup.enableLabs() } }
-                },
-            )
+            Text("profiles & settings", color = AzulaColors.text0, fontFamily = Fonts.ui, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(AzulaColors.border))
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -191,9 +179,8 @@ private fun SettingsContent(state: AzulaState, onBack: () -> Unit, modifier: Mod
                 tag = "archive-expired-sessions-row",
             ) { state.archiveExpiredSessions() }
 
-            // S0: the single way into hosting compute on this phone (hidden in release
-            // builds until the labs preference is on; absent where no host exists).
-            if (state.hostSetup.entryVisible) {
+            // S0: the single way into hosting compute on this phone (absent where no host exists).
+            if (state.hostSetup.available) {
                 Spacer(Modifier.height(8.dp))
                 Text("COMPUTE", color = AzulaColors.textDim2, fontFamily = Fonts.mono, fontSize = 11.sp)
                 HostSettingsRow(state)

@@ -2,18 +2,11 @@ package dev.azula.host
 
 /**
  * What the host-compute screens need from the platform that isn't the VM host or the grant
- * flow themselves: Settings deep links, the notification permission, share/open-url, the two
- * pieces of setup state that must survive process death, and the "labs" switch that hides the
- * entry in release builds. Android implements it (android-app); the `-mock` apps use a fake;
- * JVM and iOS pass null, which hides the entry altogether.
+ * flow themselves: Settings deep links, the notification permission, share/open-url, and the two
+ * pieces of setup state that must survive process death. Android implements it (android-app);
+ * the `-mock` apps use a fake; JVM and iOS pass null, which hides the entry altogether.
  */
 interface HostPlatform {
-    /** S0: the entry shows only in a debuggable build, or with the labs preference on. */
-    fun entryVisible(): Boolean
-
-    /** Turns the labs preference on (the hidden 7-tap gesture on Settings' title), which shows the entry in release builds. */
-    fun enableLabs()
-
     /** Whether Developer options are on (see `SelfGrantSettings.developerOptionsEnabled`). */
     fun developerOptionsEnabled(): Boolean
 

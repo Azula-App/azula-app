@@ -196,6 +196,12 @@ jobs:
       - name: Stamp the version into both platforms
         run: bash .github/scripts/set_version.sh
 
+      # The VM host's native library and cloud-init seed are azula-cli release assets
+      # (vmhost.version pins which release). They are gitignored build inputs here, and the
+      # AAB builds without them, with host compute broken, so the AAB check below looks for them.
+      - name: Fetch the Android host library and seed
+        run: scripts/vmhost-artifacts.sh --release
+
       - name: Build the release AAB
         run: |
           ./kotlin package \
@@ -225,6 +231,12 @@ jobs:
             echo "$AAB is not signed -- check android-app/keystore.properties and the signing secrets."
             exit 1
           fi
+          for f in base/lib/arm64-v8a/libazula_host.so base/assets/seed.iso; do
+            if ! unzip -l "$AAB" | awk -v f="$f" '$NF == f { found = 1 } END { exit !found }'; then
+              echo "::error::$AAB has no $f -- scripts/vmhost-artifacts.sh --release didn't put it there."
+              exit 1
+            fi
+          done
           echo "path=$AAB" >> "$GITHUB_OUTPUT"
           ls -la "$AAB"
 

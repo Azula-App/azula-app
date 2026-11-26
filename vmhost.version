@@ -1,3 +1,4 @@
-# azula-cli release whose Android host artifacts scripts/vmhost-artifacts.sh --release downloads.
-# No release carries them yet (the next v* tag will be the first); until then build from ../azula-cli.
-0.4.2
+# azula-cli release whose Android host artifacts scripts/vmhost-artifacts.sh --release downloads
+# (azula-host-android-<v>-aarch64.tar.gz and azula-avf-seed-<v>.iso). 0.4.3 is the first
+# release that carries them. publish.yml fetches them for every release build.
+0.4.3

@@ -14,8 +14,8 @@
 #   --release [<version>]: download azula-cli's release assets instead
 #   (azula-host-android-<v>-aarch64.tar.gz and azula-avf-seed-<v>.iso from
 #   github.com/Azula-App/azula-cli) and verify their .sha256 files. The version
-#   defaults to the pin in vmhost.version. Not yet testable end to end: no azula-cli
-#   release carries these assets until the next v* tag.
+#   defaults to the pin in vmhost.version. azula-cli 0.4.3 is the first release
+#   that carries these assets.
 #   Env: AZULA_CLI_DIR  override the azula-cli directory (default: ../azula-cli)
 #        AZULA_HOST_SO / AZULA_SEED_ISO  use prebuilt files instead of building
 set -euo pipefail

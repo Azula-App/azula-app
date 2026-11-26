@@ -93,7 +93,7 @@ internal class SelfGrantNotifier(private val context: Context) {
             RESULT_ID,
             builder()
                 .setContentTitle("done — back to azula")
-                .setContentText("you can turn wireless debugging off now")
+                .setContentText("you can turn wireless debugging and developer options off now")
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setOnlyAlertOnce(false)

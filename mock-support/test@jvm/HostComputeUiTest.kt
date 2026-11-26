@@ -234,7 +234,7 @@ class HostComputeUiTest {
         f.granter.set(GrantState(GrantPhase.Granting, missing = f.granter.state.value.missing))
         assertText("host-line-grant", "granting")
         f.granter.grantAll()
-        assertText("host-line-grant", "you can turn wireless debugging off now")
+        assertText("host-line-grant", "you can turn wireless debugging and developer options off now")
         onNodeWithTag("host-open-wd").assertDoesNotExist()
     }
 

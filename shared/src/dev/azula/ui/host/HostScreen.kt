@@ -282,7 +282,7 @@ internal fun ChecklistCard(svc: HostSetupService) {
 
 private fun grantLine(svc: HostSetupService): Pair<LineState, String?> {
     val g = svc.grant
-    if (g.granted) return LineState.DONE to "you can turn wireless debugging off now"
+    if (g.granted) return LineState.DONE to "you can turn wireless debugging and developer options off now"
     return when (g.phase) {
         GrantPhase.Failed -> LineState.FAILED to when (g.error) {
             GrantError.NotificationsBlocked -> "allow notifications so azula can ask for the code"

@@ -238,17 +238,17 @@ report lands in `out/emulator/`.
 
 ## What has been proven where
 
-- Test Lab, Pixel 8 and 9 (Android 16), 2026-11-24: all five stages, PASS. All nine steps
-  of stage 5 passed, most of them throttled by the relay: `transfer` took 426 s and 421 s
-  (9 MB pushed in about 200 s and pulled in 221 s), and the run 669 s and 671 s. Both
-  tokens were revoked and then refused. The guest and broker were those of azula-cli
-  aac8fe9.
-- Test Lab, Pixel 11 (Android 17): stages 1 to 4, as they were before stage 5 was added.
+- Test Lab, Pixel 8 and 9 (Android 16) and Pixel 11 (Android 17), 2026-11-26: all five
+  stages, PASS, with the host library, seed and `azula` of azula-cli 0.4.3. Only `reattach`
+  and `transfer` were throttled by the relay (`transfer` 165 to 167 s, the runs 333 to
+  408 s). Every token was revoked and then refused.
+- Test Lab, Pixel 8 and 9, 2026-11-24, with azula-cli aac8fe9's guest and broker: all five
+  stages, PASS. The relay throttled all nine steps on the Pixel 8 and four on the Pixel 9
+  (`transfer` 426 s and 421 s).
 - The emulator, against a simulated host (a stand-in for the host app's screen, the real
   broker over n0's relay, and `azula-guest` in a Debian VM): stage 5 passes, throttled, and
   fails when it should: wrong answers, faults that never fire, corrupted data, a client that
   hangs, a token that isn't revoked.
-- **Not proven:** stage 5 on the Pixel 11 (Android 17).
 
 Test Lab itself is deprecated and shuts down on 2027-09-30. Google points to its Developer
 Device Platform as the replacement.

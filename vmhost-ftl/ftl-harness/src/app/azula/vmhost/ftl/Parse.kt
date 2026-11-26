@@ -96,7 +96,21 @@ object DumpsysPackage {
 
 object TokenJson {
     /** The token in MainActivity's token.json (`{"id":"…","token":"azc1.…"}`); null when there is none. */
-    fun token(json: String): String? = Regex(""""token"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1)
+    fun token(json: String): String? = field(json, "token")
+
+    /** The id of its grant, which the host app's answers name. */
+    fun id(json: String): String? = field(json, "id")
+
+    private fun field(json: String, name: String): String? =
+        Regex(""""$name"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1)
+}
+
+object Revoke {
+    /**
+     * Whether the host app's last line says it revoked grant [id]. `Success(false)` (it has no such
+     * grant) and `Failure(…)` (the host didn't answer) don't, nor does another grant's line.
+     */
+    fun confirmed(line: String, id: String): Boolean = line == "revoke $id -> Success(true)"
 }
 
 object Doctor {
@@ -108,6 +122,21 @@ object Doctor {
     fun stages(output: String): List<Stage> = output.lines().mapNotNull { l ->
         LINE.matchEntire(l.trim())?.destructured?.let { (mark, name, ms, detail) ->
             Stage(name, mark == "✓", ms.toLong(), detail)
+        }
+    }
+
+    enum class Access { ACCEPTED, REFUSED, UNKNOWN }
+
+    /**
+     * What the host made of the token, by its answer to hello. UNKNOWN when it gave none: it couldn't
+     * be reached, or it failed some other way.
+     */
+    fun access(output: String): Access {
+        val auth = stages(output).lastOrNull { it.name == "auth" } ?: return Access.UNKNOWN
+        return when {
+            auth.ok -> Access.ACCEPTED
+            auth.detail.startsWith("unauthorized") -> Access.REFUSED
+            else -> Access.UNKNOWN
         }
     }
 }

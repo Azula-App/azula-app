@@ -16,20 +16,21 @@ import org.junit.runners.MethodSorters
 
 /**
  * Proves the on-phone VM host on a real device, in one instrumentation run (task 5.3 of
- * compute-android-app-host). Four stages, in order, each its own test case:
+ * compute-android-app-host). Five stages, in order, each its own test case:
  *
  * 1. the static arm64 `azula` runs from the shell;
  * 2. the VM permissions reach the host app, and only the host app, and outlive it;
  * 3. Start brings the VM to RUNNING;
- * 4. `azula compute doctor` and `exec` reach it over the relay with a minted token.
+ * 4. `azula compute doctor` and `exec` reach it over the relay with a minted token;
+ * 5. the steps of azula-cli's `vm/e2e/cloud.sh` pass over the relay, each checked on its own.
  *
  * A stage passes, fails, or finds that the device can't host ([CannotHostException]). A device that
  * can't host is an assumption failure (skipped, not failed) unless the `requireHost` argument is
  * true. Later stages are skipped with the reason. result.json and the instrumentation results
  * (`vmhost_outcome`, `vmhost_reason`) carry the verdict either way. See ../../README.md.
  *
- * Arguments (`-e`, or Test Lab's --environment-variables): `bootTimeoutMin` (15), `requireHost`
- * (false), `azulaPath` (/data/local/tmp/azula), `outDir` or `additionalTestOutputDir`.
+ * Arguments (`-e`, or Test Lab's --environment-variables): `bootTimeoutMin` (15), `runLimitMin` (34),
+ * `requireHost` (false), `azulaPath` (/data/local/tmp/azula), `outDir` or `additionalTestOutputDir`.
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class HostAcceptanceTest {
@@ -125,12 +126,7 @@ class HostAcceptanceTest {
 
     @Test fun t4_doctorAndExecOverTheRelay() = stage("doctor", needs = listOf("azula", "grants", "boot")) {
         val a = info("azula")
-        host.tap("mint")
-        val minted = host.await(45_000) { it.grant.startsWith("grant ") || it.grant.startsWith("mint failed") }
-        check(minted?.grant?.startsWith("grant ") == true) { "Mint said: ${minted?.grant.orEmpty().ifEmpty { "nothing" }}" }
-        val token = host.file("files/token.json")?.let(TokenJson::token) ?: error("Mint left no token.json")
-        report.scrub.add(token)
-        try {
+        withToken(a) { token ->
             // The first attempt can beat the host's relay address to the discovery service.
             var doctor: Shell.Result? = null
             val log = StringBuilder()
@@ -157,13 +153,97 @@ class HostAcceptanceTest {
             a.put("execExit", e.code).put("uname", report.scrub.clean(e.stdout.trim()))
             check(e.ok && "Linux" in e.stdout && "aarch64" in e.stdout) { "compute exec -- uname -a exited ${e.code}: ${e.all}" }
             "doctor passed every stage (${Doctor.stages(d.stdout).joinToString { it.name }}); ${e.stdout.trim()}"
-        } finally {
-            // Kill the token whatever happened, then the file it came in.
-            host.launch("revoke")
-            val revoked = host.await(20_000) { it.grant.startsWith("revoke") }
-            a.put("revoked", revoked?.grant.orEmpty())
-            shell.run("run-as ${HostApp.PACKAGE} rm -f files/token.json")
         }
+    }
+
+    @Test fun t5_cloudStepsOverTheRelay() = stage("cloud", needs = listOf("azula", "grants", "boot", "doctor")) {
+        val c = info("cloud")
+        withToken(c) { token ->
+            val steps = Steps(report::elapsedSeconds, runLimitS, clean = report.scrub::clean, log = report::log)
+            val cloud = CloudSteps(shell, steps, "$RUN/azula", "$RUN/cloud", host::throttleWarnings) { script, seconds -> client(script, seconds, token) }
+            try {
+                cloud.runAll()
+            } finally {
+                c.put(
+                    "steps",
+                    JSONArray(CloudChecks.STEPS.map { (name, spec) ->
+                        val s = steps.all().firstOrNull { it.name == name }
+                        JSONObject().put("step", name).put("covers", spec.covers).put("outcome", steps.outcomeOf(name).name)
+                            .put("seconds", s?.seconds ?: 0.0).put("maxSeconds", spec.maxSeconds)
+                            .put("throttledBy", JSONArray(s?.throttledBy.orEmpty()))
+                            .put("detail", s?.detail ?: "never reached")
+                    }),
+                )
+                c.put("hostThrottleWarnings", host.throttleWarnings())
+                report.write("azula-cloud.txt", cloud.transcript())
+            }
+            steps.problem(CloudChecks.STEPS.keys.toList())?.let { error(it) }
+            val slow = steps.all().filter { it.outcome == StepOutcome.PASS_THROTTLED }.joinToString { it.name }
+            "all ${CloudChecks.STEPS.size} steps of cloud.sh passed in ${steps.all().sumOf { it.seconds }.toInt()} s" +
+                (if (slow.isEmpty()) "" else "; the relay throttled $slow")
+        }
+    }
+
+    /**
+     * Mints a token in the host app and gives it to [body]. Whatever happens, the grant is revoked and
+     * token.json deleted afterwards, and a token that may still be alive fails the stage even when
+     * [body] passed. What became of it goes into [out].
+     */
+    private fun withToken(out: JSONObject, body: (String) -> String): String {
+        shell.run("run-as ${HostApp.PACKAGE} rm -f files/token.json")
+        var minted: Pair<String, String>? = null
+        val result = runCatching {
+            val before = host.status()?.grant
+            host.tap("mint")
+            val said = host.await(45_000) { it.grant != before && (it.grant.startsWith("grant ") || it.grant.startsWith("mint failed")) }?.grant.orEmpty()
+            val (id, token) = host.mintedToken() ?: error(if (said.startsWith("grant ")) "Mint left no token.json" else "Mint said: ${said.ifEmpty { "nothing" }}")
+            report.scrub.add(token)
+            minted = id to token
+            body(token)
+        }
+        val alive = runCatching { kill(minted, out) }.getOrElse { "couldn't revoke the token: ${it.message}" }
+        if (alive == null) return result.getOrThrow()
+        val failed = result.exceptionOrNull() ?: error(alive)
+        throw IllegalStateException("${failed.message ?: failed}. And $alive", failed)
+    }
+
+    /**
+     * Revokes the grant and deletes the file its token came in. Null when that worked, or why the
+     * token may still be alive: the app must say it revoked this grant, the file must be gone, and
+     * the host must not take the token any more. A host that can't be reached can't take it either,
+     * so an unanswered last check is only recorded.
+     */
+    private fun kill(known: Pair<String, String>?, out: JSONObject): String? {
+        // A Mint that answered too late still left a token.
+        val (id, token) = known ?: host.mintedToken() ?: return null.also { out.put("revoked", "nothing was minted") }
+        report.scrub.add(token)
+        // Nothing touched the screen while the stage ran.
+        wake()
+        var said = ""
+        for (attempt in 1..REVOKE_ATTEMPTS) {
+            host.launch("revoke")
+            // Past the first attempt, its answer is still on screen for a moment.
+            if (attempt > 1) SystemClock.sleep(3_000)
+            said = host.await(20_000) { it.grant.startsWith("revoke $id ") || it.grant.startsWith("revoke:") }?.grant.orEmpty()
+            if (Revoke.confirmed(said, id)) break
+        }
+        // Only now: the app takes the grant's id from this file.
+        shell.run("run-as ${HostApp.PACKAGE} rm -f files/token.json")
+        val deleted = host.lacks("files/token.json")
+
+        var access = Doctor.Access.UNKNOWN
+        for (attempt in 1..REFUSAL_ATTEMPTS) {
+            if (attempt > 1) SystemClock.sleep(3_000)
+            access = Doctor.access(azula("compute doctor", 30, token).stdout)
+            if (access == Doctor.Access.REFUSED) break
+        }
+        out.put("revoked", said).put("tokenFileDeleted", deleted).put("afterRevoke", access.name)
+        report.log("token: $said; token.json deleted: $deleted; the host then: $access")
+        return listOfNotNull(
+            "the host app didn't confirm the revoke of $id, it said '$said'".takeUnless { Revoke.confirmed(said, id) },
+            "token.json is still there".takeUnless { deleted },
+            "the host still accepts the token after the revoke".takeIf { access == Doctor.Access.ACCEPTED },
+        ).takeIf { it.isNotEmpty() }?.joinToString(". ")
     }
 
     private fun grant(permission: String) {
@@ -248,12 +328,17 @@ class HostAcceptanceTest {
         private const val STALE_MS = 8_000L
         private const val MAX_RETRIES = 2
         private const val DOCTOR_ATTEMPTS = 3
-        private val STAGES = listOf("azula", "grants", "boot", "doctor")
+        private const val REVOKE_ATTEMPTS = 2
+        private const val REFUSAL_ATTEMPTS = 2
+        private val STAGES = listOf("azula", "grants", "boot", "doctor", "cloud")
 
         private val instrumentation = InstrumentationRegistry.getInstrumentation()
         private val args: Bundle = InstrumentationRegistry.getArguments()
         private val azulaPath = args.getString("azulaPath", "/data/local/tmp/azula")
         private val bootTimeoutMs = args.getString("bootTimeoutMin", "15").toLong() * 60_000
+
+        /** When the last stage stops starting things: what follows it needs a few minutes more. */
+        private val runLimitS = args.getString("runLimitMin", "34").toDouble() * 60
         private val requireHost = args.getString("requireHost", "false").toBoolean()
 
         private val ui = UiDevice.getInstance(instrumentation)
@@ -274,16 +359,18 @@ class HostAcceptanceTest {
             shell.run("input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard")
         }
 
+        /** `azula <command>` from the shell, relay-only, for at most [seconds]. */
+        private fun azula(command: String, seconds: Long, token: String? = null): Shell.Result =
+            client("timeout -k 5 $seconds $RUN/azula $command", seconds, token)
+
         /**
-         * `azula <command>` from the shell, relay-only, for at most [seconds]. The token goes through
-         * the script's stdin into the environment: not into argv, a file or the log.
+         * A script that runs azula, relay-only, given [seconds] plus some slack; it must bound its own
+         * commands. The token goes through the script's stdin into the environment: not into argv, a
+         * file or the log.
          */
-        private fun azula(command: String, seconds: Long, token: String? = null): Shell.Result = shell.run(
-            """
-            export HOME=$RUN/home TMPDIR=$RUN AZULA_RELAY_ONLY=1 NO_COLOR=1
-            ${if (token == null) "" else "export AZULA_COMPUTE_TOKEN='$token'"}
-            timeout -k 5 $seconds $RUN/azula $command
-            """.trimIndent(),
+        private fun client(script: String, seconds: Long, token: String? = null): Shell.Result = shell.run(
+            "export HOME=$RUN/home TMPDIR=$RUN AZULA_RELAY_ONLY=1 NO_COLOR=1\n" +
+                (if (token == null) "" else "export AZULA_COMPUTE_TOKEN='$token'\n") + script,
             (seconds + 15) * 1000,
         )
 
@@ -333,17 +420,30 @@ class HostAcceptanceTest {
         @AfterClass @JvmStatic fun collect() {
             runCatching { device.save("after") }
             runCatching { device.hostLogs(host) }
+            // Each stage kills its own token. A file here is one that a stage couldn't: try again, and
+            // delete it whatever comes of that. Before Stop, because only a running host can revoke.
+            runCatching {
+                host.mintedToken()?.let { (_, token) ->
+                    report.scrub.add(token)
+                    host.launch("revoke")
+                    val said = host.await(20_000) { it.grant.startsWith("revoke") }?.grant.orEmpty()
+                    info("host").put("revokedAtEnd", said)
+                    report.log("a token was left over: $said")
+                }
+            }
             runCatching {
                 if (host.status()?.phase !in listOf(null, "STOPPED", "ERROR")) {
                     host.tap("stop")
                     val s = host.await(30_000) { it.phase == "STOPPED" }
                     info("host").put("stopped", s?.phase == "STOPPED")
                 }
+            }
+            runCatching {
                 shell.run("run-as ${HostApp.PACKAGE} rm -f files/token.json; rm -rf $RUN")
                 if (stayOn.toIntOrNull() != null) shell.run("settings put global stay_on_while_plugged_in $stayOn")
             }
             val overall = verdict.overall(STAGES)
-            val why = verdict.decisive()
+            val why = verdict.decisive(STAGES)
             report.result.put("outcome", overall.name)
                 .put("stage", why?.name ?: "")
                 .put("reason", why?.reason ?: "")

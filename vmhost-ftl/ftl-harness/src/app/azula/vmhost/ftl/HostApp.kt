@@ -63,6 +63,20 @@ class HostApp(private val ui: UiDevice, private val shell: Shell, private val re
     fun file(path: String, maxBytes: Int = 400_000): String? =
         shell.run("run-as $PACKAGE tail -c $maxBytes $path").takeIf { it.ok }?.stdout
 
+    /** Whether the app has no file [path]. False when that can't be told. */
+    fun lacks(path: String): Boolean =
+        shell.run("run-as $PACKAGE sh -c 'if [ -e $path ]; then echo present; else echo absent; fi'").stdout.trim() == "absent"
+
+    /** How often the host has logged that the relay throttles it: once per connection it makes to the relay. */
+    fun throttleWarnings(): Int =
+        shell.run("run-as $PACKAGE grep -c '${Notice.THROTTLED}' files/logs/broker.log").stdout.trim().toIntOrNull() ?: 0
+
+    /** The id and token of the grant Mint wrote, if there is one. */
+    fun mintedToken(): Pair<String, String>? {
+        val json = file("files/token.json") ?: return null
+        return Pair(TokenJson.id(json) ?: return null, TokenJson.token(json) ?: return null)
+    }
+
     companion object {
         const val PACKAGE = "app.azula.vmhost.test"
         const val STUB = "app.azula.vmhost.ftl.stub"

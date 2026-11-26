@@ -104,4 +104,33 @@ class ParseTest {
         assertEquals(listOf(true, false), s.map { it.ok })
         assertEquals(10003L, s[1].ms)
     }
+
+    @Test fun grantIdFromJson() {
+        assertEquals("g_12ab", TokenJson.id("""{"id":"g_12ab","token":"azc1.abc"}"""))
+        assertNull(TokenJson.id("""{"token":"azc1.abc"}"""))
+        assertNull(TokenJson.id(""))
+    }
+
+    @Test fun aRevokeIsConfirmedForItsOwnGrantOnly() {
+        assertTrue(Revoke.confirmed("revoke g_12ab -> Success(true)", "g_12ab"))
+        for (other in listOf(
+            "revoke g_12ab -> Success(false)",
+            "revoke g_12ab -> Failure(dev.azula.vmhost.HostException: the host isn't running)",
+            "revoke g_99ff -> Success(true)",
+            "revoke: no token.json",
+            "grant g_12ab -> token.json",
+            "",
+        )) assertFalse(other, Revoke.confirmed(other, "g_12ab"))
+    }
+
+    @Test fun whatTheHostMadeOfTheToken() {
+        val upToDial = "✓ token        0 ms  grant g_1, host b\n✓ bind        10 ms  local endpoint bound\n✓ dial        90 ms  connected to the host\n"
+        assertEquals(Doctor.Access.ACCEPTED, Doctor.access("$upToDial✓ auth        80 ms  grant accepted by phone\n"))
+        // What a later stage did doesn't change that the token was taken.
+        assertEquals(Doctor.Access.ACCEPTED, Doctor.access("$upToDial✓ auth        80 ms  grant accepted by phone\n✗ guest     30001 ms  no answer\n"))
+        assertEquals(Doctor.Access.REFUSED, Doctor.access("$upToDial✗ auth        80 ms  unauthorized: unauthorized\n    hint: Is the grant revoked or expired?\n"))
+        assertEquals(Doctor.Access.UNKNOWN, Doctor.access("$upToDial✗ auth     10001 ms  no answer from the broker within 10s\n"))
+        assertEquals(Doctor.Access.UNKNOWN, Doctor.access("✓ token        0 ms  grant g_1, host b\n✗ dial     20001 ms  timed out after 20s connecting to the host (relay x)\n"))
+        assertEquals(Doctor.Access.UNKNOWN, Doctor.access(""))
+    }
 }

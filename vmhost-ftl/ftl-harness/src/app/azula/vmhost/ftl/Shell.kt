@@ -3,6 +3,7 @@ package app.azula.vmhost.ftl
 import android.app.UiAutomation
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import java.io.InputStream
 import kotlin.concurrent.thread
 
 /**
@@ -46,6 +47,36 @@ class Shell(private val automation: UiAutomation) {
         // The echo before the marker keeps it on its own line when the output has no final newline.
         return Result(code, if (i < 0) out else out.substring(0, i).removeSuffix("\n"), err, timedOut)
     }
+
+    /**
+     * Runs [script] and gives its stdout to [sink] byte for byte, for output that is binary or too big
+     * to hold. Null when the script fails, or isn't done after [timeoutMs].
+     */
+    fun <T : Any> stream(script: String, timeoutMs: Long = 60_000, sink: (InputStream) -> T): T? {
+        val (outFd, inFd, errFd) = automation.executeShellCommandRwe("/system/bin/sh")
+        var value: T? = null
+        var err = ""
+        val readers = listOf(
+            thread(name = "shell-out") { value = runCatching { ParcelFileDescriptor.AutoCloseInputStream(outFd).use(sink) }.getOrNull() },
+            thread(name = "shell-err") { err = drain(errFd) },
+        )
+        // The exit code goes to stderr: stdout is the script's alone.
+        runCatching { send(inFd, "(\n$script\n) </dev/null\necho \"$RC$?\" >&2\n".toByteArray()) }
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        for (t in readers) t.join((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
+        if (readers.any { it.isAlive }) {
+            runCatching { outFd.close() }
+            runCatching { errFd.close() }
+            return null
+        }
+        return value.takeIf { err.substringAfterLast(RC, "").trim() == "0" }
+    }
+
+    /** Size and hash of a file, null when it can't be read. [path] must have no spaces. */
+    fun digest(path: String): Digest? = stream("cat $path") { Digest.of(it) }
+
+    /** A file's first [n] bytes, null when it can't be read. [path] must have no spaces. */
+    fun head(path: String, n: Int): ByteArray? = stream("head -c $n $path") { it.readBytes() }
 
     /** Writes [bytes] to [path], which must have no spaces, as the shell user. */
     fun write(path: String, bytes: ByteArray) {

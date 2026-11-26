@@ -30,7 +30,12 @@ class Verdict {
         else -> Outcome.FAIL
     }
 
-    /** The stage that decided [overall], if one did. */
-    fun decisive(): Stage? = stages.values.firstOrNull { it.outcome == Outcome.FAIL }
+    /**
+     * The stage that decided [overall], null when it's a PASS. With nothing failed and a device that
+     * can host, that's the first of [expected] that wasn't run.
+     */
+    fun decisive(expected: List<String>): Stage? = stages.values.firstOrNull { it.outcome == Outcome.FAIL }
         ?: stages.values.firstOrNull { it.outcome == Outcome.CANNOT_HOST }
+        ?: expected.firstOrNull { outcomeOf(it) != Outcome.PASS }
+            ?.let { stages[it] ?: Stage(it, Outcome.NOT_RUN, "never run", 0.0) }
 }
